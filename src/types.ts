@@ -92,6 +92,18 @@ export interface ModelConfig {
    * commands never carry one.
    */
   commands?: Record<string, string>;
+  /**
+   * Model-class pins (release/2.6.0): what each capability class
+   * (`economy | default | strongest`) authored on canonical agents' `model:`
+   * frontmatter resolves to in THIS repo. A set value is used verbatim and
+   * wins over every adapter's built-in class map
+   * (`src/models/tiers.ts::resolveTierModel`); an unset class falls back to
+   * the adapter map (Claude: haiku/sonnet/opus; Cursor: fast/omit/advisory).
+   * Example: `{ "tiers": { "strongest": "fable" } }` pins the strongest class
+   * to a specific top model. Values may be aliases or concrete ids; each
+   * adapter's recognizable-value gate still governs native emission.
+   */
+  tiers?: { economy?: string; default?: string; strongest?: string };
 }
 
 /**
@@ -219,6 +231,22 @@ export interface CostTrackingConfig {
 }
 
 /**
+ * 2.6.0: learnings capacity configuration. Additive optional manifest key —
+ * no schema-generation bump; absence resolves to the default caps in
+ * `src/content/learningsValidation.ts::resolveLearningsCaps`.
+ */
+export interface LearningsConfig {
+  /**
+   * Cap on active `.hatch3r/learnings/*.md` files enforced by
+   * `validateLearningsDirectory` (runs on `hatch3r validate`/`sync`/`update`).
+   * Default `DEFAULT_LEARNING_FILE_COUNT` (150); values below the floor of 50
+   * clamp to 50 with a validation warning, never a hard error. The directory
+   * total-bytes cap scales linearly with this value (exactly 512 KB at 50).
+   */
+  maxCount?: number;
+}
+
+/**
  * Versioned, additive customization payload persisted in `hatch.json`.
  *
  * Two-tier model:
@@ -288,6 +316,11 @@ export interface HatchManifest {
   copilot?: CopilotConfig;
   /** Token usage and cost tracking configuration. */
   costTracking?: CostTrackingConfig;
+  /**
+   * 2.6.0: configurable learnings capacity (`learnings.maxCount`). Additive
+   * optional field; absence = default caps. See {@link LearningsConfig}.
+   */
+  learnings?: LearningsConfig;
   /**
    * Optional customization payload that round-trips through
    * `clean` -> reinit so integration config (e.g. GitHub project IDs) and

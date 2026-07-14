@@ -2,7 +2,7 @@
 id: hatch3r-testability
 type: agent
 description: Testability quality specialist — reviews generated code for per-feature test-class mandate (parser→fuzz, payment→mutation, RPC→contract), real-deal-first testing, coverage thresholds, and AI feature eval coverage. Use when test plans or test code are authored or modified.
-model: standard
+model: strongest
 tags: [review, testing, floor:content-quality]
 pillars:
   governance: [P2]

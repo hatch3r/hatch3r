@@ -1464,6 +1464,37 @@ describe("hatchJson", () => {
       await expect(readManifest(rootDir)).rejects.toThrow(/models\.commands/);
     });
 
+    // release/2.6.0: models.tiers pins what each model class resolves to;
+    // same persistence-boundary checks so a malformed pin fails closed before
+    // resolveTierModel hands it to an adapter gate.
+    it("rejects a non-string models.tiers.<class> with CONFIG_ERROR and accepts a valid tiers block", async () => {
+      const base = {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+      // One root; writeManifestJson overwrites .hatch3r/hatch.json between probes.
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, { ...base, models: { tiers: { strongest: 42 } } });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.tiers\.strongest/);
+
+      await writeManifestJson(rootDir, { ...base, models: { tiers: ["fable"] } });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.tiers/);
+
+      await writeManifestJson(rootDir, { ...base, models: { tiers: { strongest: "fable", economy: "haiku" } } });
+      const manifest = await readManifest(rootDir);
+      expect(manifest).not.toBeNull();
+      expect(manifest!.models?.tiers?.strongest).toBe("fable");
+      expect(manifest!.models?.tiers?.economy).toBe("haiku");
+    });
+
     it("rejects an unknown claude.teammateMode with CONFIG_ERROR", async () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
@@ -1644,6 +1675,87 @@ describe("hatchJson", () => {
       expect(result!.hooks?.enabled).toBe(true);
       expect(result!.languages).toEqual(["typescript", "python"]);
       expect(result!.versionConstraint).toBe("^2.0.0");
+    });
+
+    // ── 2.6.0: `learnings.maxCount` (configurable learnings cap) ─────────
+    it("round-trips learnings.maxCount through read + write + read", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.6.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        learnings: { maxCount: 200 },
+      });
+      const first = await readManifest(rootDir);
+      expect(first).not.toBeNull();
+      expect(first!.learnings?.maxCount).toBe(200);
+
+      // Save → load preserves the key (writeManifest validates then persists).
+      await writeManifest(rootDir, first!);
+      const second = await readManifest(rootDir);
+      expect(second!.learnings?.maxCount).toBe(200);
+    });
+
+    it("accepts a below-floor learnings.maxCount (clamping is a downstream warning, not a schema error)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.6.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        learnings: { maxCount: 10 },
+      });
+      const result = await readManifest(rootDir);
+      expect(result!.learnings?.maxCount).toBe(10);
+    });
+
+    it("rejects a non-object learnings with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.6.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        learnings: "many",
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/`learnings` is not an object/);
+    });
+
+    it("rejects a non-numeric learnings.maxCount with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.6.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        learnings: { maxCount: "lots" },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/learnings\.maxCount/);
     });
   });
 
@@ -2126,6 +2238,19 @@ describe("hatchJson", () => {
       });
       expect(manifest.costTracking?.sessionBudget).toBe(10);
       expect(manifest.costTracking?.currency).toBe("EUR");
+    });
+
+    it("preserves learnings.maxCount across clean -> reinit (2.6.0)", () => {
+      const source: HatchManifest = {
+        ...createManifest({ tools: ["cursor"] }),
+        learnings: { maxCount: 250 },
+      };
+      const preserved = extractPreservedManifestFields(source);
+      expect(preserved.learnings).toEqual({ maxCount: 250 });
+
+      const target = createManifest({ tools: ["cursor"] });
+      applyPreservedManifestFields(target, preserved);
+      expect(target.learnings?.maxCount).toBe(250);
     });
 
     it("preserves specs, userContent, hooks, models, claude", () => {

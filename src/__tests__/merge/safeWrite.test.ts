@@ -2174,3 +2174,149 @@ describe("predictDenyRefusal (D11-SA11.2-01)", () => {
     }
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// Frontmatter stub heal (release/2.6.0, S1a) — the existing-markers merge
+// branch replaces a heal-eligible out-of-block prefix (empty, or exactly one
+// stale generated YAML stub) with the freshly generated prefix from the
+// incoming full content, so repos initialized before the byte-0 picker stub
+// existed converge to the fresh-write shape on the next sync. A prefix
+// carrying genuine user content is preserved verbatim (pre-heal behavior).
+// ───────────────────────────────────────────────────────────────────────────
+describe("safeWriteFile frontmatter stub heal (release/2.6.0)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-stub-heal-"));
+    return tempDir;
+  }
+
+  const STUB = '---\nname: hatch3r-test\ndescription: "A test command."\n---\n\n';
+  const BLOCK = "<!-- HATCH3R:BEGIN -->\nbody line\n<!-- HATCH3R:END -->\n";
+  /** Fresh-write shape: stub at byte 0, managed block after. */
+  const FULL = `${STUB}${BLOCK}`;
+
+  it("heals an empty prefix: the incoming stub lands at byte 0", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    // Pre-stub-fix on-disk shape: BEGIN marker at byte 0.
+    await writeFile(filePath, BLOCK, "utf-8");
+
+    const result = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+
+    expect(result.action).toBe("updated");
+    expect(result.warning).toContain("frontmatter stub");
+    expect(result.warning).toContain("empty");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toBe(FULL);
+    expect(onDisk.startsWith("---\n")).toBe(true);
+  });
+
+  it("replaces a stale pure-frontmatter stub with the regenerated one", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    const staleStub = '---\nname: hatch3r-test\ndescription: "Old description."\n---\n\n';
+    await writeFile(filePath, `${staleStub}${BLOCK}`, "utf-8");
+
+    const result = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+
+    expect(result.action).toBe("updated");
+    expect(result.warning).toContain("stale generated stub");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toBe(FULL);
+    expect(onDisk).not.toContain("Old description.");
+  });
+
+  it("preserves a prefix carrying genuine user content", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    const userPrefix = "# My notes\n\nKeep this.\n\n";
+    await writeFile(filePath, `${userPrefix}${BLOCK}`, "utf-8");
+
+    const result = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+
+    // Block content is identical, prefix is user-owned → nothing to write.
+    expect(result.action).toBe("unchanged");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toBe(`${userPrefix}${BLOCK}`);
+    expect(onDisk).not.toContain("name: hatch3r-test");
+  });
+
+  it("preserves a frontmatter-plus-prose prefix (not a pure stub)", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    const mixedPrefix = "---\ntitle: mine\n---\n\nHand-written intro.\n\n";
+    await writeFile(filePath, `${mixedPrefix}${BLOCK}`, "utf-8");
+
+    const result = await safeWriteFile(filePath, FULL, { managedContent: "updated body" });
+
+    expect(result.action).toBe("updated");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk.startsWith(mixedPrefix)).toBe(true);
+    expect(onDisk).toContain("Hand-written intro.");
+    expect(onDisk).toContain("updated body");
+    expect(onDisk).not.toContain("name: hatch3r-test");
+  });
+
+  it("is idempotent: the second identical write is byte-identical and unchanged", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, BLOCK, "utf-8");
+
+    const first = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+    expect(first.action).toBe("updated");
+    const afterFirst = await readFile(filePath, "utf-8");
+
+    const second = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+    expect(second.action).toBe("unchanged");
+    const afterSecond = await readFile(filePath, "utf-8");
+    expect(afterSecond).toBe(afterFirst);
+  });
+
+  it("skipIfUnchanged compares the healed output: already-healed file skips the write", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    // On-disk file already equals the fully healed target.
+    await writeFile(filePath, FULL, "utf-8");
+
+    const result = await safeWriteFile(filePath, FULL, { managedContent: "body line" });
+
+    expect(result.action).toBe("unchanged");
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("still merges block updates under a healed prefix in one write", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, BLOCK, "utf-8");
+    const newBlockFull = `${STUB}<!-- HATCH3R:BEGIN -->\nnew body\n<!-- HATCH3R:END -->\n`;
+
+    const result = await safeWriteFile(filePath, newBlockFull, { managedContent: "new body" });
+
+    expect(result.action).toBe("updated");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toBe(newBlockFull);
+  });
+
+  it("does not heal when the incoming content has no prefix (stub-less outputs)", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    const userPrefixed = `---\nmine: true\n---\n\n${BLOCK}`;
+    await writeFile(filePath, userPrefixed, "utf-8");
+
+    // Incoming content is the bare wrapped block — e.g. CLAUDE.md-style
+    // outputs that never carry a stub. The pure-frontmatter prefix must NOT
+    // be deleted in that case.
+    const result = await safeWriteFile(filePath, BLOCK, { managedContent: "body line" });
+
+    expect(result.action).toBe("unchanged");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toBe(userPrefixed);
+  });
+});

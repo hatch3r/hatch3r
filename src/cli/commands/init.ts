@@ -1167,10 +1167,17 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     for (const w of pa.warnings) { warn(w); }
     const toolPaths: string[] = [];
     for (const out of pa.outputs) {
-      await safeWriteFile(join(rootDir, out.path), out.content, {
+      const writeResult = await safeWriteFile(join(rootDir, out.path), out.content, {
         managedContent: out.managedContent,
         appendIfNoBlock: true,
       });
+      // S2b (release/2.6.0): init previously discarded the MergeResult, so
+      // per-write warnings (marker recovery on a re-init over an existing
+      // repo, marker-syntax auto-repair, frontmatter-stub heal) were dropped
+      // while sync/update print them — a Silent Failure Contract gap
+      // (CONSTITUTION §2 P5). `warn` writes to stderr, matching the
+      // sync.ts/update.ts warning channel under `--quiet`.
+      if (writeResult.warning) warn(writeResult.warning);
       addManagedFile(manifest, out.path);
       toolPaths.push(out.path);
       // W5-bigfour: `--verbose` per-file written-output detail (stderr;
@@ -1230,10 +1237,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
           PER_PACKAGE_WRITE_CONCURRENCY,
           async (p) => {
             try {
-              await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
+              const perPkgResult = await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
                 managedContent: p.output.managedContent,
                 appendIfNoBlock: true,
               });
+              // S2b (release/2.6.0): surface per-package MergeResult warnings
+              // exactly like the root-output loop above — previously dropped.
+              if (perPkgResult.warning) warn(perPkgResult.warning);
               return p;
             } catch (err) {
               warn(

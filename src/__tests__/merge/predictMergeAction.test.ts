@@ -167,3 +167,42 @@ describe("predictMergeAction", () => {
     });
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// Frontmatter stub heal mirror (release/2.6.0, S1a): the live existing-markers
+// branch replaces a heal-eligible prefix (empty / stale pure-frontmatter stub)
+// with the freshly generated one, so the predictor must report "updated" for
+// those inputs — predicting "unchanged" would re-open the preview-vs-reality
+// gap this predictor closes.
+// ───────────────────────────────────────────────────────────────────────────
+describe("predictMergeAction stub heal mirror (release/2.6.0)", () => {
+  const STUB = '---\nname: hatch3r-test\ndescription: "A test command."\n---\n\n';
+  const BLOCK = `${START}\nbody line\n${END}\n`;
+
+  it("predicts updated when the live write would heal an empty prefix", () => {
+    expect(
+      predictMergeAction(BLOCK, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("updated");
+  });
+
+  it("predicts updated when the live write would refresh a stale stub", () => {
+    const stale = `---\nname: hatch3r-test\ndescription: "Old."\n---\n\n${BLOCK}`;
+    expect(
+      predictMergeAction(stale, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("updated");
+  });
+
+  it("predicts unchanged for a user-content prefix with an identical block", () => {
+    const userFile = `# Mine\n\n${BLOCK}`;
+    expect(
+      predictMergeAction(userFile, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("unchanged");
+  });
+
+  it("predicts unchanged for an already-healed file", () => {
+    const healed = `${STUB}${BLOCK}`;
+    expect(
+      predictMergeAction(healed, healed, "cmd.md", { managedContent: "body line" }),
+    ).toBe("unchanged");
+  });
+});

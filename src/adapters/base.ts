@@ -1092,11 +1092,25 @@ export abstract class BaseAdapter implements Adapter {
    *   silently emitting zero outputs for the mistyped subdir.
    * @param pathFn Mapping from companion file basename (e.g. `"architecture.md"`)
    *   to the adapter-native output path.
+   * @param opts `emitFmStub: true` prepends the same byte-0 YAML stub the
+   *   with-fm command/skill helpers emit (`name:` = basename without
+   *   extension; `description:` = the companion's frontmatter description
+   *   when present, double-quoted) before the managed block. Opt-in per call
+   *   site because companion subdirs are NOT uniformly picker surfaces:
+   *   `commands/board|revision|shared` land under each tool's command
+   *   directory, where slash-command pickers read `description:` at byte 0 —
+   *   without the stub they render the HATCH3R:BEGIN marker. `agents/modes`
+   *   and `agents/shared` land under `.claude/agents/`-style directories that
+   *   Claude Code parses as agent definitions — a `name:`/`description:` stub
+   *   there would register reference material as invocable agents, so those
+   *   call sites (and `checks/`, which no picker reads) stay raw (default
+   *   false, byte-identical to the pre-2.6.0 output).
    */
   protected async processCompanionSubdir(
     ctx: AdapterContext,
     canonicalSubdir: CompanionSubdir,
     pathFn: (filename: string) => string,
+    opts?: { emitFmStub?: boolean },
   ): Promise<AdapterOutput[]> {
     const fullDir = join(ctx.canonicalRoot, canonicalSubdir);
     let entries: { name: string; isFile: () => boolean }[];
@@ -1134,7 +1148,7 @@ export abstract class BaseAdapter implements Adapter {
       // the emission set mirrors the canonical-content reader's documentation
       // exclusion. README.md is also hard-excluded by name to cover an
       // untyped/frontmatter-less README dropped into a companion dir.
-      const { rawType } = parseFrontmatter(raw);
+      const { rawType, metadata } = parseFrontmatter(raw);
       if (rawType === "documentation" || entry.name.toLowerCase() === "readme.md") {
         continue;
       }
@@ -1142,10 +1156,24 @@ export abstract class BaseAdapter implements Adapter {
       const substituted = this.substituteCanonicalContent(raw, ctx);
       const body = minimal ? this.stripMinimal(substituted) : substituted;
       this._trackedSourceFiles.add(src);
+      const outPath = pathFn(entry.name);
+      let fullContent = wrapManagedFor(outPath, body);
+      // Slash-picker fix (release/2.6.0, opt-in — see the `opts` JSDoc):
+      // command-companion files previously had NO byte-0 stub by construction,
+      // so pickers showed the HATCH3R:BEGIN marker as their description. The
+      // stub mirrors processCommandsWithFm's shape; `description:` is omitted
+      // when the companion frontmatter carries none (empty-string default).
+      if (opts?.emitFmStub) {
+        const fmLines = [`name: ${entry.name.replace(/\.md$/i, "")}`];
+        if (metadata.description) {
+          fmLines.push(`description: ${toYamlDoubleQuotedScalar(metadata.description)}`);
+        }
+        fullContent = `---\n${fmLines.join("\n")}\n---\n\n${fullContent}`;
+      }
       // D12-1: a companion file is single-source — its only canonical input is
       // `src` (the absolute path just read), so attribute it directly rather
       // than letting the adapter-wide fill stamp the broad read set.
-      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body, [src]));
+      results.push(output(outPath, fullContent, body, [src]));
     }
     return results;
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
@@ -565,6 +565,91 @@ describe("status command", () => {
       expect(matching).toBeDefined();
       expect(matching!.status).toBe("missing");
       expect(afterDelete.counts.missing).toBeGreaterThanOrEqual(1);
+    });
+
+    // Slash-picker fix (release/2.6.0, S1a/S1b): a file whose byte-0 stub was
+    // stripped (pre-fix repos have the BEGIN marker at byte 0) reported
+    // in-sync because the comparison diffed only the managed block. It now
+    // reports modified with driftDetail "frontmatter-stub", and the next sync
+    // heals the prefix back to the fresh-write shape.
+    it("flags a stripped frontmatter stub as drift and sync heals it", async () => {
+      await createTestProject(tempDir);
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      const cmdPath = join(tempDir, ".cursor", "commands", "hatch3r-workflow.md");
+      const original = await readFile(cmdPath, "utf-8");
+      const markerIdx = original.indexOf("<!-- HATCH3R:BEGIN -->");
+      expect(markerIdx).toBeGreaterThan(0); // fresh write carries a stub
+      // Simulate a pre-stub-fix repo: BEGIN marker at byte 0.
+      await writeFile(cmdPath, original.slice(markerIdx), "utf-8");
+
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === ".cursor/commands/hatch3r-workflow.md");
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftDetail).toBe("frontmatter-stub");
+      expect(entry!.driftKind).toBe("canonical-outdated");
+
+      // The next sync heals the prefix; drift for this path clears.
+      await syncCommand();
+      const healed = await readFile(cmdPath, "utf-8");
+      expect(healed.startsWith("---\n")).toBe(true);
+      expect(healed).toBe(original);
+      const afterHeal = await computeAdapterDrift(tempDir, manifest!);
+      const healedEntry = afterHeal.entries.find(
+        (e) => e.path === ".cursor/commands/hatch3r-workflow.md",
+      );
+      expect(healedEntry).toBeDefined();
+      expect(healedEntry!.status).toBe("in-sync");
+    });
+
+    it("does not flag a user-authored prefix as stub drift and sync preserves it", async () => {
+      await createTestProject(tempDir);
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      const cmdPath = join(tempDir, ".cursor", "commands", "hatch3r-workflow.md");
+      const original = await readFile(cmdPath, "utf-8");
+      const markerIdx = original.indexOf("<!-- HATCH3R:BEGIN -->");
+      const userPrefix = "# My notes about this command\n\nKeep these.\n\n";
+      await writeFile(cmdPath, userPrefix + original.slice(markerIdx), "utf-8");
+
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === ".cursor/commands/hatch3r-workflow.md");
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("in-sync");
+
+      await syncCommand();
+      const afterSync = await readFile(cmdPath, "utf-8");
+      expect(afterSync.startsWith(userPrefix)).toBe(true);
+    });
+
+    it("names a markers-missing file with driftDetail markers-missing", async () => {
+      await createTestProject(tempDir);
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      const cmdPath = join(tempDir, ".cursor", "commands", "hatch3r-workflow.md");
+      await writeFile(cmdPath, "hand-rolled file without markers\n", "utf-8");
+
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === ".cursor/commands/hatch3r-workflow.md");
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftDetail).toBe("markers-missing");
     });
   });
 

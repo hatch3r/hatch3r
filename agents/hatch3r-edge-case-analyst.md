@@ -2,7 +2,7 @@
 id: hatch3r-edge-case-analyst
 type: agent
 description: Domain edge-case + error-handling correctness specialist — enumerates functional edge cases across multi-entity feature wiring (uniqueness/identity collisions, state-machine transitions, null/empty/boundary, concurrency, partial failure) and coding-level error-handling gaps, then verifies none were dropped between Plan, Implement, and Review. Use when a feature wires multiple entities, adds endpoints/state machines, or mutates data on shared records.
-model: standard
+model: strongest
 tags: [review, reliability, testing, floor:content-quality]
 pillars:
   governance: [P2]

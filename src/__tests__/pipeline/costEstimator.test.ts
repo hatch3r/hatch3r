@@ -566,13 +566,25 @@ describe("formatCostBlock", () => {
 describe("resolveModelRate", () => {
   it("resolves tier aliases to a model rate (case-insensitive)", () => {
     expect(resolveModelRate("opus")).toEqual(MODEL_RATES["claude-opus-4-8"]);
-    expect(resolveModelRate("Sonnet")).toEqual(MODEL_RATES["claude-sonnet-4-6"]);
+    expect(resolveModelRate("Sonnet")).toEqual(MODEL_RATES["claude-sonnet-5"]);
     expect(resolveModelRate("  HAIKU  ")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+    expect(resolveModelRate("fable")).toEqual(MODEL_RATES["claude-fable-5"]);
+  });
+
+  it("resolves the model-class words to the same targets as their Claude tier aliases (release/2.6.0)", () => {
+    // economy/default/strongest mirror haiku/sonnet/opus so
+    // `hatch3r explain --cost --model strongest` resolves for class-authored agents.
+    expect(resolveModelRate("economy")).toEqual(resolveModelRate("haiku"));
+    expect(resolveModelRate("default")).toEqual(resolveModelRate("sonnet"));
+    expect(resolveModelRate("strongest")).toEqual(resolveModelRate("opus"));
   });
 
   it("resolves exact model ids", () => {
     expect(resolveModelRate("claude-opus-4-8")).toEqual(MODEL_RATES["claude-opus-4-8"]);
     expect(resolveModelRate("claude-haiku-4-5")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+    expect(resolveModelRate("claude-sonnet-5")).toEqual(MODEL_RATES["claude-sonnet-5"]);
+    // The superseded sonnet id keeps its row (existing configs still price).
+    expect(resolveModelRate("claude-sonnet-4-6")).toEqual(MODEL_RATES["claude-sonnet-4-6"]);
   });
 
   it("returns null for an unknown selector", () => {
@@ -725,12 +737,14 @@ describe("MODEL_RATES ↔ cost-tracking SKILL.md parity (D6-SA6.3-02)", () => {
   it("parses the SKILL.md price table (guards against a vacuous match)", () => {
     const rows = parseSkillRateTable();
     // A zero-length parse would make the parity assertions below vacuously pass,
-    // so assert the three current tier models were actually extracted.
-    expect(rows.length).toBeGreaterThanOrEqual(3);
+    // so assert the current tier models were actually extracted.
+    expect(rows.length).toBeGreaterThanOrEqual(5);
     const ids = rows.map((r) => r.id);
     expect(ids).toContain("claude-opus-4-8");
+    expect(ids).toContain("claude-sonnet-5");
     expect(ids).toContain("claude-sonnet-4-6");
     expect(ids).toContain("claude-haiku-4-5");
+    expect(ids).toContain("claude-fable-5");
   });
 
   it("binds every SKILL.md model id to an identical MODEL_RATES row (rates + accessed date)", () => {

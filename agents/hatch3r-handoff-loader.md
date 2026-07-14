@@ -2,7 +2,7 @@
 id: hatch3r-handoff-loader
 type: agent
 description: Session-start agent that surfaces active handoff documents from .hatch3r/handoffs/active/. Use at the beginning of a coding session to detect in-progress work for resumption.
-model: fast
+model: economy
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

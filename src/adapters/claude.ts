@@ -7,6 +7,13 @@ import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
+import { resolveModelAlias } from "../models/aliases.js";
+import {
+  CLAUDE_TIER_EFFORT_MAP,
+  CLAUDE_TIER_MODEL_MAP,
+  normalizeModelClass,
+  resolveTierModel,
+} from "../models/tiers.js";
 import {
   readMaturityTier,
   maturityDirective,
@@ -1113,6 +1120,12 @@ export class ClaudeAdapter extends BaseAdapter {
         // (code.claude.com/docs/en/sub-agents#choose-a-model, accessed
         // 2026-05-27).
         //
+        // Model classes (release/2.6.0): a resolved class word
+        // (economy|default|strongest, or a legacy synonym) maps through
+        // `models.tiers.<class>` (operator pin, verbatim) else
+        // CLAUDE_TIER_MODEL_MAP (haiku/sonnet/opus). The mapped value then
+        // goes through the SAME recognizable-value gate as any other model.
+        //
         // D9-3 (Cycle 11, P3 + P5): gate the native field to a
         // Claude-recognizable value (alias / `claude-*` ID / `inherit`).
         // A non-Claude resolved model (e.g. `gpt-4`, `gemini-3-flash`) is
@@ -1120,8 +1133,25 @@ export class ClaudeAdapter extends BaseAdapter {
         // rejects an unknown `model:` ID (hard error or silent default
         // fallback), so writing it into the native field is a silent-failure
         // surface, not an authoritative preference.
-        const nativeModel = model && isClaudeRecognizableModel(model) ? model : undefined;
+        const modelClass = model ? normalizeModelClass(model) : null;
+        // The tier pin is alias-expanded exactly as every resolveAgentModel
+        // result is (a pinned `fable` reaches the gate as `claude-fable-5`).
+        const tierPinRaw = modelClass ? resolveTierModel(modelClass, ctx.manifest) : undefined;
+        const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
+        const effectiveModel = modelClass ? (tierPin ?? CLAUDE_TIER_MODEL_MAP[modelClass]) : model;
+        const nativeModel = effectiveModel && isClaudeRecognizableModel(effectiveModel) ? effectiveModel : undefined;
         if (nativeModel) fmLines.push(`model: ${nativeModel}`);
+        // `effort:` rides along ONLY when the emitted model came from the
+        // adapter's own class map (no `models.tiers` pin): the effort values
+        // are calibrated against the mapped aliases (haiku+medium, opus+high),
+        // and hatch3r cannot assume effort semantics for an operator-pinned
+        // model — emitting an unvalidated field would recreate the D9-3
+        // silent-failure class. User-set concrete models never get effort.
+        const classEffort =
+          modelClass && nativeModel && tierPin === undefined
+            ? CLAUDE_TIER_EFFORT_MAP[modelClass]
+            : undefined;
+        if (classEffort) fmLines.push(`effort: ${classEffort}`);
         const fm = `---\n${fmLines.join("\n")}\n---`;
         // C9-M47 (P7): cache-breakpoint sentinels wrap every agent body so the
         // emitted managed block fingerprints stably across syncs.
@@ -1129,7 +1159,13 @@ export class ClaudeAdapter extends BaseAdapter {
         if (minimal) {
           // Minimal mode keeps body lean: the model note and tool-restriction
           // block ride along so the deny envelope is not lost at low verbosity.
-          const modelNote = model ? `\nModel: \`${model}\`` : "";
+          // Class values render the class->mapped form so the note never ships
+          // a bare class word Claude cannot act on.
+          const modelNote = model
+            ? modelClass
+              ? `\nModel class: \`${modelClass}\` (mapped: \`${effectiveModel}\`)`
+              : `\nModel: \`${model}\``
+            : "";
           const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
           results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body, claudeSingleSource(agent)));
@@ -1137,9 +1173,13 @@ export class ClaudeAdapter extends BaseAdapter {
           // The `## Recommended Model` prose is retained for EVERY resolved
           // model (Claude or not) so the env-var/`/model` override path stays
           // documented — for a non-Claude model it is the ONLY surface, since
-          // the native `model:` field above is gated to Claude values.
+          // the native `model:` field above is gated to Claude values. Class
+          // values render `Model class: <class> (mapped: <value>)` so the
+          // override path documents the actionable mapped value.
           const modelGuidance = model
-            ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
+            ? modelClass
+              ? `\n\n## Recommended Model\n\nModel class: \`${modelClass}\` (mapped: \`${effectiveModel}\`). Set via \`/model ${effectiveModel}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${effectiveModel}\`.`
+              : `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
             : "";
           const body = withCacheBreakpoints(`${content}${modelGuidance}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
@@ -1487,20 +1527,30 @@ export class ClaudeAdapter extends BaseAdapter {
     // artifact it supports — disabling a feature also disables its
     // companion subtree. `checks/` is referenced from both agents
     // (reviewer) and commands (benchmark), so either gate keeps it.
-    const companionMappings: Array<[CompanionSubdir, boolean, (f: string) => string]> = [
+    // Slash-picker fix (release/2.6.0): the three `commands/*` companion rows
+    // opt into the byte-0 frontmatter stub (`emitFmStub`) because they land
+    // under `.claude/commands/`, where Claude Code's namespaced slash-command
+    // picker reads `description:` at byte 0 — without the stub it renders the
+    // HATCH3R:BEGIN marker. The `agents/*` rows stay raw: `.claude/agents/**`
+    // is parsed as agent definitions, and a `name:`/`description:` stub would
+    // register reference material as invocable agents. `checks/` has no
+    // picker surface and stays raw too.
+    const companionMappings: Array<
+      [CompanionSubdir, boolean, (f: string) => string, { emitFmStub?: boolean }?]
+    > = [
       ["agents/modes", ctx.features.agents, (f) => `.claude/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
-      ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`],
-      ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`, { emitFmStub: true }],
+      ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion that all
       // emitted orchestrator commands reference; ship it under the native
       // command companion path so those references resolve on the user's disk.
-      ["commands/shared", ctx.features.commands, (f) => `.claude/commands/shared/${f}`],
+      ["commands/shared", ctx.features.commands, (f) => `.claude/commands/shared/${f}`, { emitFmStub: true }],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.claude/checks/${f}`],
     ];
-    for (const [subdir, enabled, pathFn] of companionMappings) {
+    for (const [subdir, enabled, pathFn, subdirOpts] of companionMappings) {
       if (!enabled) continue;
-      const companionOutputs = await this.processCompanionSubdir(ctx, subdir, pathFn);
+      const companionOutputs = await this.processCompanionSubdir(ctx, subdir, pathFn, subdirOpts);
       results.push(...companionOutputs.map(rewrapWithCacheBreakpoints));
     }
 

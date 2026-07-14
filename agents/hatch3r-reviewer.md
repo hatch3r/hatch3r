@@ -3,7 +3,7 @@ id: hatch3r-reviewer
 type: agent
 description: Expert code reviewer for the project. Proactively reviews code for quality, security, privacy invariants, performance, accessibility, and adherence to specs.
 protected: true
-model: standard
+model: strongest
 tags: [review, floor:protocol]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

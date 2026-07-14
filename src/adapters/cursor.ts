@@ -22,6 +22,8 @@ import {
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
+import { resolveModelAlias } from "../models/aliases.js";
+import { CURSOR_TIER_MODEL_MAP, normalizeModelClass, resolveTierModel } from "../models/tiers.js";
 import { applyCustomization } from "./customization.js";
 import { stripPrivateMcpFields, transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
@@ -468,7 +470,38 @@ export class CursorAdapter extends BaseAdapter {
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
-        if (model) lines.push(`model: ${model}`);
+        // Model classes (release/2.6.0, dead-value fix): Cursor natively
+        // understands only `fast`, `inherit`, or a concrete model id (mirrored
+        // in the emitted bridge doc below), so the class words map per class
+        // instead of shipping verbatim (the prior unconditional emission put a
+        // dead `model: standard` field on 23 agents):
+        //   - `models.tiers.<class>` pin set -> emit the pin verbatim;
+        //   - economy -> `model: fast` (CURSOR_TIER_MODEL_MAP);
+        //   - default -> OMIT the field (inherit-by-omission);
+        //   - strongest -> omit the native field and prepend one advisory body
+        //     line, since Cursor has no "top model" keyword to emit.
+        // Non-class values (concrete ids, `inherit`, a user-configured `fast`)
+        // emit verbatim as before.
+        let modelBodyNote = "";
+        const modelClass = model ? normalizeModelClass(model) : null;
+        if (modelClass) {
+          // The pin is alias-expanded (a pinned `fable` emits as
+          // `claude-fable-5`) — the same expansion every resolveAgentModel
+          // result already received before reaching this loop.
+          const tierPinRaw = resolveTierModel(modelClass, ctx.manifest);
+          const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
+          if (tierPin !== undefined) {
+            lines.push(`model: ${tierPin}`);
+          } else if (modelClass === "economy") {
+            lines.push(`model: ${CURSOR_TIER_MODEL_MAP.economy}`);
+          } else if (modelClass === "strongest") {
+            modelBodyNote =
+              "Model class: strongest — pin this agent to the highest-capability model in the Cursor model picker.";
+          }
+          // `default` (no pin): no model line — the agent inherits.
+        } else if (model) {
+          lines.push(`model: ${model}`);
+        }
         // C7.5-W2B2-H41/H45 (D15, P6): Cursor subagent frontmatter has
         // no tool allowlist — the closest native primitive is
         // `readonly: true`, which blocks file edits and state-changing
@@ -483,7 +516,8 @@ export class CursorAdapter extends BaseAdapter {
         if (effectiveReadonly) lines.push("readonly: true");
         if (agent.background) lines.push("is_background: true");
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content, cursorSingleSource(agent)));
+        const agentBody = modelBodyNote ? `${modelBodyNote}\n\n${content}` : content;
+        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, agentBody, cursorSingleSource(agent)));
       }
     }
 
@@ -501,20 +535,28 @@ export class CursorAdapter extends BaseAdapter {
     // resolve in the user repo after the 1.9.0 bundled-content migration.
     // Gating mirrors the primary feature; `checks/` is referenced by both
     // agents (reviewer) and commands (benchmark).
-    const companionMappings: Array<[CompanionSubdir, boolean, (f: string) => string]> = [
+    // Slash-picker fix (release/2.6.0): the three `commands/*` companion rows
+    // opt into the byte-0 frontmatter stub (`emitFmStub`) — they land under
+    // `.cursor/commands/`, whose command picker reads `description:` at byte 0.
+    // `agents/*` rows stay raw (`.cursor/agents/**` is parsed as subagent
+    // definitions — a stub would register reference files as agents); `checks/`
+    // has no picker surface and stays raw.
+    const companionMappings: Array<
+      [CompanionSubdir, boolean, (f: string) => string, { emitFmStub?: boolean }?]
+    > = [
       ["agents/modes", ctx.features.agents, (f) => `.cursor/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.cursor/agents/shared/${f}`],
-      ["commands/board", ctx.features.commands, (f) => `.cursor/commands/board/${f}`],
-      ["commands/revision", ctx.features.commands, (f) => `.cursor/commands/revision/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.cursor/commands/board/${f}`, { emitFmStub: true }],
+      ["commands/revision", ctx.features.commands, (f) => `.cursor/commands/revision/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
       // every emitted orchestrator command; ship it under the native command
       // companion path so those references resolve on the user's disk.
-      ["commands/shared", ctx.features.commands, (f) => `.cursor/commands/shared/${f}`],
+      ["commands/shared", ctx.features.commands, (f) => `.cursor/commands/shared/${f}`, { emitFmStub: true }],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.cursor/checks/${f}`],
     ];
-    for (const [subdir, enabled, pathFn] of companionMappings) {
+    for (const [subdir, enabled, pathFn, subdirOpts] of companionMappings) {
       if (!enabled) continue;
-      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn));
+      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn, subdirOpts));
     }
 
     const mcp = await this.readFilteredMcp(ctx);

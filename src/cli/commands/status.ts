@@ -5,7 +5,14 @@ import { readManifest } from "../../manifest/hatchJson.js";
 import { hashEmittedContent } from "../../manifest/provenance.js";
 import { getAdapter } from "../../adapters/index.js";
 import { HATCH3R_DIR, type AdapterOutput, type HatchManifest } from "../../types.js";
-import { extractManagedBlock } from "../../merge/managedBlocks.js";
+import {
+  extractManagedBlock,
+  splitAtManagedBlock,
+  isHealableManagedPrefix,
+} from "../../merge/managedBlocks.js";
+import { filterUserFacing, readCanonicalFiles } from "../../adapters/canonical.js";
+import { applyCustomization } from "../../adapters/customization.js";
+import { resolveUserContentRoot } from "../../content/index.js";
 import { compareVersions } from "../../version/compare.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
@@ -59,6 +66,41 @@ export interface DriftEntry {
    * Absent for non-`modified` statuses.
    */
   driftKind?: "user-modified" | "canonical-outdated" | "both" | "unknown";
+  /**
+   * Slash-picker fix (release/2.6.0): machine-readable sub-reason for a
+   * `modified` entry whose drift the block-only comparison used to hide:
+   *   - `frontmatter-stub` — the managed block matches regeneration, but the
+   *     byte-0 prefix the generator emits (the picker's `name:`/`description:`
+   *     stub) is missing or a stale generated stub on disk. `hatch3r sync`
+   *     heals it (safeWrite stub heal); prefixes carrying genuine user content
+   *     are never flagged.
+   *   - `markers-missing` — the file exists but has no HATCH3R:BEGIN/END
+   *     markers, so the regenerated block cannot be merged; `hatch3r sync`
+   *     re-splices the block and preserves the existing content below it.
+   * Absent for every other entry.
+   */
+  driftDetail?: "frontmatter-stub" | "markers-missing";
+}
+
+/**
+ * Emission-completeness gap (release/2.6.0): one canonical user-facing
+ * artifact (command / agent / skill) that the named tool does NOT emit, with
+ * the identified reason. Rows with an identified reason are informational —
+ * they never change exit codes; a row with reason `unexplained` counts as
+ * ordinary drift in `hatch3r verify` (no known gate accounts for the drop).
+ */
+export interface EmissionGapEntry {
+  tool: string;
+  contentClass: "commands" | "agents" | "skills";
+  id: string;
+  reason:
+    | "feature-disabled"
+    | "customization-disabled"
+    | "cli-tools-filter"
+    | "adapter-scope"
+    | "unexplained";
+  /** Actionable next step, rendered verbatim in human mode and carried in JSON. */
+  action: string;
 }
 
 export interface DriftReport {
@@ -74,6 +116,13 @@ export interface DriftReport {
     both: number;
     unknown: number;
   };
+  /**
+   * Emission-completeness rows (release/2.6.0): canonical user-facing
+   * artifacts not emitted by a tool, each with its reason. Optional so
+   * hand-built reports in tests stay valid; {@link computeAdapterDrift}
+   * always sets it (empty array when complete).
+   */
+  emissionGaps?: EmissionGapEntry[];
 }
 
 // D12-4 (Cycle 11 Wave 2): `hashEmittedContent` moved to
@@ -305,12 +354,54 @@ async function compareAdapterOutput(
     // against raw-from-managedContent produced spurious "modified"
     // entries on every status call.
     const expectedBlock = extractManagedBlock(out.content, out.path) ?? out.managedContent ?? null;
-    const matches = existingBlock !== null && expectedBlock !== null
+    const blocksComparable = existingBlock !== null && expectedBlock !== null;
+    const matches = blocksComparable
       ? existingBlock === expectedBlock.trim()
       : existing === out.content;
-    if (matches) {
+    // Slash-picker fix (release/2.6.0): the block-only comparison above is
+    // blind to the byte-0 prefix, so a file whose generated frontmatter stub
+    // (the picker's `description:` block) is missing or stale reported
+    // "in-sync" while every slash-command picker showed the HATCH3R:BEGIN
+    // marker. Flag it as ordinary `modified` drift when — and only when — the
+    // on-disk prefix is heal-eligible per {@link isHealableManagedPrefix}
+    // (empty or a pure-frontmatter stale stub); a prefix carrying genuine user
+    // content is the user's and is never reported here (same rule the
+    // safeWrite stub heal applies, so the report and the sync-side repair
+    // agree byte-for-byte).
+    let stubDrift = false;
+    if (matches && blocksComparable) {
+      const expectedSplit = splitAtManagedBlock(out.content, out.path);
+      if (expectedSplit && expectedSplit.prefix.trim() !== "") {
+        const onDiskSplit = splitAtManagedBlock(existing, out.path);
+        if (
+          onDiskSplit &&
+          onDiskSplit.prefix !== expectedSplit.prefix &&
+          isHealableManagedPrefix(onDiskSplit.prefix)
+        ) {
+          stubDrift = true;
+        }
+      }
+    }
+    if (matches && !stubDrift) {
       acc.entries.push({ path: out.path, tool, status: "in-sync" });
       acc.counts.synced++;
+    } else if (stubDrift) {
+      // driftKind is `canonical-outdated` by construction: the managed block
+      // matches regeneration byte-for-byte (no user edit inside it) and the
+      // generator's output format moved past the on-disk file — `hatch3r sync`
+      // heals the prefix without touching any user content. The provenance
+      // hash machinery below cannot attribute this case (it hashes only the
+      // extracted block, which is identical on both sides), so the kind is
+      // set directly instead of routed through the baseline comparison.
+      acc.entries.push({
+        path: out.path,
+        tool,
+        status: "modified",
+        driftKind: "canonical-outdated",
+        driftDetail: "frontmatter-stub",
+      });
+      acc.driftKindCounts.canonicalOutdated++;
+      acc.counts.modified++;
     } else {
       // F2.7-F5 (D2): attribute drift direction against the emit-time
       // baseline. `onDiskHash` and `regeneratedHash` are both reduced via
@@ -348,7 +439,20 @@ async function compareAdapterOutput(
           acc.driftKindCounts.unknown++;
         }
       }
-      acc.entries.push({ path: out.path, tool, status: "modified", driftKind });
+      // Slash-picker fix (release/2.6.0): when the on-disk file has NO
+      // HATCH3R markers while regeneration expects a managed block, name that
+      // condition — this is the file state the safeWrite no-marker branch
+      // skips (when `appendIfNoBlock` is off) or re-splices (sync/update pass
+      // `appendIfNoBlock: true`), and the generic "(drifted)" tag left the
+      // operator without the marker-restoration remedy.
+      const markersMissing = existingBlock === null && expectedBlock !== null;
+      acc.entries.push({
+        path: out.path,
+        tool,
+        status: "modified",
+        driftKind,
+        ...(markersMissing ? { driftDetail: "markers-missing" as const } : {}),
+      });
       acc.counts.modified++;
     }
   } catch (err) {
@@ -393,6 +497,158 @@ async function compareAdapterOutput(
  * a profile on a representative repo confirms wall-clock > 250ms (the finding's
  * own gate), to avoid adding invalidation surface for an unmeasured win.
  */
+/**
+ * One canonical user-facing artifact a tool is EXPECTED to emit, plus every
+ * pre-attributed drop gate the emission pipeline applies before per-file
+ * output exists (release/2.6.0 emission-completeness check, S2c).
+ */
+export interface EmissionExpectation {
+  contentClass: EmissionGapEntry["contentClass"];
+  id: string;
+  /** Absolute canonical source path — matched against `AdapterOutput.sourceFiles`. */
+  sourcePath: string;
+  /** True when `applyCustomization` honors `enabled: false` for this id. */
+  customizeDisabled: boolean;
+  /** Repo-relative path of the customize file that would carry the override. */
+  customizePath: string;
+  /** User-tier `adapters: [...]` opt-out list, when declared non-empty. */
+  adapters?: string[];
+  /** Skills only: dropped by the `hatch3r-cli-*` CLI-tooling pivot filter. */
+  cliFiltered: boolean;
+}
+
+/**
+ * Enumerate the canonical user-facing artifacts (commands / agents / skills)
+ * with the same readers + filters the adapters use — `readCanonicalFiles` +
+ * `filterUserFacing` for commands/agents (BaseAdapter.readUserFacingCanonicalFiles),
+ * the plain read + `hatch3r-cli-*` pivot filter for skills
+ * (BaseAdapter.readCliFilteredSkills) — and pre-attribute each artifact's
+ * customization-skip state via a dry `applyCustomization` call (the identical
+ * call the adapters make at generate time, so the verdicts agree). Reader
+ * warnings are dropped here: the real generation in {@link computeAdapterDrift}
+ * already surfaces them per adapter.
+ */
+export async function buildEmissionExpectations(
+  canonicalRoot: string,
+  rootDir: string,
+  manifest: HatchManifest,
+): Promise<EmissionExpectation[]> {
+  const warningSink: string[] = [];
+  const userContentRoot = resolveUserContentRoot(rootDir);
+  const cliCfg = manifest.cliTools ?? { enabled: false, selected: [] as string[] };
+  const cliSelected = new Set(cliCfg.selected ?? []);
+  const expectations: EmissionExpectation[] = [];
+  const classes: Array<{ cls: EmissionGapEntry["contentClass"]; userFacingType?: "command" | "agent" }> = [
+    { cls: "commands", userFacingType: "command" },
+    { cls: "agents", userFacingType: "agent" },
+    { cls: "skills" },
+  ];
+  for (const { cls, userFacingType } of classes) {
+    let files = await readCanonicalFiles(canonicalRoot, cls, warningSink, userContentRoot);
+    if (userFacingType) {
+      files = filterUserFacing(files, userFacingType, join(canonicalRoot, cls));
+    }
+    for (const f of files) {
+      if (!f.sourcePath) continue;
+      const cliFiltered =
+        cls === "skills" &&
+        f.id.startsWith("hatch3r-cli-") &&
+        (!cliCfg.enabled || !cliSelected.has(f.id.replace(/^hatch3r-cli-/, "")));
+      const { skip } = await applyCustomization(rootDir, f);
+      expectations.push({
+        contentClass: cls,
+        id: f.id,
+        sourcePath: f.sourcePath,
+        customizeDisabled: skip,
+        customizePath: `${HATCH3R_DIR}/${cls}/${f.id}.customize.yaml`,
+        adapters:
+          f.source === "user" && f.adapters && f.adapters.length > 0 ? f.adapters : undefined,
+        cliFiltered,
+      });
+    }
+  }
+  return expectations;
+}
+
+/**
+ * Compare one tool's regenerated outputs against the expectation set and
+ * return a gap row for every canonical artifact the tool does not emit.
+ *
+ * "Emitted" means the artifact's canonical `sourcePath` appears in ANY
+ * output's `sourceFiles` (per-file outputs carry exactly `[sourcePath]` per
+ * the D12-1 single-source contract; aggregated outputs carry the broad read
+ * set). Attributed drop gates (feature flag, customization `enabled: false`,
+ * CLI-tools filter, adapter-scope opt-out) are checked FIRST — a skipped
+ * artifact can still appear in an aggregate output's broad source set, so the
+ * gate verdicts, not source membership, decide those rows. Only an artifact
+ * that passes every known gate yet contributed to no output at all is
+ * `unexplained` — that row counts as ordinary drift in `hatch3r verify`.
+ */
+export function assessEmissionGaps(
+  tool: string,
+  outputs: AdapterOutput[],
+  expectations: EmissionExpectation[],
+  manifest: HatchManifest,
+): EmissionGapEntry[] {
+  const emittedSources = new Set<string>();
+  for (const out of outputs) {
+    for (const src of out.sourceFiles ?? []) emittedSources.add(src);
+  }
+  const gaps: EmissionGapEntry[] = [];
+  for (const exp of expectations) {
+    if (!manifest.features[exp.contentClass]) {
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: "feature-disabled",
+        action: `features.${exp.contentClass} is false in ${HATCH3R_DIR}/hatch.json — set it to true and run \`hatch3r sync\` to emit this artifact.`,
+      });
+      continue;
+    }
+    if (exp.customizeDisabled) {
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: "customization-disabled",
+        action: `enabled: false in ${exp.customizePath} — remove the override (or set enabled: true) and run \`hatch3r sync\`.`,
+      });
+      continue;
+    }
+    if (exp.cliFiltered) {
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: "cli-tools-filter",
+        action: `CLI-tooling skill not selected — run \`hatch3r cli-tools\` and select \`${exp.id.replace(/^hatch3r-cli-/, "")}\` (manifest cliTools.selected), then \`hatch3r sync\`.`,
+      });
+      continue;
+    }
+    if (exp.adapters && !exp.adapters.includes(tool)) {
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: "adapter-scope",
+        action: `the artifact's frontmatter limits emission to adapters: [${exp.adapters.join(", ")}] — add "${tool}" to that list to emit it here.`,
+      });
+      continue;
+    }
+    if (!emittedSources.has(exp.sourcePath)) {
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: "unexplained",
+        action: `no drop gate accounts for this artifact — run \`hatch3r sync\` and re-check; if the gap persists, report it (generation bug).`,
+      });
+    }
+  }
+  return gaps;
+}
+
 export async function computeAdapterDrift(
   rootDir: string,
   manifest: HatchManifest,
@@ -410,6 +666,22 @@ export async function computeAdapterDrift(
   // per-package copies flow through the identical `compareAdapterOutput` path.
   const acc: DriftAccumulator = { entries, counts, driftKindCounts, seenPaths };
 
+  // Emission-completeness probe (release/2.6.0, S2c): built once — the
+  // expectation set is tool-independent — and assessed per tool below.
+  // Fail-soft: the drift comparison is this function's contract, so a probe
+  // failure (unreadable overrides dir, customize parse error surfaced as a
+  // throw) downgrades to "no completeness rows" with a verbose disclosure
+  // instead of failing the whole status/verify run.
+  const emissionGaps: EmissionGapEntry[] = [];
+  let expectations: EmissionExpectation[] | null = null;
+  try {
+    expectations = await buildEmissionExpectations(canonicalContentRoot, rootDir, manifest);
+  } catch (err) {
+    verbose(
+      `emission-completeness probe skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   for (const tool of manifest.tools) {
     const adapter = getAdapter(tool);
     // Wave 7 drift parity: regeneration must use the SAME projectRoot the
@@ -418,6 +690,9 @@ export async function computeAdapterDrift(
     // user repo, producing spurious "modified" entries on every status call.
     const outputs = await adapter.generate(canonicalContentRoot, manifest, rootDir);
     verbose(`${tool}: ${outputs.length} output file(s) to check`);
+    if (expectations) {
+      emissionGaps.push(...assessEmissionGaps(tool, outputs, expectations, manifest));
+    }
 
     for (const out of outputs) {
       await compareAdapterOutput(out, tool, rootDir, baseline, acc);
@@ -461,7 +736,7 @@ export async function computeAdapterDrift(
     }
   }
 
-  return { entries, counts, driftKindCounts };
+  return { entries, counts, driftKindCounts, emissionGaps };
 }
 
 /**
@@ -538,9 +813,21 @@ export function renderDriftLines(report: DriftReport): string[] {
         case "in-sync":
           lines.push(`  ${chalk.green("=")} ${entry.path}`);
           break;
-        case "modified":
-          lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}${driftKindTag(entry.driftKind)}`);
+        case "modified": {
+          // Slash-picker fix (release/2.6.0): a `driftDetail` sub-reason is
+          // MORE specific than the hash-attribution tag, so it replaces it —
+          // the operator gets the exact remedy instead of the generic legend.
+          const tag =
+            entry.driftDetail === "frontmatter-stub"
+              ? chalk.cyan(" (frontmatter stub missing/stale — `hatch3r sync` restores it)")
+              : entry.driftDetail === "markers-missing"
+                ? chalk.yellow(
+                    " (HATCH3R markers missing on disk — `hatch3r sync` re-splices the block, keeping your content below it)",
+                  )
+                : driftKindTag(entry.driftKind);
+          lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}${tag}`);
           break;
+        }
         case "missing":
           lines.push(`  ${chalk.red("+")} ${entry.path} ${chalk.dim("(missing)")}`);
           break;
@@ -653,6 +940,10 @@ export async function statusCommand(opts?: {
           counts: report.counts,
           driftKindCounts: report.driftKindCounts,
           entries: report.entries,
+          // Emission-completeness rows (release/2.6.0, S2c): canonical
+          // user-facing artifacts no adapter output carries, each with its
+          // reason + action. Informational — `status` never changes exit code.
+          emissionGaps: report.emissionGaps ?? [],
           tools: manifest.tools,
           installation,
           // D10-17: SPACE developer-productivity telemetry rollup. `recordCount: 0`
@@ -799,6 +1090,23 @@ export async function statusCommand(opts?: {
   }
   if (report.counts.unexpected > 0) {
     info(`Unexpected files are tracked in the manifest but no longer produced. Run ${chalk.bold("hatch3r clean")} to remove them, or remove them manually.`);
+    console.log();
+  }
+
+  // Emission-completeness one-liner (release/2.6.0, S2c): canonical artifacts
+  // no adapter output carries, summarized by reason; `hatch3r verify` renders
+  // the per-artifact rows. Informational — status exit semantics unchanged.
+  const emissionGaps = report.emissionGaps ?? [];
+  if (emissionGaps.length > 0) {
+    const byReason = new Map<string, number>();
+    for (const g of emissionGaps) byReason.set(g.reason, (byReason.get(g.reason) ?? 0) + 1);
+    const breakdown = [...byReason.entries()]
+      .map(([reason, n]) => (reason === "unexplained" ? chalk.red(`${n} ${reason}`) : `${n} ${reason}`))
+      .join(", ");
+    info(
+      `${emissionGaps.length} canonical artifact(s) not emitted (${breakdown}). ` +
+        `Run ${chalk.bold("hatch3r verify")} for per-artifact reasons and actions.`,
+    );
     console.log();
   }
 

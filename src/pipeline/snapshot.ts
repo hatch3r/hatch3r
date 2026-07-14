@@ -36,6 +36,7 @@ import { join, dirname, relative, resolve, isAbsolute, sep } from "node:path";
 import { access, mkdir, readFile, readdir, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { DEFAULT_LEARNING_FILE_COUNT } from "../content/learningsValidation.js";
 import { HATCH3R_DIR, HatchError } from "../types.js";
 
 // ── Types ────────────────────────────────────────────────────────
@@ -141,11 +142,14 @@ export const SNAPSHOT_SCHEMA_VERSION = 1 as const;
  * `.hatch3r/snapshots/`. When a fresh `createSnapshot` pushes the directory
  * past this count, the oldest sessions (by `meta.timestamp`) are pruned so a
  * long-lived repo cannot accumulate unbounded rollback state (D6-SA6.4-F5).
- * Mirrors the `MAX_LEARNING_FILE_COUNT` ceiling in
- * `src/content/learningsValidation.ts` so both durable on-disk stores share a
- * single bounding discipline.
+ * Imports `DEFAULT_LEARNING_FILE_COUNT` (one physical home,
+ * `src/content/learningsValidation.ts`) so both durable on-disk stores share a
+ * single bounding discipline. 2.6.0: the learnings cap became per-project
+ * configurable via `learnings.maxCount` in `.hatch3r/hatch.json`; snapshots
+ * follow the fixed DEFAULT (150), not the per-project value — the byte cap
+ * below stays the binding envelope either way.
  */
-export const MAX_SNAPSHOT_COUNT = 50;
+export const MAX_SNAPSHOT_COUNT = DEFAULT_LEARNING_FILE_COUNT;
 
 /**
  * Retention cap on the total bytes occupied by snapshot session directories

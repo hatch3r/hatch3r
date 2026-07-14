@@ -574,4 +574,58 @@ describe("verify command", () => {
     const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(human).toContain("is older than the version that generated these files");
   });
+
+  // S2c (release/2.6.0): emission-completeness rows. An artifact dropped by a
+  // customize `enabled: false` override is reported per-artifact with the
+  // .customize.yaml path in the action — and stays informational: verify PASSes
+  // (exit code unchanged; only `unexplained` gaps count as ordinary drift).
+  it("reports a customization-disabled artifact as an attributed emission gap without failing (S2c)", async () => {
+    await createTestProject(tempDir);
+    // Disable BEFORE the first sync so the artifact is never emitted or
+    // tracked — the drop shows up ONLY through the completeness check.
+    const customizeDir = join(tempDir, HATCH3R_DIR, "commands");
+    await mkdir(customizeDir, { recursive: true });
+    await writeFile(join(customizeDir, "hatch3r-benchmark.customize.yaml"), "enabled: false", "utf-8");
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // ── JSON mode: PASS + the attributed gap row in the payload. ──
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await expect(verifyCommand({ format: "json" })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const start = combined.indexOf("{");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const parsed = JSON.parse(combined.slice(start).trim()) as {
+      status: string;
+      emissionGaps: Array<{ tool: string; contentClass: string; id: string; reason: string; action: string }>;
+    };
+    expect(parsed.status).toBe("pass");
+    const gap = parsed.emissionGaps.find((g) => g.id === "hatch3r-benchmark");
+    expect(gap).toBeDefined();
+    expect(gap!.reason).toBe("customization-disabled");
+    expect(gap!.action).toContain("hatch3r-benchmark.customize.yaml");
+    // No unexplained rows on a clean synced project.
+    expect(parsed.emissionGaps.every((g) => g.reason !== "unexplained")).toBe(true);
+
+    // ── Human mode: PASS box + the not-emitted box naming the artifact. ──
+    consoleSpy.mockClear();
+    await expect(verifyCommand()).resolves.toBeUndefined();
+    const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(human).toContain("verify: PASS");
+    const humanFlat = human.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+    expect(humanFlat).toContain("Canonical artifacts not emitted");
+    expect(humanFlat).toContain("hatch3r-benchmark");
+  });
 });

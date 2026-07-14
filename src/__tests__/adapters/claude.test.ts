@@ -264,6 +264,38 @@ Applies to API code and protobufs.`,
     expect(companion!.content).toContain(MANAGED_BLOCK_END);
   });
 
+  // Slash-picker fix (release/2.6.0, S1c): command companions land under
+  // `.claude/commands/board|revision|shared/`, where the namespaced picker
+  // reads `description:` at byte 0 — they now carry the same byte-0 stub the
+  // primary command emission does. Agent companions stay raw: `.claude/agents/**`
+  // is parsed as agent definitions, and a stub would register reference
+  // material as invocable agents.
+  it("emits a byte-0 frontmatter stub on command companions but not agent companions", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const boardCompanion = outputs.find((o) => o.path === ".claude/commands/board/pickup-fake.md");
+    expect(boardCompanion).toBeDefined();
+    expect(boardCompanion!.content.startsWith("---\n")).toBe(true);
+    expect(boardCompanion!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    const stub = boardCompanion!.content.slice(0, boardCompanion!.content.indexOf(MANAGED_BLOCK_START));
+    expect(stub).toContain("name: pickup-fake");
+    expect(stub).toContain("description:");
+    expect(stub).toContain("Subdirectory sub-workflow command fixture");
+    expect(stub).not.toContain("HATCH3R:BEGIN");
+    // The managed block still follows the stub (cache-breakpoint re-wrap
+    // preserves the prefix per rewrapWithCacheBreakpoints).
+    expect(boardCompanion!.content).toContain(MANAGED_BLOCK_START);
+    expect(boardCompanion!.managedContent).toBeDefined();
+
+    // Agent companions keep the marker at byte 0 (no stub).
+    for (const path of [".claude/agents/modes/fake-mode.md", ".claude/agents/shared/fake-reference.md"]) {
+      const agentCompanion = outputs.find((o) => o.path === path);
+      expect(agentCompanion).toBeDefined();
+      expect(agentCompanion!.content.startsWith(MANAGED_BLOCK_START)).toBe(true);
+    }
+  });
+
   it("includes Agent Teams section in CLAUDE.md", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -1075,10 +1107,10 @@ Body.`,
     // D9-H-1 (D9, P3): native subagent `model:` frontmatter is emitted and is
     // authoritative; the `## Recommended Model` prose is retained for the
     // per-session override path.
-    expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-sonnet-4-6\n[\s\S]*?---/);
+    expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-sonnet-5\n[\s\S]*?---/);
     expect(agentFile!.content).toContain("## Recommended Model");
-    expect(agentFile!.content).toContain("Preferred: `claude-sonnet-4-6`");
-    expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6");
+    expect(agentFile!.content).toContain("Preferred: `claude-sonnet-5`");
+    expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5");
   });
 
   it("omits native model: frontmatter for a non-Claude model, keeping only advisory prose", async () => {
@@ -1143,9 +1175,94 @@ You are a test agent.`,
       expect(agentFile).toBeDefined();
       expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-8\n[\s\S]*?---/);
       expect(agentFile!.content).toContain("Preferred: `claude-opus-4-8`");
+      // A user-set concrete model NEVER gets an `effort:` line — hatch3r
+      // cannot assume effort semantics for an explicit model choice.
+      const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch![1]).not.toMatch(/^effort:/m);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  // Model classes (release/2.6.0): canonical `model:` frontmatter carries a
+  // capability class (economy|default|strongest) that the Claude adapter maps
+  // via models.tiers pin > CLAUDE_TIER_MODEL_MAP, with a paired `effort:` line
+  // only on the adapter-map path (src/models/tiers.ts).
+  describe("model-class emission (release/2.6.0)", () => {
+    /** Temp canonical root with one agent whose frontmatter model is `model`. */
+    async function setupAgentWithModel(tempDir: string, model: string): Promise<string> {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}\n---\n# Test Agent\n\nYou are a test agent.`,
+        "utf-8",
+      );
+      return agentsDir;
+    }
+
+    async function generateFm(model: string, manifestOverrides: Parameters<typeof makeManifest>[0] = {}): Promise<{ fm: string; content: string }> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-class-"));
+      try {
+        const agentsDir = await setupAgentWithModel(tempDir, model);
+        const outputs = await adapter.generate(agentsDir, makeManifest(manifestOverrides));
+        const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+        expect(agentFile).toBeDefined();
+        const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch).not.toBeNull();
+        return { fm: fmMatch![1], content: agentFile!.content };
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("strongest → model: opus + effort: high", async () => {
+      const { fm, content } = await generateFm("strongest");
+      expect(fm).toMatch(/^model: opus$/m);
+      expect(fm).toMatch(/^effort: high$/m);
+      expect(content).toContain("Model class: `strongest` (mapped: `opus`)");
+      expect(content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=opus");
+    });
+
+    it("economy → model: haiku + effort: medium", async () => {
+      const { fm, content } = await generateFm("economy");
+      expect(fm).toMatch(/^model: haiku$/m);
+      expect(fm).toMatch(/^effort: medium$/m);
+      expect(content).toContain("Model class: `economy` (mapped: `haiku`)");
+    });
+
+    it("default → model: sonnet with NO effort line", async () => {
+      const { fm, content } = await generateFm("default");
+      expect(fm).toMatch(/^model: sonnet$/m);
+      expect(fm).not.toMatch(/^effort:/m);
+      expect(content).toContain("Model class: `default` (mapped: `sonnet`)");
+    });
+
+    it("legacy synonyms fast/standard/reasoning map through the class path", async () => {
+      const fast = await generateFm("fast");
+      expect(fast.fm).toMatch(/^model: haiku$/m);
+      const standard = await generateFm("standard");
+      expect(standard.fm).toMatch(/^model: sonnet$/m);
+      const reasoning = await generateFm("reasoning");
+      expect(reasoning.fm).toMatch(/^model: opus$/m);
+      expect(reasoning.fm).toMatch(/^effort: high$/m);
+    });
+
+    it("models.tiers pin wins over the class map, alias-expands, and suppresses effort", async () => {
+      const { fm } = await generateFm("strongest", { models: { tiers: { strongest: "fable" } } });
+      // Pin `fable` alias-expands to claude-fable-5 and passes the gate.
+      expect(fm).toMatch(/^model: claude-fable-5$/m);
+      // Operator-pinned model → no effort assumption.
+      expect(fm).not.toMatch(/^effort:/m);
+    });
+
+    it("an unrecognizable models.tiers pin is omitted from the native field (gate preserved)", async () => {
+      const { fm, content } = await generateFm("economy", { models: { tiers: { economy: "gpt-5.1-codex-mini" } } });
+      expect(fm).not.toMatch(/^model:/m);
+      expect(fm).not.toMatch(/^effort:/m);
+      // Advisory prose still documents the class + mapped value.
+      expect(content).toContain("Model class: `economy` (mapped: `gpt-5.1-codex-mini`)");
+    });
   });
 
   // release/2.2.0: per-skill / per-command `model:` frontmatter. Claude Code

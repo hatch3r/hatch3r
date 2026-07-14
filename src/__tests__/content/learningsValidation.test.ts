@@ -9,9 +9,10 @@ import {
   sanitizeLearningsContent,
   computeLearningIntegrity,
   persistLearning,
+  resolveLearningsCaps,
   MAX_LEARNING_FILE_BYTES,
-  MAX_LEARNINGS_TOTAL_BYTES,
-  MAX_LEARNING_FILE_COUNT,
+  DEFAULT_LEARNING_FILE_COUNT,
+  MIN_LEARNING_FILE_COUNT,
 } from "../../content/learningsValidation.js";
 
 describe("learningsValidation", () => {
@@ -232,26 +233,44 @@ describe("learningsValidation", () => {
       expect(result.fileCount).toBe(0);
     });
 
-    it("should error when file count exceeds the limit", async () => {
-      for (let i = 0; i < MAX_LEARNING_FILE_COUNT + 1; i++) {
-        await writeFile(
-          join(learningsDir, `tip-${i}.md`),
-          `# Tip ${i}\n\nContent.\n`,
-        );
-      }
+    it("should error when file count exceeds a configured cap, naming the active cap and the config key", async () => {
+      const cap = MIN_LEARNING_FILE_COUNT; // 50 — the legacy fixed cap, now configured
+      await Promise.all(
+        Array.from({ length: cap + 1 }, (_, i) =>
+          writeFile(join(learningsDir, `tip-${i}.md`), `# Tip ${i}\n\nContent.\n`),
+        ),
+      );
+
+      const result = await validateLearningsDirectory(learningsDir, { maxCount: cap });
+      expect(result.valid).toBe(false);
+      const countError = result.errors.find((e) => e.includes("Too many learning files"));
+      expect(countError).toBeDefined();
+      expect(countError).toContain(`The active cap is ${cap}`);
+      expect(countError).toContain("learnings.maxCount");
+      expect(countError).toContain(".hatch3r/hatch.json");
+    });
+
+    it("should honor the default cap of 150 when no maxCount is configured", async () => {
+      await Promise.all(
+        Array.from({ length: DEFAULT_LEARNING_FILE_COUNT + 1 }, (_, i) =>
+          writeFile(join(learningsDir, `tip-${i}.md`), `# Tip ${i}\n\nContent.\n`),
+        ),
+      );
 
       const result = await validateLearningsDirectory(learningsDir);
       expect(result.valid).toBe(false);
-      expect(result.errors).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining("Too many learning files"),
-        ]),
-      );
+      const countError = result.errors.find((e) => e.includes("Too many learning files"));
+      expect(countError).toBeDefined();
+      expect(countError).toContain(`The active cap is ${DEFAULT_LEARNING_FILE_COUNT}`);
     });
 
-    it("should error when total size exceeds the limit", async () => {
-      // Create a few large files that together exceed the total limit
-      const fileSize = Math.ceil(MAX_LEARNINGS_TOTAL_BYTES / 3);
+    it("should error when total size exceeds the cap-scaled limit, naming the byte cap", async () => {
+      // At maxCount 50 the byte cap is the exact legacy value 524_288. Four
+      // files of a third of it each exceed the total; each also exceeds the
+      // 64 KB per-file limit (same as the pre-2.6.0 version of this test), so
+      // the assertion targets the total-size error specifically.
+      const maxTotalBytes = resolveLearningsCaps(50).maxTotalBytes;
+      const fileSize = Math.ceil(maxTotalBytes / 3);
       for (let i = 0; i < 4; i++) {
         await writeFile(
           join(learningsDir, `big-${i}.md`),
@@ -259,13 +278,27 @@ describe("learningsValidation", () => {
         );
       }
 
-      const result = await validateLearningsDirectory(learningsDir);
+      const result = await validateLearningsDirectory(learningsDir, { maxCount: 50 });
       expect(result.valid).toBe(false);
-      expect(result.errors).toEqual(
+      const sizeError = result.errors.find((e) => e.includes("Total learnings size"));
+      expect(sizeError).toBeDefined();
+      expect(sizeError).toContain(`${maxTotalBytes} byte limit`);
+      expect(sizeError).toContain("learnings.maxCount");
+    });
+
+    it("clamps a below-floor maxCount to the floor with a warning, never a hard error", async () => {
+      await writeFile(join(learningsDir, "tip-1.md"), "# Tip 1\n\nContent.\n");
+      await writeFile(join(learningsDir, "tip-2.md"), "# Tip 2\n\nContent.\n");
+
+      const result = await validateLearningsDirectory(learningsDir, { maxCount: 10 });
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toEqual(
         expect.arrayContaining([
-          expect.stringContaining("Total learnings size"),
+          expect.stringContaining(`below the floor of ${MIN_LEARNING_FILE_COUNT}`),
         ]),
       );
+      // The clamp advisory is not an injection hit — it must not block sync.
+      expect(result.injectionHits).toHaveLength(0);
     });
 
     it("should warn about non-.md files in the directory", async () => {
@@ -332,6 +365,53 @@ describe("learningsValidation", () => {
       expect(result.valid).toBe(true);
       expect(result.injectionHits.length).toBeGreaterThanOrEqual(1);
       expect(result.injectionHits.some((h) => h.includes("P-LEARN"))).toBe(true);
+    });
+  });
+
+  // ── 2.6.0: configurable learnings cap ──────────────────────────
+  describe("resolveLearningsCaps", () => {
+    it("defaults to 150 files / 1_572_864 bytes when no maxCount is configured", () => {
+      expect(resolveLearningsCaps()).toEqual({
+        maxCount: DEFAULT_LEARNING_FILE_COUNT,
+        maxTotalBytes: 1_572_864,
+        clamped: false,
+      });
+      expect(DEFAULT_LEARNING_FILE_COUNT).toBe(150);
+    });
+
+    it("reproduces the legacy caps byte-for-byte at maxCount 50 (524_288 exactly)", () => {
+      expect(resolveLearningsCaps(50)).toEqual({
+        maxCount: 50,
+        maxTotalBytes: 524_288,
+        clamped: false,
+      });
+    });
+
+    it("clamps below-floor values to the floor of 50 and flags the clamp", () => {
+      expect(resolveLearningsCaps(10)).toEqual({
+        maxCount: MIN_LEARNING_FILE_COUNT,
+        maxTotalBytes: 524_288,
+        clamped: true,
+      });
+      expect(resolveLearningsCaps(49)).toMatchObject({ maxCount: 50, clamped: true });
+      expect(resolveLearningsCaps(-5)).toMatchObject({ maxCount: 50, clamped: true });
+    });
+
+    it("floors fractional values and scales the byte cap with the count", () => {
+      expect(resolveLearningsCaps(100.9)).toMatchObject({ maxCount: 100, clamped: false });
+      expect(resolveLearningsCaps(100).maxTotalBytes).toBe(Math.round(100 * 10_485.76));
+      expect(resolveLearningsCaps(300).maxTotalBytes).toBe(Math.round(300 * 10_485.76));
+    });
+
+    it("falls back to the default on non-finite input", () => {
+      expect(resolveLearningsCaps(Number.NaN)).toMatchObject({
+        maxCount: DEFAULT_LEARNING_FILE_COUNT,
+        clamped: false,
+      });
+      expect(resolveLearningsCaps(Number.POSITIVE_INFINITY)).toMatchObject({
+        maxCount: DEFAULT_LEARNING_FILE_COUNT,
+        clamped: false,
+      });
     });
   });
 

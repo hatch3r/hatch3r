@@ -985,9 +985,11 @@ export interface ModelRate {
  * the parity test fails on any drift.
  */
 export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
+  "claude-fable-5": { inputCostPer1M: 10.0, outputCostPer1M: 50.0, accessed: "2026-07-13" },
   "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
   "claude-opus-4-7": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
   "claude-opus-4-6": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-sonnet-5": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-07-13" },
   "claude-sonnet-4-6": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-06-06" },
   "claude-haiku-4-5": { inputCostPer1M: 1.0, outputCostPer1M: 5.0, accessed: "2026-06-06" },
 } as const;
@@ -996,12 +998,20 @@ export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
  * Tier-alias → canonical-model-id map for {@link resolveModelRate}. Each alias
  * points at the current default model in that tier; bump these when a new model
  * version ships. Kept separate from {@link MODEL_RATES} so the rate map stays a
- * pure id→rate table.
+ * pure id→rate table. Also carries the model-class words
+ * `economy`/`default`/`strongest` (src/models/tiers.ts), mapped to the same
+ * targets as their Claude tier aliases (haiku/sonnet/opus per
+ * `CLAUDE_TIER_MODEL_MAP`), so `hatch3r explain --cost --model strongest`
+ * resolves a rate for a class-authored agent.
  */
 const TIER_ALIASES: Readonly<Record<string, keyof typeof MODEL_RATES>> = {
   opus: "claude-opus-4-8",
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5",
+  fable: "claude-fable-5",
+  economy: "claude-haiku-4-5",
+  default: "claude-sonnet-5",
+  strongest: "claude-opus-4-8",
 } as const;
 
 /**

@@ -2,7 +2,7 @@
 id: hatch3r-maintainability
 type: agent
 description: Maintainability quality specialist — reviews generated code for duplication index, pattern reuse, cyclomatic complexity, expand-contract migrations, and API breaking-change discipline. Use when code is authored, refactored, or schema/API changes are introduced.
-model: standard
+model: strongest
 tags: [review, maintainability, code-standards, floor:content-quality]
 pillars:
   governance: [P4]

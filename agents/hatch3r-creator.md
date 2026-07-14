@@ -2,7 +2,7 @@
 id: hatch3r-creator
 type: agent
 description: Authors user-tier custom artifacts (agents, skills, rules, commands, hooks) under .hatch3r/overrides/. Validates frontmatter schema, runs strict + gentle quality gates, and writes the artifact only when all strict gates pass.
-model: standard
+model: default
 tags: [orchestration, customize]
 protected: true
 quality_charter: agents/shared/quality-charter.md
@@ -44,7 +44,7 @@ The orchestrator (`/hatch3r-create`) provides:
   description:    "<≥60 chars>",
   tags:           ["core", "customize", ...],
   adapters:       ["claude", "cursor", ...] | null,
-  model:          "fast" | "standard" | "reasoning",  // agent only
+  model:          "economy" | "default" | "strongest",  // agent only (legacy synonyms fast/standard/reasoning accepted on user overrides)
   toolHint:       "<free text>",                      // agent only (optional, free-text hint)
   tools:          { allowed?: string[], denied?: string[] }, // agent only — structured allowlist/denylist (C9-H81); entries must be canonical categories from ALL_TOOL_CATEGORIES (src/pipeline/agentToolAllowlist.ts): read, search, write, execute, web, mcp, git, board
   ruleScope:      "always" | "conditional",           // rule only
@@ -135,7 +135,7 @@ The five branches differ only in frontmatter shape, body skeleton, and which typ
 |------|---|-------|
 | `id` | yes | matches `name`, no `hatch3r-` prefix |
 | `description` | yes | ≥60 chars |
-| `model` | yes | one of `fast | standard | reasoning` |
+| `model` | yes | one of `economy | default | strongest` (legacy synonyms `fast`/`standard`/`reasoning` accepted on user overrides) |
 | `tags` | yes | array; ≥1 entry |
 | `quality_charter` | yes | auto-injected `agents/shared/quality-charter.md` |
 | `protected` | optional | always `false` for user agents |

@@ -50,7 +50,7 @@ describe("resolveAgentModel", () => {
     const agent = makeAgent({ model: "sonnet" });
     const manifest = makeManifest();
     const result = resolveAgentModel("hatch3r-implementer", agent, manifest);
-    expect(result).toBe("claude-sonnet-4-6");
+    expect(result).toBe("claude-sonnet-5");
   });
 
   it("uses manifest per-agent override when set", () => {
@@ -87,14 +87,19 @@ describe("resolveAgentModel", () => {
   it("resolves haiku to the current GA haiku model (D1-SA1.6-03 currency pin extension)", () => {
     // D1-25 pinned only the tier that failed in Cycle 11 (opus); D1-SA1.6-03
     // found the guard gap let the sonnet row go stale undetected. Pin haiku
-    // here (current per the vendor model table, verified 2026-07-11). The
-    // sonnet pin joins when the queued alias bump lands — `sonnet` currently
-    // resolves to the previous-generation claude-sonnet-4-6, and the bump to
-    // claude-sonnet-5 must move in lock-step with costEstimator.ts
-    // TIER_ALIASES/MODEL_RATES and docs/model-selection.md (aliases.ts:10-14).
+    // here (current per the vendor model table, verified 2026-07-11).
     const agent = makeAgent({ model: "haiku" });
     const manifest = makeManifest();
     expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe("claude-haiku-4-5");
+  });
+
+  it("resolves sonnet/fable to the current GA models (D1-SA1.6-03 alias bump, 2026-07-14)", () => {
+    // The queued sonnet bump landed with the release/2.6.0 model-class work:
+    // `sonnet` -> claude-sonnet-5 in lock-step with costEstimator.ts
+    // TIER_ALIASES/MODEL_RATES; the new `fable` alias pins the top model.
+    const manifest = makeManifest();
+    expect(resolveAgentModel("hatch3r-implementer", makeAgent({ model: "sonnet" }), manifest)).toBe("claude-sonnet-5");
+    expect(resolveAgentModel("hatch3r-implementer", makeAgent({ model: "fable" }), manifest)).toBe("claude-fable-5");
   });
 
   it("resolves opus to the current GA opus model (D1-25 currency)", () => {
@@ -105,19 +110,20 @@ describe("resolveAgentModel", () => {
     expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe("claude-opus-4-8");
   });
 
-  it("passes the capacity-tier words standard/fast through verbatim (D5-21)", () => {
-    // `standard`/`fast` are hatch3r-internal triage/cost tiers, NOT MODEL_ALIASES
-    // keys: resolveModelAlias has no entry, so they must pass through unchanged.
-    // The Claude/Copilot adapters then gate native `model:` emission to
-    // recognizable values (isClaudeRecognizableModel / isCopilotRecognizableModel),
-    // omitting the tier word from frontmatter rather than shipping a value Claude
-    // would reject (sonnet/opus/haiku/id/inherit only). This test locks the
-    // passthrough contract so a regression that aliases the tier words — which
-    // would re-introduce the dead native field D9-16 removed — fails here.
+  it("passes model-class words (and legacy tier words) through verbatim (D5-21, release/2.6.0)", () => {
+    // `economy`/`default`/`strongest` (and the legacy `standard`/`fast`) are
+    // capability classes, NOT MODEL_ALIASES keys: resolveModelAlias has no
+    // entry, so they must pass through unchanged. Each adapter then maps the
+    // class at emission time via src/models/tiers.ts (normalizeModelClass +
+    // per-adapter tier maps) instead of shipping a value the platform would
+    // reject. This test locks the passthrough contract so a regression that
+    // aliases the class words — which would collapse every adapter onto one
+    // vendor mapping and re-introduce the dead native field D9-16 removed —
+    // fails here.
     const manifest = makeManifest();
-    for (const tier of ["standard", "fast"]) {
-      const agent = makeAgent({ model: tier });
-      expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(tier);
+    for (const cls of ["economy", "default", "strongest", "standard", "fast"]) {
+      const agent = makeAgent({ model: cls });
+      expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(cls);
     }
   });
 
@@ -157,7 +163,7 @@ describe("resolveArtifactModel", () => {
       },
     });
     expect(resolveArtifactModel("skills", "hatch3r-feature", undefined, manifest)).toBe("claude-opus-4-8");
-    expect(resolveArtifactModel("commands", "hatch3r-workflow", undefined, manifest)).toBe("claude-sonnet-4-6");
+    expect(resolveArtifactModel("commands", "hatch3r-workflow", undefined, manifest)).toBe("claude-sonnet-5");
     // Maps are class-scoped: a skills entry never leaks into commands and
     // vice versa.
     expect(resolveArtifactModel("commands", "hatch3r-feature", undefined, manifest)).toBeUndefined();
@@ -170,7 +176,7 @@ describe("resolveArtifactModel", () => {
       models[cls] = { "x-artifact": "codex" };
       const manifest = makeManifest({ models });
       // frontmatter only
-      expect(resolveArtifactModel(cls, "x-artifact", "sonnet", makeManifest())).toBe("claude-sonnet-4-6");
+      expect(resolveArtifactModel(cls, "x-artifact", "sonnet", makeManifest())).toBe("claude-sonnet-5");
       // manifest map beats frontmatter
       expect(resolveArtifactModel(cls, "x-artifact", "sonnet", manifest)).toBe("gpt-5.3-codex");
       // customize beats manifest map and frontmatter

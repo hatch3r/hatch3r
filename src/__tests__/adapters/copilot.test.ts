@@ -388,6 +388,30 @@ Applies to API code and protobufs.`,
     expect(topLevelPromptPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
   });
 
+  // Slash-picker fix (release/2.6.0, S1c): command companions under
+  // `.github/prompts/board|revision|shared/` carry the byte-0 stub for
+  // cross-adapter parity (plain `.md` companions — VS Code's prompt loader
+  // ignores them, but byte-0 `description:` readers stop rendering the
+  // HATCH3R:BEGIN marker). Agent companions stay raw — `.github/agents/**`
+  // is Copilot's custom-agent directory.
+  it("emits a byte-0 frontmatter stub on command companions but not agent companions", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const boardCompanion = outputs.find((o) => o.path === ".github/prompts/board/pickup-fake.md");
+    expect(boardCompanion).toBeDefined();
+    expect(boardCompanion!.content.startsWith("---\n")).toBe(true);
+    const stub = boardCompanion!.content.slice(0, boardCompanion!.content.indexOf("<!-- HATCH3R:BEGIN -->"));
+    expect(stub).toContain("name: pickup-fake");
+    expect(stub).toContain("description:");
+    expect(stub).not.toContain("HATCH3R:BEGIN");
+    expect(boardCompanion!.content).toContain("<!-- HATCH3R:BEGIN -->");
+
+    const agentCompanion = outputs.find((o) => o.path === ".github/agents/modes/fake-mode.md");
+    expect(agentCompanion).toBeDefined();
+    expect(agentCompanion!.content.startsWith("<!-- HATCH3R:BEGIN -->")).toBe(true);
+  });
+
   it("generates skill files in .github/skills/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -643,7 +667,7 @@ Applies to API code and protobufs.`,
 
     const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
     expect(agentFile).toBeDefined();
-    expect(agentFile!.content).toContain("model: claude-sonnet-4-6");
+    expect(agentFile!.content).toContain("model: claude-sonnet-5");
   });
 
   it("emits model in agent YAML frontmatter when configured via manifest", async () => {
@@ -786,6 +810,84 @@ You are a test agent.`,
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  // Model classes (release/2.6.0): the class words (economy|default|strongest)
+  // have no Copilot picker expression — they are silently omitted (no dead
+  // field, no drop warning) unless a `models.tiers` pin supplies a value that
+  // passes the D9-16 recognizable-value gate.
+  describe("model-class emission (release/2.6.0)", () => {
+    async function setupClassAgents(tempDir: string): Promise<string> {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      for (const cls of ["economy", "default", "strongest"]) {
+        await writeFile(
+          join(agentsDir, "agents", `${cls}-agent.md`),
+          `---\nid: ${cls}-agent\ntype: agent\ndescription: A ${cls}-class agent\nmodel: ${cls}\n---\n# ${cls}-agent\n\nYou are a ${cls}-class agent.`,
+          "utf-8",
+        );
+      }
+      return agentsDir;
+    }
+
+    it("omits the class words silently — no model line, no drop warning", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-quiet-"));
+      try {
+        const agentsDir = await setupClassAgents(tempDir);
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        for (const cls of ["economy", "default", "strongest"]) {
+          const agentFile = outputs.find((o) => o.path === `.github/agents/hatch3r-${cls}-agent.agent.md`);
+          expect(agentFile, cls).toBeDefined();
+          const fm = agentFile!.content.slice(0, agentFile!.content.indexOf(MANAGED_BLOCK_START));
+          expect(fm, cls).not.toContain("model:");
+        }
+        // Never a drop warning for class words (COPILOT_INTENTIONALLY_OMITTED_MODELS).
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("emits a models.tiers pin that passes the recognizable-value gate (alias-expanded)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-pin-"));
+      try {
+        const agentsDir = await setupClassAgents(tempDir);
+        const manifest = makeManifest({
+          models: { tiers: { strongest: "fable", economy: "gemini-3-flash" } },
+        });
+        const outputs = await adapter.generate(agentsDir, manifest);
+        const strongest = outputs.find((o) => o.path === ".github/agents/hatch3r-strongest-agent.agent.md");
+        // Pin `fable` alias-expands to claude-fable-5 (claude- prefix passes).
+        expect(strongest!.content.slice(0, strongest!.content.indexOf(MANAGED_BLOCK_START))).toContain(
+          "model: claude-fable-5",
+        );
+        const economy = outputs.find((o) => o.path === ".github/agents/hatch3r-economy-agent.agent.md");
+        expect(economy!.content.slice(0, economy!.content.indexOf(MANAGED_BLOCK_START))).toContain(
+          "model: gemini-3-flash",
+        );
+        // Unpinned class stays omitted.
+        const dflt = outputs.find((o) => o.path === ".github/agents/hatch3r-default-agent.agent.md");
+        expect(dflt!.content.slice(0, dflt!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("stays silent when a models.tiers pin fails the gate (class words never warn)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-pin-drop-"));
+      try {
+        const agentsDir = await setupClassAgents(tempDir);
+        // A pin outside the four provider prefixes: omitted, but NOT warned —
+        // the resolved agent value is a class word, which is intentional-omission.
+        const manifest = makeManifest({ models: { tiers: { strongest: "MAI-Code-1-Flash" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+        const strongest = outputs.find((o) => o.path === ".github/agents/hatch3r-strongest-agent.agent.md");
+        expect(strongest!.content.slice(0, strongest!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // D9-SA9.3-06 (Cycle 12, D9, P1/P5): the D9-16 recognizable-value gate omits any

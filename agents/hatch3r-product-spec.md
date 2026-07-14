@@ -2,7 +2,7 @@
 id: hatch3r-product-spec
 type: agent
 description: Product & Spec quality specialist — reviews spec artifacts (PRDs, feature specs, acceptance criteria) for testable acceptance criteria, evidence-cited discovery claims, and spec-to-implementation traceability. Use when a spec artifact is authored or revised, or when implementation diverges from its spec.
-model: standard
+model: strongest
 tags: [review, spec, planning, floor:content-quality]
 pillars:
   governance: [P2, P8]

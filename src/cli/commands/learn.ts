@@ -22,15 +22,18 @@
  * cannot honor).
  */
 
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   computeLearningIntegrity,
+  DEFAULT_LEARNING_FILE_COUNT,
   persistLearning,
+  resolveLearningsCaps,
   validateLearningFileName,
 } from "../../content/learningsValidation.js";
+import { readManifest } from "../../manifest/hatchJson.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
-import { label, error as logError, warn } from "../shared/ui.js";
+import { label, error as logError, verbose, warn } from "../shared/ui.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 
 export interface LearnCaptureOptions {
@@ -216,6 +219,35 @@ export async function learnCaptureCommand(options: LearnCaptureOptions): Promise
     );
   }
 
+  // 2.6.0 capacity advisory — after a successful write only (dry-run persists
+  // nothing, so its count would be misleading). Counts the same population
+  // `validateLearningsDirectory` enforces (top-level `.md` files; `archive/`
+  // is a subdirectory, so archived entries are excluded) and warns at >=80% of
+  // the configured cap. Advisory only: it never blocks or fails the capture.
+  let capacityWarning: string | undefined;
+  if (!dryRun) {
+    try {
+      const manifest = await readManifest(rootDir).catch(() => null);
+      const caps = resolveLearningsCaps(manifest?.learnings?.maxCount);
+      const entries = await readdir(learningsDir);
+      const activeCount = entries.filter((f) => f.endsWith(".md")).length;
+      if (activeCount >= Math.ceil(caps.maxCount * 0.8)) {
+        capacityWarning =
+          `Learnings capacity: ${activeCount}/${caps.maxCount} active files (>=80% of the cap; ` +
+          `set via learnings.maxCount in .hatch3r/hatch.json, default ${DEFAULT_LEARNING_FILE_COUNT}). ` +
+          `Run the consolidation pass in the hatch3r-learn skill (merge same-topic entries, ` +
+          `archive superseded ones) before sync/update hard-errors at the cap.`;
+      }
+    } catch (err) {
+      // Advisory-only path: a manifest or directory read failure never blocks
+      // a capture that already committed. Route the diagnostic to verbose.
+      verbose(
+        `learn capture: capacity check skipped — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  if (capacityWarning) warn(capacityWarning);
+
   if (dryRun) {
     finishCommand(format, {
       command: "learn capture",
@@ -261,7 +293,9 @@ export async function learnCaptureCommand(options: LearnCaptureOptions): Promise
       written: true,
       path: result.path ?? targetPath,
       integrity: result.integrity,
-      warnings: result.warnings,
+      warnings: capacityWarning
+        ? [...result.warnings, capacityWarning]
+        : result.warnings,
     },
   });
 }

@@ -64,8 +64,9 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "20920e1be60e075ae0f4897944a66b90b56220e0f38b7a6902b8d9d142e3fde1",
+    "bodyHash": "79377d4a6c0416746598b4dc43c4b3eb163b8faff9a89489fff601468dcffabc",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -270,8 +271,9 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "bf65585e2e990619c2a58e87b907ade8b0a4ae8b4ab26e6b9f5d05d6eeee949d",
+    "bodyHash": "e688b709994a334ab81c597e911f141660e97f0352da38b16bcc7ee74aebea8c",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -396,8 +398,9 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "bf65585e2e990619c2a58e87b907ade8b0a4ae8b4ab26e6b9f5d05d6eeee949d",
+    "bodyHash": "e688b709994a334ab81c597e911f141660e97f0352da38b16bcc7ee74aebea8c",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,

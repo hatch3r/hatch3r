@@ -279,6 +279,104 @@ describe("learn capture command (D13-5)", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  // ── 2.6.0: capacity advisory at >=80% of the configured cap ──────────
+  // `learn capture` counts top-level `.md` files after a successful write and
+  // warns (never blocks) when the count reaches 80% of the cap resolved from
+  // the manifest's `learnings.maxCount` (default 150, floor 50).
+
+  async function writeHatchManifest(learningsMaxCount?: number): Promise<void> {
+    await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
+    const manifest: Record<string, unknown> = {
+      version: "3.0.0",
+      hatch3rVersion: "2.6.0",
+      owner: "acme",
+      repo: "app",
+      namespace: "acme",
+      project: "app",
+      tools: ["cursor"],
+      features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+      mcp: { servers: [] },
+      managedFiles: [],
+    };
+    if (learningsMaxCount !== undefined) {
+      manifest.learnings = { maxCount: learningsMaxCount };
+    }
+    await writeFile(
+      join(tempDir, HATCH3R_DIR, "hatch.json"),
+      JSON.stringify(manifest, null, 2),
+    );
+  }
+
+  async function seedLearnings(count: number): Promise<void> {
+    const dir = join(tempDir, HATCH3R_DIR, "learnings");
+    await mkdir(dir, { recursive: true });
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        writeFile(
+          join(dir, `seed-${String(i).padStart(3, "0")}.md`),
+          `# Seed ${i}\n\nContent.\n`,
+        ),
+      ),
+    );
+  }
+
+  it("warns at >=80% of the configured cap after a successful capture (39 seeded + 1 = 40/50)", async () => {
+    await writeHatchManifest(50);
+    await seedLearnings(39);
+    const body = "## Context\n\nCap.\n\n## Learning\n\nCapacity advisory fires at 80 percent.\n";
+    const src = await stage("2026-07-14-cap.md", learningFile(body));
+
+    const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
+    await learnCaptureCommand({ file: src });
+
+    // The capture itself succeeded — advisory never blocks.
+    const onDisk = await readFile(learnedPath("2026-07-14-cap.md"), "utf-8");
+    expect(onDisk).toContain("Capacity advisory");
+
+    const out = combinedOutput();
+    expect(out).toMatch(/Learnings capacity: 40\/50/);
+    expect(out).toContain("learnings.maxCount");
+    expect(out).toMatch(/consolidation pass/i);
+  });
+
+  it("does not warn below 80% of the configured cap", async () => {
+    await writeHatchManifest(50);
+    await seedLearnings(5);
+    const body = "## Context\n\nQuiet.\n\n## Learning\n\nBelow threshold, no advisory.\n";
+    const src = await stage("2026-07-14-quiet.md", learningFile(body));
+
+    const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
+    await learnCaptureCommand({ file: src });
+
+    expect(combinedOutput()).not.toMatch(/Learnings capacity:/);
+  });
+
+  it("clamps a below-floor maxCount to 50 for the advisory threshold", async () => {
+    // maxCount 5 clamps to the floor of 50, so the threshold is 40 — with 4
+    // active files no warning fires (an unclamped cap of 5 would warn at 4).
+    await writeHatchManifest(5);
+    await seedLearnings(3);
+    const body = "## Context\n\nClamp.\n\n## Learning\n\nFloor keeps the threshold at 40.\n";
+    const src = await stage("2026-07-14-clamp.md", learningFile(body));
+
+    const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
+    await learnCaptureCommand({ file: src });
+
+    expect(combinedOutput()).not.toMatch(/Learnings capacity:/);
+  });
+
+  it("uses the default cap of 150 when no manifest exists (no warning at low counts)", async () => {
+    const body = "## Context\n\nDefault.\n\n## Learning\n\nNo manifest, default cap.\n";
+    const src = await stage("2026-07-14-default.md", learningFile(body));
+
+    const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
+    await learnCaptureCommand({ file: src });
+
+    const out = combinedOutput();
+    expect(out).toMatch(/Learning captured/);
+    expect(out).not.toMatch(/Learnings capacity:/);
+  });
+
   it("is a usage error when --file is omitted", async () => {
     const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
     await expect(learnCaptureCommand({})).rejects.toMatchObject({

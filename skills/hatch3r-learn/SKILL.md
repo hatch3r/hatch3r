@@ -176,23 +176,40 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 
 ### Supersession & Archival
 - A newer learning lists the entries it replaces in its `supersedes: [<id>, ...]` field — the canonical schema's sole archival pointer (`rules/hatch3r-learning-system.md` → Field semantics; `superseded_by`/`deprecated`/`expires` are retired per that rule's migration table and are NOT canonical fields).
-- Superseded entries are archived (moved to `.hatch3r/learnings/archive/`, never deleted) on the next consolidation pass — the rule's §Auto-Consolidation defines the three triggers (overlapping `topic`+`applies-to`, a newer `supersedes:`, or a contradicted 90-day-old confidence). This skill performs the move with the `Read` + `Write` file tools; the only learnings CLI is `hatch3r learn capture` (a single-file write through the security gate) — there is no CLI for archival, search, or consolidation, and the `hatch3r status`/`hatch3r sync` commands do not touch learning lifecycle.
-- Capacity review: surface a review prompt to the user when active learnings reach 80% of the cap (40 of 50; count `.hatch3r/learnings/*.md` via the `Glob` tool, excluding the `archive/` subdirectory).
+- Superseded entries are archived (moved to `.hatch3r/learnings/archive/`, never deleted) on the next consolidation pass — the rule's §Auto-Consolidation defines the four triggers (overlapping `topic`+`applies-to`, a newer `supersedes:`, a contradicted 90-day-old confidence, or active learnings at ≥80% of the cap). This skill performs the move with the `Read` + `Write` file tools; the only learnings CLI is `hatch3r learn capture` (a single-file write through the security gate) — there is no CLI for archival, search, or consolidation, and the `hatch3r status`/`hatch3r sync` commands do not touch learning lifecycle.
+- Capacity review: surface a review prompt to the user and run the Consolidation Pass below when active learnings reach 80% of the cap (default 150; `learnings.maxCount` in `.hatch3r/hatch.json`, floor 50 — count `.hatch3r/learnings/*.md` via the `Glob` tool, excluding the `archive/` subdirectory).
+
+### Consolidation Pass
+
+Agent-performed merge procedure — there is no CLI equivalent (`rules/hatch3r-learning-system.md` → Auto-Consolidation defines the triggers; this section is the executable pass). Run it when active learnings reach 80% of the cap (default 150; `learnings.maxCount` in `.hatch3r/hatch.json`) or when `hatch3r learn capture` prints its capacity warning:
+
+1. **Read** `.hatch3r/learnings/INDEX.md` plus every active learning under `.hatch3r/learnings/*.md` (skip `archive/`).
+2. **Cluster** entries by `topic` + overlapping `applies-to` — the same match keys the consultation gate uses.
+3. **Merge** each cluster of 2 or more entries into one consolidated entry: start from the highest-confidence entry's body, union the `applies-to` globs, set `supersedes: [<merged ids>]`, mint a fresh `id` + `created` (today's date), and re-compute `integrity: sha256:{hex}` over the new trimmed body per `rules/hatch3r-learning-system.md` → Integrity Hash — Single Source of Truth.
+4. **Archive** the merged originals: move each to `.hatch3r/learnings/archive/` with its body unchanged (original filename, archival notice prepended per Archival below).
+5. **Regenerate** `.hatch3r/learnings/INDEX.md` from the remaining active entries only, sorted by `created` descending.
+6. **Report** merged and archived counts to the user (e.g., "merged 6 entries into 2 consolidated learnings, archived 6 originals").
+
+Invariants the pass respects:
+
+- **Append-only refuse-overwrite:** a consolidated entry is a NEW file with a fresh `id` — never rewrite an existing active learning in place.
+- **Guarded writes:** each consolidated entry routes through `hatch3r learn capture --file <staged-path>` (the Guarded Persistence contract above); archive moves use the `Read` + `Write` file tools and re-verify the moved body's `integrity:` stamp per `rules/hatch3r-learning-system.md` → Auto-Consolidation.
+- **Injection screening:** consolidated bodies pass the same Content Validation (ASI06) screening as fresh captures — a merge must not carry a poisoned body past the gate.
 
 ### Learnings Count Cap
 
-To prevent unbounded context growth, this skill applies a maximum-count convention on active learnings (it counts `.hatch3r/learnings/*.md` with the `Glob` tool, excluding the `archive/` subdirectory — `hatch3r learn capture` writes one file at a time and does not enforce the cap, so the count check stays here in the skill):
+To prevent unbounded context growth, active learnings are capped (this skill counts `.hatch3r/learnings/*.md` with the `Glob` tool, excluding the `archive/` subdirectory — `hatch3r learn capture` writes one file at a time and prints a capacity warning at ≥80% of the cap after a successful write, but never blocks; the hard stop below stays in this skill):
 
-- **Default cap:** 50 active learnings (not counting archived entries). This matches the deterministic limit `MAX_LEARNING_FILE_COUNT` enforced by `src/content/learningsValidation.ts::validateLearningsDirectory` — the count this skill checks and the count `hatch3r validate`/`hatch3r sync` hard-error on are the same number, so the doc cap and the enforced cap cannot diverge.
-- **Enforcement:** When the active count reaches the cap, this skill stops before writing a new learning and surfaces: "Active learnings limit reached ({count}/50). Archive or merge existing learnings before adding new ones." Archive candidates via the Pruning Guidance below.
+- **Cap:** 150 active learnings by default (not counting archived entries), configurable via `learnings.maxCount` in `.hatch3r/hatch.json` — values below the floor of 50 clamp to 50 with a validation warning. This is the same configured value the deterministic limit in `src/content/learningsValidation.ts::validateLearningsDirectory` derives from (default `DEFAULT_LEARNING_FILE_COUNT`) — the count this skill checks and the count `hatch3r validate`/`hatch3r sync` hard-error on cannot diverge.
+- **Enforcement:** When the active count reaches the cap, this skill stops before writing a new learning and surfaces: "Active learnings limit reached ({count}/{cap}). Run the Consolidation Pass or archive existing learnings before adding new ones." Merge candidates via the Consolidation Pass above; archive candidates via the Pruning Guidance below.
 - **Per-session cap:** A single invocation captures at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
 
 ### Pruning Guidance
 
-When the active learnings count exceeds 80% of the cap (40 of 50), surface a pruning prompt after Step 4. This skill identifies candidates by reading the frontmatter of files under `.hatch3r/learnings/` with the `Read`/`Grep` tools (no CLI is involved):
+When the active learnings count exceeds 80% of the cap (default 150; `learnings.maxCount` in `.hatch3r/hatch.json`), surface a pruning prompt after Step 4. This skill identifies candidates by reading the frontmatter of files under `.hatch3r/learnings/` with the `Read`/`Grep` tools (no CLI is involved):
 
 ```
-Learnings nearing capacity ({count}/50). Consider archiving:
+Learnings nearing capacity ({count}/{cap}). Consider archiving:
   1. Superseded learnings — entries named in another file's `supersedes:` list
   2. Low-confidence learnings — `confidence: low` entries pending verification
   3. Oldest learnings — lowest `created` dates, re-evaluated per the 90-day consolidation trigger
