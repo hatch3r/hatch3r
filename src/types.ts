@@ -1030,6 +1030,21 @@ export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const MANAGED_BLOCK_START_YAML = "# HATCH3R:BEGIN";
 export const MANAGED_BLOCK_END_YAML = "# HATCH3R:END";
 
+/**
+ * JS line-comment variant (release/2.6.0): the claude adapter emits
+ * `.claude/hooks/pretooluse-allowlist.mjs` as a managed output, but markers in
+ * HTML syntax are a JS SyntaxError and the pre-2.6.0 emission therefore
+ * carried NO markers at all — so every second `hatch3r sync` skipped the file
+ * with a "managed block markers missing" warning (safeWrite's unmanaged-file
+ * fallback). `//` line comments are valid at any statement boundary in both
+ * ESM and CommonJS, so `.js`/`.mjs`/`.cjs` outputs use this variant. The one
+ * placement constraint is the hashbang: `#!` is only grammar at byte 0, so a
+ * script's shebang line stays ABOVE the managed block (emission splits it off
+ * — see the claude adapter's allowlist-hook output).
+ */
+export const MANAGED_BLOCK_START_JS = "// HATCH3R:BEGIN";
+export const MANAGED_BLOCK_END_JS = "// HATCH3R:END";
+
 /** A pair of markers that delimit a hatch3r managed block in a specific host syntax. */
 export interface ManagedBlockMarkers {
   readonly start: string;
@@ -1045,11 +1060,13 @@ export interface ManagedBlockMarkers {
 export const MANAGED_BLOCK_VARIANTS: readonly ManagedBlockMarkers[] = [
   { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END },
   { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML },
+  { start: MANAGED_BLOCK_START_JS, end: MANAGED_BLOCK_END_JS },
 ];
 
 /**
  * Choose the marker variant for a given output path. Currently:
  * - `.yml` / `.yaml` → YAML `#`-prefixed markers (issue #76)
+ * - `.js` / `.mjs` / `.cjs` → JS `//` line-comment markers (release/2.6.0)
  * - everything else  → HTML/Markdown `<!-- -->` markers (default)
  *
  * JSON files are never wrapped in managed blocks (adapters emit JSON
@@ -1060,6 +1077,9 @@ export function getMarkersForPath(filePath?: string): ManagedBlockMarkers {
     const lower = filePath.toLowerCase();
     if (lower.endsWith(".yml") || lower.endsWith(".yaml")) {
       return { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML };
+    }
+    if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+      return { start: MANAGED_BLOCK_START_JS, end: MANAGED_BLOCK_END_JS };
     }
   }
   return { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };

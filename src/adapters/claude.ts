@@ -1477,9 +1477,32 @@ export class ClaudeAdapter extends BaseAdapter {
       ".claude/hooks/agent-tool-policies.json",
       buildAgentToolPoliciesJson(userAgentPolicies),
     ));
+    // release/2.6.0 — managed-block wrap for the .mjs hook script. The
+    // pre-2.6.0 emission was raw (no markers, no managedContent), so sync's
+    // unmanaged write path skipped the existing file on EVERY run with a
+    // "managed block markers (HATCH3R:BEGIN/END) missing" warning — the
+    // basename carries no `hatch3r-` prefix, so `isManagedFileName` treated
+    // it as user content. Wrapping the script body in the JS `//` marker
+    // variant (getMarkersForPath: `.mjs` → `// HATCH3R:BEGIN/END`) routes it
+    // through the managed-merge path instead: idempotent second sync, no
+    // warning, and user bytes outside the markers survive updates. The
+    // shebang stays ABOVE the block at byte 0 — JS hashbang grammar permits
+    // `#!` only at position 0, so wrapping it inside the block would be a
+    // SyntaxError on every hook invocation. Pre-2.6.0 marker-less files heal
+    // via safeWrite's legacy-adoption branch (isLegacyGeneratedNoMarkerFile),
+    // which replaces — never append-splices — recognized hatch3r-generated
+    // scripts, because prepending a second copy would duplicate the ESM
+    // import bindings and hard-break the hook.
+    const allowlistHookPath = ".claude/hooks/pretooluse-allowlist.mjs";
+    const allowlistHookScript = buildClaudePreToolUseHookScript();
+    const shebangEnd = allowlistHookScript.startsWith("#!")
+      ? allowlistHookScript.indexOf("\n") + 1
+      : 0;
+    const allowlistHookBody = allowlistHookScript.slice(shebangEnd);
     results.push(output(
-      ".claude/hooks/pretooluse-allowlist.mjs",
-      buildClaudePreToolUseHookScript(),
+      allowlistHookPath,
+      `${allowlistHookScript.slice(0, shebangEnd)}${wrapManagedFor(allowlistHookPath, allowlistHookBody)}`,
+      allowlistHookBody,
     ));
 
     // C9-M47 (P7): re-wrap skill/command outputs with cache-breakpoint

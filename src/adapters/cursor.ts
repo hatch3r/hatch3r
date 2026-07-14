@@ -400,6 +400,34 @@ function mdcOutput(path: string, frontmatter: string, body: string, sourceFiles?
 }
 
 /**
+ * release/2.6.0 — managed-block wrap for the raw `.mjs` hook-guard emissions
+ * (`subagent-guard.mjs`, `mcp-guard.mjs`, `workdir-guard.mjs`), mirroring the
+ * claude adapter's `.claude/hooks/pretooluse-allowlist.mjs` fix. The pre-2.6.0
+ * emissions were raw (no markers, no managedContent), so safeWrite's unmanaged
+ * write path skipped each existing guard on EVERY `hatch3r sync` with a
+ * "managed block markers (HATCH3R:BEGIN/END) missing" warning — the basenames
+ * carry no `hatch3r-` prefix, so `isManagedFileName` treated them as user
+ * content. Wrapping the script body in the JS `//` marker variant
+ * (getMarkersForPath: `.mjs` → `// HATCH3R:BEGIN/END`) routes the guards
+ * through the managed-merge path instead: idempotent second sync, no warning,
+ * and user bytes outside the markers survive updates. The shebang stays ABOVE
+ * the block at byte 0 — JS hashbang grammar permits `#!` only at position 0,
+ * so wrapping it inside the block would be a SyntaxError on every hook
+ * invocation (a script without a shebang wraps from byte 0). Pre-2.6.0
+ * marker-less guards heal via safeWrite's legacy-adoption branch
+ * (`isLegacyGeneratedNoMarkerFile` — every guard opens with the
+ * `#!/usr/bin/env node` + `// hatch3r — ` header its signature matches), which
+ * replaces — never prepend-splices — recognized hatch3r-generated scripts,
+ * because splicing a second copy above the old one would duplicate the ESM
+ * `import` bindings and hard-break the hook.
+ */
+function managedGuardScriptOutput(path: string, script: string): AdapterOutput {
+  const shebangEnd = script.startsWith("#!") ? script.indexOf("\n") + 1 : 0;
+  const body = script.slice(shebangEnd);
+  return output(path, `${script.slice(0, shebangEnd)}${wrapManagedFor(path, body)}`, body);
+}
+
+/**
  * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
  * per-file Cursor output (one rule `.mdc`, one agent `.md`). Returns
  * `[file.sourcePath]` so the output self-attributes to its one canonical input
@@ -673,7 +701,7 @@ export class CursorAdapter extends BaseAdapter {
     // the spawn rather than failing open (cursor.com/docs/agent/hooks accessed
     // 2026-06-06). Emitted regardless of `features.rules` — the guard is a
     // trust artifact, identical posture to the allowlist rule above.
-    results.push(output(
+    results.push(managedGuardScriptOutput(
       ".cursor/hooks/subagent-guard.mjs",
       buildCursorSubagentGuardHookScript(),
     ));
@@ -699,7 +727,7 @@ export class CursorAdapter extends BaseAdapter {
     //       blunting the working-dir/symlink-escape class for Cursor <3.0.
     // The workdir guard is APPENDED to beforeShellExecution after any mapped
     // lifecycle entries, so the D9-14 `[0]`-index lifecycle assertions hold.
-    results.push(output(
+    results.push(managedGuardScriptOutput(
       ".cursor/hooks/mcp-guard.mjs",
       buildCursorMcpAllowlistGuardScript(),
     ));
@@ -708,7 +736,7 @@ export class CursorAdapter extends BaseAdapter {
       command: "node ./.cursor/hooks/mcp-guard.mjs",
       failClosed: false,
     });
-    results.push(output(
+    results.push(managedGuardScriptOutput(
       ".cursor/hooks/workdir-guard.mjs",
       buildCursorWorkingDirGuardScript(),
     ));

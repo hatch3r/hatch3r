@@ -7,6 +7,7 @@ import { CursorAdapter } from "../../adapters/cursor.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import { safeWriteFile, isLegacyGeneratedNoMarkerFile } from "../../merge/safeWrite.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -1049,6 +1050,122 @@ Low priority rule body.
           e.command.includes("workdir-guard.mjs"),
         ),
       ).toBe(true);
+    });
+  });
+
+  // release/2.6.0: the three guard .mjs scripts are MANAGED outputs, mirroring
+  // the claude adapter's pretooluse-allowlist.mjs fix. The raw pre-2.6.0
+  // emissions (no markers, no managedContent) fell into safeWrite's
+  // unmanaged-file fallback — the basenames carry no `hatch3r-` prefix — so
+  // every second `hatch3r sync` skipped each existing guard with a "managed
+  // block markers (HATCH3R:BEGIN/END) missing" warning.
+  describe("release/2.6.0 managed-block wrap for the guard .mjs outputs", () => {
+    const GUARD_PATHS = [
+      ".cursor/hooks/subagent-guard.mjs",
+      ".cursor/hooks/mcp-guard.mjs",
+      ".cursor/hooks/workdir-guard.mjs",
+    ];
+
+    it("wraps each guard in JS line-comment markers with the shebang above the block", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      for (const guardPath of GUARD_PATHS) {
+        const guard = outputs.find((o) => o.path === guardPath);
+        expect(guard, guardPath).toBeDefined();
+        const lines = guard!.content.split("\n");
+        // JS hashbang grammar permits `#!` only at byte 0 — the shebang must
+        // stay ABOVE the managed block, and the markers must be `//` comments
+        // (HTML `<!-- -->` markers are a JS SyntaxError).
+        expect(lines[0], guardPath).toBe("#!/usr/bin/env node");
+        expect(lines[1], guardPath).toBe("// HATCH3R:BEGIN");
+        expect(lines[lines.length - 2], guardPath).toBe("// HATCH3R:END");
+        expect(guard!.content, guardPath).not.toContain("<!--");
+        // managedContent is the block interior: the script body without the
+        // shebang and without the markers — safeWriteFile merges with it.
+        expect(guard!.managedContent, guardPath).toBeDefined();
+        expect(guard!.managedContent, guardPath).not.toContain("#!/usr/bin/env node");
+        expect(guard!.managedContent, guardPath).not.toContain("HATCH3R:BEGIN");
+        expect(guard!.content, guardPath).toContain(guard!.managedContent!.trim());
+      }
+    });
+
+    it("emits syntactically valid ESM — `node --check` accepts each marker-wrapped guard", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const { spawn } = await import("node:child_process");
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-guard-"));
+      try {
+        for (const guardPath of GUARD_PATHS) {
+          const guard = outputs.find((o) => o.path === guardPath)!;
+          const filePath = join(dir, guardPath.split("/").at(-1)!);
+          await writeFile(filePath, guard.content, "utf-8");
+          const result = await new Promise<{ code: number | null; stderr: string }>(
+            (resolve, reject) => {
+              const proc = spawn("node", ["--check", filePath], { stdio: "pipe" });
+              let stderr = "";
+              proc.stderr.on("data", (b) => (stderr += b.toString()));
+              proc.on("error", reject);
+              proc.on("close", (code) => resolve({ code, stderr }));
+            },
+          );
+          expect(result.stderr, guardPath).toBe("");
+          expect(result.code, guardPath).toBe(0);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("every guard's pre-2.6.0 raw shape matches the legacy-adoption signature", async () => {
+      // Confirms isLegacyGeneratedNoMarkerFile recognizes the ACTUAL emitted
+      // headers (shebang + `// hatch3r — ` first body line) for all three
+      // guards, so a pre-2.6.0 marker-less guard is replaced wholesale on the
+      // first 2.6.0 sync instead of prepend-spliced (duplicate ESM imports).
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      for (const guardPath of GUARD_PATHS) {
+        const guard = outputs.find((o) => o.path === guardPath)!;
+        // The pre-2.6.0 emission was the identical script without markers.
+        const legacyRaw = guard.content
+          .split("\n")
+          .filter((line) => line !== "// HATCH3R:BEGIN" && line !== "// HATCH3R:END")
+          .join("\n");
+        expect(isLegacyGeneratedNoMarkerFile(legacyRaw), guardPath).toBe(true);
+      }
+    });
+
+    it("adopts a pre-2.6.0 marker-less guard on first write and is idempotent after", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/mcp-guard.mjs")!;
+      const legacyRaw = guard.content
+        .split("\n")
+        .filter((line) => line !== "// HATCH3R:BEGIN" && line !== "// HATCH3R:END")
+        .join("\n");
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-legacy-"));
+      try {
+        const filePath = join(dir, "mcp-guard.mjs");
+        await writeFile(filePath, legacyRaw, "utf-8");
+
+        const first = await safeWriteFile(filePath, guard.content, {
+          managedContent: guard.managedContent,
+          appendIfNoBlock: true,
+        });
+        expect(first.action).toBe("updated");
+        expect(first.warning).toContain("Adopted");
+        const onDisk = await readFile(filePath, "utf-8");
+        expect(onDisk).toBe(guard.content);
+        // The prepend disposition would have kept a stale full copy of the
+        // script below the block — two `import { readFileSync }` bindings are
+        // a SyntaxError on every hook invocation.
+        expect(onDisk.match(/import \{ readFileSync \}/g)).toHaveLength(1);
+
+        const second = await safeWriteFile(filePath, guard.content, {
+          managedContent: guard.managedContent,
+          appendIfNoBlock: true,
+        });
+        expect(second.action).toBe("unchanged");
+        expect(second.warning).toBeUndefined();
+        expect(await readFile(filePath, "utf-8")).toBe(guard.content);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 

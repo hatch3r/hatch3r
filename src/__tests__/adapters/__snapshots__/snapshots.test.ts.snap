@@ -112,9 +112,9 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "9650ab21f1e963a1f42915776a70dab04ff09ce7671657b7e049f564b53a5dcd",
+    "bodyHash": "8a9a3c18098bb7867d09f2baeb12d3a1c7b276981687861f99c8a50cac8940d7",
     "contentMarkers": [],
-    "hasManagedContent": false,
+    "hasManagedContent": true,
     "path": ".claude/hooks/pretooluse-allowlist.mjs",
   },
   {
@@ -436,25 +436,25 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "a48349d176344094fa5074655db0ca553b84b07b54637e85e4d6528b17a8f4b7",
+    "bodyHash": "e09872cee00bbfa2bd79934f7993ba1a347f8fc323a32cd9a7545aebb899c2b3",
     "contentMarkers": [
       "MCP_CONFIG",
     ],
-    "hasManagedContent": false,
+    "hasManagedContent": true,
     "path": ".cursor/hooks/mcp-guard.mjs",
   },
   {
     "action": "create",
-    "bodyHash": "cd048472ed19f88020e7d988343dbf13d724974e86697c58272260fa654d3bcd",
+    "bodyHash": "56b03f201ae0b2bcbc8501b96933fafdde7ce510bef942d6c89deeb98c2861c7",
     "contentMarkers": [],
-    "hasManagedContent": false,
+    "hasManagedContent": true,
     "path": ".cursor/hooks/subagent-guard.mjs",
   },
   {
     "action": "create",
-    "bodyHash": "d886e5931680e081dfad385e9b0aab5d79a0304e5324b2d2175b2c07bacb46ca",
+    "bodyHash": "5c19b6847f8ca7f18d6b1e52af5a4b5f210a19639ff2c22c521e4fdee9619f2a",
     "contentMarkers": [],
-    "hasManagedContent": false,
+    "hasManagedContent": true,
     "path": ".cursor/hooks/workdir-guard.mjs",
   },
   {

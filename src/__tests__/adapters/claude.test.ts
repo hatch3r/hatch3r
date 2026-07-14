@@ -1837,6 +1837,34 @@ Low priority rule body.
       expect(hookScript!.content).toContain('mcp__');
     });
 
+    // release/2.6.0: the .mjs is a MANAGED output. The raw pre-2.6.0 emission
+    // (no markers, no managedContent) fell into safeWrite's unmanaged-file
+    // fallback — the basename has no `hatch3r-` prefix — so every second
+    // `hatch3r sync` skipped the existing file with a "managed block markers
+    // (HATCH3R:BEGIN/END) missing" warning.
+    it("wraps the .mjs hook in JS line-comment markers with the shebang above the block", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const hookScript = outputs.find(
+        (o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs",
+      );
+      expect(hookScript).toBeDefined();
+      const lines = hookScript!.content.split("\n");
+      // JS hashbang grammar permits `#!` only at byte 0 — the shebang must
+      // stay ABOVE the managed block, and the markers must be `//` comments
+      // (HTML `<!-- -->` markers are a JS SyntaxError).
+      expect(lines[0]).toBe("#!/usr/bin/env node");
+      expect(lines[1]).toBe("// HATCH3R:BEGIN");
+      expect(lines[lines.length - 2]).toBe("// HATCH3R:END");
+      expect(hookScript!.content).not.toContain("<!--");
+      // managedContent is the block interior: the script body without the
+      // shebang and without the markers — safeWriteFile merges with it.
+      expect(hookScript!.managedContent).toBeDefined();
+      expect(hookScript!.managedContent).not.toContain("#!/usr/bin/env node");
+      expect(hookScript!.managedContent).not.toContain("HATCH3R:BEGIN");
+      expect(hookScript!.content).toContain(hookScript!.managedContent!.trim());
+    });
+
     // Runtime tests: write the emitted script + policy file to a temp
     // directory, invoke with `node`, pipe a JSON payload on stdin, and
     // assert the documented Claude Code contract. These catch the
@@ -1880,6 +1908,22 @@ Low priority rule body.
           proc.stdin.end(JSON.stringify(payload));
         });
       };
+
+      it("emits syntactically valid ESM — `node --check` accepts the marker-wrapped file (release/2.6.0)", async () => {
+        const { hookPath } = await setupHookDir();
+        const { spawn } = await import("node:child_process");
+        const result = await new Promise<{ code: number | null; stderr: string }>(
+          (resolve, reject) => {
+            const proc = spawn("node", ["--check", hookPath], { stdio: "pipe" });
+            let stderr = "";
+            proc.stderr.on("data", (b) => (stderr += b.toString()));
+            proc.on("error", reject);
+            proc.on("close", (code) => resolve({ code, stderr }));
+          },
+        );
+        expect(result.stderr).toBe("");
+        expect(result.code).toBe(0);
+      });
 
       it("passes through main-thread calls (no agent_type) with empty stdout", async () => {
         const { hookPath } = await setupHookDir();
@@ -2218,6 +2262,10 @@ Low priority rule body.
       const outputs = await adapter.generate(FIXTURES_DIR, manifest);
       for (const out of outputs) {
         if (!out.managedContent) continue;
+        // release/2.6.0: the `.mjs` allowlist hook is a managed output but can
+        // never carry the HTML-comment cache sentinels (a JS SyntaxError);
+        // sentinel idempotency is a markdown prompt-output contract.
+        if (!out.path.endsWith(".md")) continue;
         const startMatches = out.content.match(
           new RegExp(CACHE_BREAKPOINT_SENTINEL_START.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"),
         );
