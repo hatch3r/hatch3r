@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, relative, isAbsolute } from "node:path";
-import { extractManagedBlock } from "../merge/managedBlocks.js";
-import { safeWriteFile } from "../merge/safeWrite.js";
+import { extractManagedBlock, splitAtManagedBlock } from "../merge/managedBlocks.js";
+import { readPrefixFrontmatterField, safeWriteFile } from "../merge/safeWrite.js";
 import { HATCH3R_DIR, type AdapterOutput } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { getRunId } from "../cli/shared/runId.js";
@@ -103,6 +103,18 @@ export interface ProvenanceEntry {
   adapter: string;
   sourceFiles: string[];
   contentHash?: string;
+  /**
+   * release/2.7.0 (additive — `schemaVersion` stays 1; old readers ignore
+   * unknown keys): the `model:` / `effort:` scalars parsed from the output's
+   * out-of-block frontmatter prefix at emit time
+   * ({@link readPrefixFrontmatterField} over `splitAtManagedBlock().prefix`).
+   * `hatch3r status` compares the ON-DISK prefix against these to attribute a
+   * hand-edited stub (`user-modified` / `frontmatter-stub-edited`) instead of
+   * blanket-reporting `canonical-outdated`. Absent when the output has no
+   * managed block, no prefix, or no such frontmatter field.
+   */
+  emittedModel?: string;
+  emittedEffort?: string;
 }
 
 /** The full on-disk `.hatch3r/provenance.json` document (schemaVersion 1). */
@@ -207,28 +219,41 @@ export async function writeProvenance(
     // `generatedAt` / `lastRunId` on every re-run and breaking idempotency.
     const successfulOutputs = sortEntries(
       perAdapterOutputs.flatMap((entry) =>
-        entry.outputs.map((out) => ({
-          path: out.path,
-          adapter: entry.adapter,
-          // D12-3: persist content-root-relative source ids, not the absolute
-          // home paths BaseAdapter tracks (sort after relativizing so order is
-          // stable on the rewritten strings).
-          sourceFiles: relSources(out.sourceFiles),
-          // F2.7-F5 (D2): emit-time hash of the normalized managed block (or
-          // full content when the output has no block). `status` re-derives
-          // this from the on-disk file to tell a user edit (on-disk differs
-          // from this baseline) from an outdated canonical block (a fresh
-          // regeneration differs from this baseline).
-          // D12-SA12.2-03 (Cycle 12 Wave 4, D12, CQ2): pass `out.path` so the
-          // baseline uses the SAME path-aware, variant-ordered block extraction
-          // the status reader applies (status.ts computes BOTH its hashes with
-          // filePath). Without it, a `.yml` output whose user region quotes a
-          // complete HTML marker pair on its own lines hashes the HTML-first
-          // block here but the YAML block in the reader — flipping drift
-          // attribution to a phantom `(your edit)` on an untouched safe-to-sync
-          // file. `out.path` is already the row's key two lines up.
-          contentHash: hashEmittedContent(out.content, out.managedContent, out.path),
-        })),
+        entry.outputs.map((out) => {
+          // release/2.7.0: capture the emit-time `model:`/`effort:` scalars
+          // from the out-of-block frontmatter prefix (the slice before the
+          // HATCH3R:BEGIN marker) so `status` can tell a hand-edited stub from
+          // a moved canonical mapping. Same parse the safeWrite stub-heal
+          // warning uses (readPrefixFrontmatterField), so writer and reader
+          // agree byte-for-byte. `undefined` (no block, empty prefix, or no
+          // field) is dropped by JSON.stringify — prefix-less outputs persist
+          // without the keys.
+          const prefix = splitAtManagedBlock(out.content, out.path)?.prefix ?? "";
+          return {
+            path: out.path,
+            adapter: entry.adapter,
+            // D12-3: persist content-root-relative source ids, not the absolute
+            // home paths BaseAdapter tracks (sort after relativizing so order is
+            // stable on the rewritten strings).
+            sourceFiles: relSources(out.sourceFiles),
+            // F2.7-F5 (D2): emit-time hash of the normalized managed block (or
+            // full content when the output has no block). `status` re-derives
+            // this from the on-disk file to tell a user edit (on-disk differs
+            // from this baseline) from an outdated canonical block (a fresh
+            // regeneration differs from this baseline).
+            // D12-SA12.2-03 (Cycle 12 Wave 4, D12, CQ2): pass `out.path` so the
+            // baseline uses the SAME path-aware, variant-ordered block extraction
+            // the status reader applies (status.ts computes BOTH its hashes with
+            // filePath). Without it, a `.yml` output whose user region quotes a
+            // complete HTML marker pair on its own lines hashes the HTML-first
+            // block here but the YAML block in the reader — flipping drift
+            // attribution to a phantom `(your edit)` on an untouched safe-to-sync
+            // file. `out.path` is already the row's key two lines up.
+            contentHash: hashEmittedContent(out.content, out.managedContent, out.path),
+            emittedModel: readPrefixFrontmatterField(prefix, "model"),
+            emittedEffort: readPrefixFrontmatterField(prefix, "effort"),
+          };
+        }),
       ),
     );
 
@@ -262,6 +287,18 @@ export async function writeProvenance(
             // so a content change refreshes both the baseline hash and the
             // timestamp; identical re-runs stay byte-identical.
             p.contentHash === c.contentHash &&
+            // release/2.7.0: the emitted model/effort scalars participate too.
+            // `contentHash` covers only the managed BLOCK, so a prefix-only
+            // change (hatch3r's model mapping moves `model: opus` → `fable`
+            // above the BEGIN marker) leaves it identical — without these two
+            // comparisons the match branch would carry generatedAt/lastRunId
+            // forward across that real baseline change, stamping the refreshed
+            // scalars with the OLD run's identity. Cost: the first post-2.7.0
+            // run mismatches once (pre-2.7.0 manifests lack the keys) and
+            // mints a fresh generatedAt; every later no-op run matches and
+            // stays byte-identical.
+            p.emittedModel === c.emittedModel &&
+            p.emittedEffort === c.emittedEffort &&
             p.sourceFiles.length === c.sourceFiles.length &&
             p.sourceFiles.every((s, j) => s === c.sourceFiles[j])
           );

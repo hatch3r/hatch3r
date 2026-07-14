@@ -60,6 +60,22 @@ describe("rehydrateCustomization", () => {
     expect(parsed).toEqual({ model: "opus" });
   });
 
+  it("round-trips `effort` through the manifest (release/2.7.0 whitelist member)", async () => {
+    const projectRoot = await createProjectRoot();
+    const customization: CustomizationManifest = {
+      schemaVersion: 1,
+      agents: {
+        "hatch3r-reviewer": { model: "opus", effort: "xhigh" },
+      },
+    };
+    const summary = await rehydrateCustomization(projectRoot, customization);
+    expect(summary.materialized).toEqual(["agents/hatch3r-reviewer"]);
+
+    const yamlPath = join(projectRoot, ".hatch3r", "agents", "hatch3r-reviewer.customize.yaml");
+    const parsed = parseYaml(await readFile(yamlPath, "utf-8"));
+    expect(parsed).toEqual({ model: "opus", effort: "xhigh" });
+  });
+
   it("preserves an existing .customize.yaml (Layer 2 wins over Layer 4)", async () => {
     const projectRoot = await createProjectRoot();
     // Pre-create a user-owned .customize.yaml with a different value.

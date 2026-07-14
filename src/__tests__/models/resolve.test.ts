@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveAgentModel, resolveArtifactModel, withProviderPrefix } from "../../models/resolve.js";
+import { resolveAgentEffort, resolveAgentModel, resolveArtifactModel, withProviderPrefix } from "../../models/resolve.js";
 import type { CanonicalFile, HatchManifest } from "../../types.js";
 
 function makeAgent(overrides: Partial<CanonicalFile> = {}): CanonicalFile {
@@ -96,7 +96,7 @@ describe("resolveAgentModel", () => {
   it("resolves sonnet/fable to the current GA models (D1-SA1.6-03 alias bump, 2026-07-14)", () => {
     // The queued sonnet bump landed with the release/2.6.0 model-class work:
     // `sonnet` -> claude-sonnet-5 in lock-step with costEstimator.ts
-    // TIER_ALIASES/MODEL_RATES; the new `fable` alias pins the top model.
+    // MODEL_RATES; the new `fable` alias pins the top model.
     const manifest = makeManifest();
     expect(resolveAgentModel("hatch3r-implementer", makeAgent({ model: "sonnet" }), manifest)).toBe("claude-sonnet-5");
     expect(resolveAgentModel("hatch3r-implementer", makeAgent({ model: "fable" }), manifest)).toBe("claude-fable-5");
@@ -110,18 +110,19 @@ describe("resolveAgentModel", () => {
     expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe("claude-opus-4-8");
   });
 
-  it("passes model-class words (and legacy tier words) through verbatim (D5-21, release/2.6.0)", () => {
-    // `economy`/`default`/`strongest` (and the legacy `standard`/`fast`) are
-    // capability classes, NOT MODEL_ALIASES keys: resolveModelAlias has no
-    // entry, so they must pass through unchanged. Each adapter then maps the
-    // class at emission time via src/models/tiers.ts (normalizeModelClass +
-    // per-adapter tier maps) instead of shipping a value the platform would
-    // reject. This test locks the passthrough contract so a regression that
-    // aliases the class words — which would collapse every adapter onto one
-    // vendor mapping and re-introduce the dead native field D9-16 removed —
-    // fails here.
+  it("passes model-class words (and legacy synonyms) through verbatim (D5-21; 4-class ladder release/2.7.0)", () => {
+    // The four class words `economy`/`standard`/`advanced`/`frontier` and the
+    // five legacy synonyms `fast`/`standard` (pre-2.6.0 sense)/`default`/
+    // `reasoning`/`strongest` are capability classes, NOT MODEL_ALIASES keys:
+    // resolveModelAlias has no entry, so they must pass through unchanged.
+    // Each adapter then maps the class at emission time via
+    // src/models/tiers.ts (normalizeModelClass + per-adapter tier maps)
+    // instead of shipping a value the platform would reject. This test locks
+    // the passthrough contract so a regression that aliases the class words —
+    // which would collapse every adapter onto one vendor mapping and
+    // re-introduce the dead native field D9-16 removed — fails here.
     const manifest = makeManifest();
-    for (const cls of ["economy", "default", "strongest", "standard", "fast"]) {
+    for (const cls of ["economy", "standard", "advanced", "frontier", "fast", "default", "reasoning", "strongest"]) {
       const agent = makeAgent({ model: cls });
       expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(cls);
     }
@@ -211,6 +212,37 @@ describe("resolveArtifactModel", () => {
     expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(
       resolveArtifactModel("agents", "hatch3r-implementer", agent.model, manifest),
     );
+  });
+});
+
+// release/2.7.0 effort axis: resolveAgentEffort resolves the EXPLICIT effort
+// only (customize > frontmatter); the class-default fallback lives in
+// defaultEffortForClass (src/models/tiers.ts) and is composed by adapters
+// because it depends on whether the emitted model came from a class mapping.
+describe("resolveAgentEffort", () => {
+  it("returns undefined when neither customize nor frontmatter declares effort", () => {
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent())).toBeUndefined();
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent(), {})).toBeUndefined();
+  });
+
+  it("uses the frontmatter effort when no customize override exists", () => {
+    const agent = makeAgent({ effort: "xhigh" });
+    expect(resolveAgentEffort("hatch3r-implementer", agent)).toBe("xhigh");
+  });
+
+  it("customize beats frontmatter (highest priority)", () => {
+    const agent = makeAgent({ effort: "xhigh" });
+    expect(resolveAgentEffort("hatch3r-implementer", agent, { effort: "low" })).toBe("low");
+  });
+
+  it("returns the normalized form when the winning value normalizes (' XHIGH ' -> xhigh)", () => {
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent({ effort: " XHIGH " }))).toBe("xhigh");
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent({ effort: "high" }), { effort: "Max" })).toBe("max");
+  });
+
+  it("passes an unknown value through verbatim (adapter gates own the drop-with-warning)", () => {
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent({ effort: "turbo" }))).toBe("turbo");
+    expect(resolveAgentEffort("hatch3r-implementer", makeAgent(), { effort: "inherit" })).toBe("inherit");
   });
 });
 

@@ -2,7 +2,8 @@
 id: hatch3r-brownfield-spec
 type: agent
 description: Brownfield spec agent — produces codebase map, existing-pattern detection, integration-surface analysis, migration-aware plan, non-destructive-adoption check, plus shared core (requirements + acceptance criteria + risk inventory + test plan). Use when adding to or migrating an existing codebase.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [spec, planning, brownfield, migration, floor:content-quality]
 pillars:
   governance: [P2, P1]

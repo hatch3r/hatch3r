@@ -2,7 +2,8 @@
 id: hatch3r-ui
 type: agent
 description: UI quality specialist — reviews generated UI for WCAG 2.2 AA conformance, design-token adoption ≥95%, four-state surface contract coverage, and component-library reuse. Use when UI is authored or modified.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [review, ui, accessibility, floor:content-quality]
 pillars:
   governance: [P2]

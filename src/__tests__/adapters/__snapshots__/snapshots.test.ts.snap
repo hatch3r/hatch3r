@@ -491,7 +491,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "05c409ffbfb90d94fb1352f8cd276af8666749ee5afc5bf9d708f21e545f8f88",
+    "bodyHash": "a0e0df977bb18e8e74636c4d84c520d35a9386ec62a74938442b5c6840599818",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",

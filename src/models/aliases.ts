@@ -10,17 +10,20 @@
  * (`claude-sonnet-4-6`, D1-SA1.6-03) before the bump to `claude-sonnet-5`.
  * Re-verify every row against the vendor's published model list before a
  * release — the `opus`/`sonnet`/`haiku`/`fable` targets must stay in lock with
- * `MODEL_RATES`/`TIER_ALIASES` in `src/pipeline/costEstimator.ts` (the rate map
- * and this alias map both name `claude-sonnet-5` for the sonnet tier) and with
- * the user-facing table in `docs/model-selection.md`. Anthropic models last
- * verified 2026-07-14; codex/gemini rows last verified 2026-06-06.
+ * `MODEL_RATES` in `src/pipeline/costEstimator.ts` (whose `resolveModelRate`
+ * derives alias and class rates through THIS map, so every Anthropic alias
+ * target here must carry a rate row there) and with the user-facing table in
+ * `docs/model-selection.md`. Anthropic models last verified 2026-07-14;
+ * codex/gemini rows last verified 2026-06-06.
  *
- * NOT aliases by design: the model-class words `economy`/`default`/`strongest`
- * (authored on the 30 canonical agents' `model:` frontmatter) and their legacy
- * synonyms `fast`/`standard`/`reasoning` are NOT keys here. They are capability
- * classes (`ModelClass` in src/models/tiers.ts), not model IDs, so
- * `resolveModelAlias` passes them through verbatim and each adapter maps the
- * class to its own native vocabulary at emission time
+ * NOT aliases by design: the four model-class words
+ * `economy`/`standard`/`advanced`/`frontier` (authored on the canonical
+ * agents' `model:` frontmatter) and the five legacy class synonyms `fast`,
+ * the pre-2.6.0 middle-tier `standard`, `default`, `reasoning`, and
+ * `strongest` are NOT keys here. They are capability classes (`ModelClass` in
+ * src/models/tiers.ts), not model IDs, so `resolveModelAlias` passes them
+ * through verbatim and each adapter maps the class to its own native
+ * vocabulary at emission time
  * (`normalizeModelClass` + the per-adapter tier maps in src/models/tiers.ts).
  * Adding them here would collapse every adapter onto one vendor mapping and
  * re-introduce the dead-field emission the class machinery removed

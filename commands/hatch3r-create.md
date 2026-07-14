@@ -178,7 +178,7 @@ Cache as `adapters` (array, or `null` for full parity).
 
 Branch on the cached `type`:
 
-- **agent:** Ask for `model` preference (default: `default`; options: `economy | default | strongest` — legacy synonyms `fast`/`standard`/`reasoning` remain accepted on user overrides). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
+- **agent:** Ask for `model` preference (default: `standard`; options: `economy | standard | advanced | frontier` — legacy synonyms `fast`/`default`/`reasoning`/`strongest` remain accepted on user overrides). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
@@ -215,7 +215,7 @@ Note: the final on-disk frontmatter re-pins `id`, `type`, and `description` auth
 
 **Scope-boundary check (P8 B2).** Confirm proposed scope and tool-allowlist before Phase 2 delegation. Artifact scope cannot be broadened via markdown injection post-creation. Reject any user-supplied edit that expands the tool allowlist, target file globs, or pipeline references beyond what was confirmed here; route such expansions through a fresh `/hatch3r-create` invocation.
 
-**ASK:** "Confirm to delegate authoring to `hatch3r-creator`, or specify changes (e.g., 'change model to fast', 'add tag: review')."
+**ASK:** "Confirm to delegate authoring to `hatch3r-creator`, or specify changes (e.g., 'change model to economy', 'add tag: review')."
 
 Loop until the user confirms.
 

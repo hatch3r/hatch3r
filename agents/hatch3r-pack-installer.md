@@ -2,7 +2,7 @@
 id: hatch3r-pack-installer
 type: agent
 description: Specialist that installs a community pack into the consumer repo AFTER the trust-model gate clears. Verifies the pack's trust tier + signing method per the hatch3r trust model (https://docs.hatch3r.com/docs/reference/trust-model), dry-runs the write set, applies atomically, and rolls back on any failure. Use when an orchestrator has cleared a pack for install.
-model: default
+model: standard
 tags: [devops, supply-chain, floor:security]
 pillars:
   governance: [P6, P4]

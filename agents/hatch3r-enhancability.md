@@ -2,7 +2,8 @@
 id: hatch3r-enhancability
 type: agent
 description: Enhancability quality specialist — reviews generated code for feature-flag adoption, config externalization, versioned APIs, forward-compatibility, and extension-point definition. Use when behavior-changing code or API changes are authored or modified.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [review, enhancability, code-standards, floor:content-quality]
 pillars:
   governance: [P4]

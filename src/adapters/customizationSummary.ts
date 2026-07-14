@@ -73,6 +73,8 @@ export interface CustomizationStatus {
   appliedOverrides: {
     description?: string;
     model?: string;
+    /** release/2.7.0 effort axis — agents-only, enum-gated at apply time. */
+    effort?: string;
     scope?: string;
     enabled?: boolean;
   };
@@ -175,6 +177,12 @@ function classifyOutcome(args: {
       // override on" no-op above; D02 §2.3 lists BOTH as When-warns rows, so the
       // classifier catches them symmetrically, not scope-only.
       w.startsWith("Model override on") ||
+      // release/2.7.0: an `effort:` override on a non-agent type is dropped
+      // with this warning (customization.ts TYPES_WITHOUT_EFFORT) — same
+      // no-op family as the scope/model rows above. The enum-gate strip
+      // ("Blocked: YAML effort …") is already caught by the "Blocked: "
+      // prefix row below.
+      w.startsWith("Effort override on") ||
       w.startsWith("Blocked: ") ||
       // D2-SA2.3-09: both YAML-read failure families drop the override —
       // oversize ("Customization YAML for … exceeds … bytes. Skipping.") and the
@@ -291,7 +299,7 @@ export async function buildCustomizationSummary(
       //     surfaced (Cannot disable / override / Scope override).
       //   - `hasMd` true when md content was applied OR a md-shaped warning
       //     surfaced (Blocked: Customization, byte-cap truncation).
-      const yamlWarningPattern = /^(Cannot (disable|override)|Scope override|Model override|Customization YAML)/;
+      const yamlWarningPattern = /^(Cannot (disable|override)|Scope override|Model override|Effort override|Customization YAML)/;
       const mdWarningPattern = /^(Blocked: Customization|Customization markdown)/;
       const hasYaml = overrideKeys.length > 0 || result.skip || result.warnings.some((w) => yamlWarningPattern.test(w));
       const hasMd = hasMdContent || result.warnings.some((w) => mdWarningPattern.test(w));
@@ -305,6 +313,7 @@ export async function buildCustomizationSummary(
         appliedOverrides: {
           description: result.overrides.description,
           model: result.overrides.model,
+          effort: result.overrides.effort,
           scope: result.overrides.scope,
           enabled: result.overrides.enabled,
         },

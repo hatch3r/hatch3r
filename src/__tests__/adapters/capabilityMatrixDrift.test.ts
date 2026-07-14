@@ -22,15 +22,16 @@
 // toggles the `.hatch3r/handoffs/` bridge segment, so it is digest-diff
 // observable like the other eight feature flags.
 //
-// The remaining three (worktree, customization, modelOverride) are not
-// observable via a feature flag alone — they depend on manifest-level
+// The remaining four (worktree, customization, modelOverride, effortOverride)
+// are not observable via a feature flag alone — they depend on manifest-level
 // configuration and on whether the adapter threads a specific runtime through
 // its pipeline. D2-16 (Cycle 11 Wave 3) closes the prior gap where nothing
 // pinned them: the "extended-column drift protection (D2-16)" describe block
 // asserts each against its real behavioural source — `worktree` against the
 // load-bearing `WORKTREE_CAPABLE_TOOLS` Set (from which the matrix column is
-// now derived), and `customization` / `modelOverride` against each adapter's
-// `doGenerate` invoking `applyCustomization` / `resolveAgentModel`.
+// now derived), and `customization` / `modelOverride` / `effortOverride`
+// (release/2.7.0) against each adapter's `doGenerate` invoking
+// `applyCustomization` / `resolveAgentModel` / `resolveAgentEffort`.
 //
 // ── Detection heuristic ───────────────────────────────────────────────────────
 // For each (tool, feature) pair:
@@ -281,18 +282,23 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
 
   // ── D2-16 (Cycle 11 Wave 3): extended-column drift protection ──────────────
   //
-  // The three extended columns (worktree, customization, modelOverride) are not
-  // observable via a single feature flag, so the feature-flag loop below scopes
-  // them out (see the header comment). Before this wave nothing pinned them, so
-  // the matrix could silently lie (flip `cursor.worktree=false` and no behaviour
-  // changed, no test failed). Pin each column to its REAL behavioural source:
-  //   - worktree      → WORKTREE_CAPABLE_TOOLS (the Set init/config/update read).
-  //   - customization → each adapter's doGenerate invoking applyCustomization.
-  //   - modelOverride → each adapter's doGenerate invoking resolveAgentModel.
-  // The customization/modelOverride sources are asserted by reading the adapter
-  // source file and checking the call is present — a static behavioural probe
-  // that catches "adapter dropped the capability but the matrix still claims it"
-  // without mocking the generation pipeline.
+  // The four extended columns (worktree, customization, modelOverride,
+  // effortOverride) are not observable via a single feature flag, so the
+  // feature-flag loop below scopes them out (see the header comment). Before
+  // this wave nothing pinned them, so the matrix could silently lie (flip
+  // `cursor.worktree=false` and no behaviour changed, no test failed). Pin
+  // each column to its REAL behavioural source:
+  //   - worktree       → WORKTREE_CAPABLE_TOOLS (the Set init/config/update read).
+  //   - customization  → each adapter's doGenerate invoking applyCustomization.
+  //   - modelOverride  → each adapter's doGenerate invoking resolveAgentModel.
+  //   - effortOverride → each adapter's doGenerate invoking resolveAgentEffort
+  //     (release/2.7.0 effort axis — claude emits an `effort:` frontmatter
+  //     key, cursor a clamped bracket suffix on the model pin; copilot has no
+  //     effort surface, so its source must NOT invoke the resolver).
+  // The customization/modelOverride/effortOverride sources are asserted by
+  // reading the adapter source file and checking the call is present — a
+  // static behavioural probe that catches "adapter dropped the capability but
+  // the matrix still claims it" without mocking the generation pipeline.
   describe("extended-column drift protection (D2-16)", () => {
     const ADAPTER_SOURCE: Record<Tool, string> = {
       cursor: resolve(import.meta.dirname, "../../adapters/cursor.ts"),
@@ -329,6 +335,23 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
           ADAPTER_CAPABILITIES[tool].modelOverride,
           `${tool}: ADAPTER_CAPABILITIES.modelOverride=${ADAPTER_CAPABILITIES[tool].modelOverride} but ` +
             `adapter ${invokes ? "DOES" : "does NOT"} invoke resolveAgentModel. Align the matrix column with the source.`,
+        ).toBe(invokes);
+      });
+
+      it(`${tool}.effortOverride equals resolveAgentEffort invocation in doGenerate`, () => {
+        // release/2.7.0 effort axis: claude expresses per-agent effort as an
+        // `effort:` frontmatter key and cursor as a clamped `[effort=high]`
+        // bracket suffix on the emitted model pin — both paths start at
+        // resolveAgentEffort, so its presence in the adapter source is the
+        // behavioural fact the column asserts (same probe as modelOverride).
+        // copilot has no effort surface (its custom-agents frontmatter
+        // reference documents no effort key), so its source must NOT invoke
+        // the resolver and its column is false.
+        const invokes = adapterInvokes(tool, "resolveAgentEffort");
+        expect(
+          ADAPTER_CAPABILITIES[tool].effortOverride,
+          `${tool}: ADAPTER_CAPABILITIES.effortOverride=${ADAPTER_CAPABILITIES[tool].effortOverride} but ` +
+            `adapter ${invokes ? "DOES" : "does NOT"} invoke resolveAgentEffort. Align the matrix column with the source.`,
         ).toBe(invokes);
       });
     }

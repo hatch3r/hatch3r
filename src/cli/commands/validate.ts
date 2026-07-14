@@ -24,6 +24,7 @@ import { validateLearningsDirectory } from "../../content/learningsValidation.js
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
+import { EFFORT_LEVELS, MODEL_CLASSES, normalizeEffortLevel, normalizeModelClass } from "../../models/tiers.js";
 import { runComplianceChecks } from "../../pipeline/complianceVerification.js";
 import { detectCliTools } from "../../cliTools/detect.js";
 import {
@@ -689,7 +690,7 @@ async function validateCliTools(
   }
 }
 
-async function validateModels(
+export async function validateModels(
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
@@ -714,18 +715,77 @@ async function validateModels(
       }
     }
   }
-  // release/2.6.0: models.tiers pins what each model class
-  // (economy|default|strongest) resolves to; consumed verbatim by
-  // `resolveTierModel` (src/models/tiers.ts). Mirrors `collectManifestErrors`.
+  // release/2.6.0 (4-class ladder release/2.7.0): models.tiers pins what each
+  // model class (economy|standard|advanced|frontier) resolves to; consumed
+  // verbatim by `resolveTierModel` (src/models/tiers.ts), which exact-matches
+  // the canonical key first and honors legacy synonym keys by normalization.
+  // Shape errors mirror `collectManifestErrors`; the four lints below
+  // (legacy-key rename, dual-key shadow, unknown key, circular class pin) are
+  // validate-only — resolveTierModel stays a pure warning-free read.
   const tiers = manifest.models.tiers;
   if (tiers !== undefined) {
     if (typeof tiers !== "object" || tiers === null || Array.isArray(tiers)) {
       result.errors.push("hatch.json: models.tiers must be an object mapping model classes to model strings");
     } else {
-      for (const cls of ["economy", "default", "strongest"] as const) {
-        const pin = tiers[cls];
+      const canonicalClasses = new Set<string>(MODEL_CLASSES);
+      const keysByClass = new Map<string, string[]>();
+      for (const [key, pin] of Object.entries(tiers)) {
+        const cls = normalizeModelClass(key);
+        if (cls === null) {
+          result.warnings.push(
+            `hatch.json: models.tiers.${key} is not a model class (valid keys: ${MODEL_CLASSES.join(", ")}) — entry has no effect`,
+          );
+          continue;
+        }
         if (pin !== undefined && typeof pin !== "string") {
-          result.errors.push(`hatch.json: models.tiers.${cls} must be a string`);
+          result.errors.push(`hatch.json: models.tiers.${key} must be a string`);
+          continue;
+        }
+        if (!canonicalClasses.has(key)) {
+          result.warnings.push(
+            `hatch.json: models.tiers.${key} is a legacy key; rename to ${cls} — still honored`,
+          );
+        }
+        keysByClass.set(cls, [...(keysByClass.get(cls) ?? []), key]);
+        // Circular pin: a tier VALUE that itself normalizes to a class word
+        // is passed through verbatim by resolveTierModel and reaches the
+        // adapters as a class word again — it never emits natively.
+        if (typeof pin === "string" && normalizeModelClass(pin) !== null) {
+          result.warnings.push(
+            `hatch.json: models.tiers.${key}: "${pin}" pins a class to another class word — the pin passes through verbatim and never emits natively; use a model alias or concrete id`,
+          );
+        }
+      }
+      for (const [cls, keys] of keysByClass) {
+        if (keys.length > 1) {
+          result.warnings.push(
+            `hatch.json: models.tiers keys ${keys.map((k) => `"${k}"`).join(" + ")} normalize to the same class (${cls}) — the canonical key wins`,
+          );
+        }
+      }
+    }
+  }
+  // release/2.7.0: models.tierEfforts pins the class-wide reasoning-effort
+  // default (`resolveTierEffort` in src/models/tiers.ts). Canonical class
+  // keys only and a closed 5-level enum, so both violations are ERRORS —
+  // unlike models.tiers there is no legacy-key back-compat to honor.
+  const tierEfforts = manifest.models.tierEfforts;
+  if (tierEfforts !== undefined) {
+    if (typeof tierEfforts !== "object" || tierEfforts === null || Array.isArray(tierEfforts)) {
+      result.errors.push("hatch.json: models.tierEfforts must be an object mapping model classes to effort levels");
+    } else {
+      const canonicalClasses = new Set<string>(MODEL_CLASSES);
+      for (const [key, value] of Object.entries(tierEfforts)) {
+        if (!canonicalClasses.has(key)) {
+          result.errors.push(
+            `hatch.json: models.tierEfforts.${key} is not a canonical model class — valid keys: ${MODEL_CLASSES.join(", ")} (legacy keys are not accepted here)`,
+          );
+          continue;
+        }
+        if (typeof value !== "string" || normalizeEffortLevel(value) === null) {
+          result.errors.push(
+            `hatch.json: models.tierEfforts.${key} must be one of ${EFFORT_LEVELS.join("|")}`,
+          );
         }
       }
     }
@@ -762,13 +822,14 @@ async function validateCostTracking(
  * Checks that YAML parses correctly, uses only recognized fields,
  * and that field values have the expected types.
  */
-async function validateCustomizeYaml(
+export async function validateCustomizeYaml(
   rootDir: string,
   result: ValidationResult,
 ): Promise<void> {
-  const VALID_FIELDS = new Set(["model", "scope", "description", "enabled"]);
+  const VALID_FIELDS = new Set(["model", "effort", "scope", "description", "enabled"]);
   const FIELD_TYPES: Record<string, string> = {
     model: "string",
+    effort: "string",
     scope: "string",
     description: "string",
     enabled: "boolean",
@@ -854,6 +915,16 @@ async function validateCustomizeYaml(
             );
           }
         }
+      }
+
+      // release/2.7.0: `effort` is a closed enum, not free text — lint values
+      // that fail normalizeEffortLevel here so the user learns about the
+      // apply-time strip (adapters/customization.ts enum gate) at validate
+      // time instead of by diffing generated output.
+      if (typeof parsed.effort === "string" && normalizeEffortLevel(parsed.effort) === null) {
+        result.warnings.push(
+          `.hatch3r/${dir}/${file}: field "effort" must be one of ${EFFORT_LEVELS.join("|")} — the value will be stripped during generation`,
+        );
       }
 
       // Validate the customization through the canonical reader for deeper checks

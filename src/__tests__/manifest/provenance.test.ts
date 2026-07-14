@@ -435,3 +435,123 @@ describe("writeProvenance drift-hash path-awareness + command attribution (D12-S
     expect((await readManifest()).lastCommand).toBe("config");
   });
 });
+
+// release/2.7.0: each provenance entry records the emit-time `model:`/`effort:`
+// prefix scalars (emittedModel/emittedEffort, parsed from the out-of-block
+// frontmatter above HATCH3R:BEGIN) so `hatch3r status` can tell a hand-edited
+// stub from a moved canonical mapping. schemaVersion stays 1 — the fields are
+// additive and old readers ignore them — and they participate in the F2.7-F5
+// idempotency comparison so a prefix-only mapping change refreshes the
+// baseline exactly once instead of being carried as a "match" (contentHash
+// covers only the managed block, never the prefix).
+describe("writeProvenance emittedModel/emittedEffort scalars (release/2.7.0)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-prov-model-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const provenancePath = (): string => join(tempDir, HATCH3R_DIR, PROVENANCE_FILE);
+
+  async function readManifest(): Promise<ProvenanceManifest> {
+    return JSON.parse(await readFile(provenancePath(), "utf-8")) as ProvenanceManifest;
+  }
+
+  const AGENT_PATH = ".claude/agents/hatch3r-implementer.md";
+  const AGENT_CONTENT = [
+    "---",
+    "name: hatch3r-implementer",
+    "model: claude-fable-5",
+    "effort: high",
+    "---",
+    "",
+    "<!-- HATCH3R:BEGIN -->",
+    "agent body",
+    "<!-- HATCH3R:END -->",
+    "",
+  ].join("\n");
+
+  const agentInputs = (): { adapter: string; outputs: AdapterOutput[] }[] => [
+    {
+      adapter: "claude",
+      outputs: [
+        { path: AGENT_PATH, content: AGENT_CONTENT, action: "create", sourceFiles: [] },
+        {
+          path: "CLAUDE.md",
+          content: "# CLAUDE.md\nno managed block here",
+          action: "create",
+          sourceFiles: [],
+        },
+      ],
+    },
+  ];
+
+  const SENTINEL_AT = "1999-12-31T23:59:59.000Z";
+  const SENTINEL_RUN = "scalar-sentinel-run-id";
+
+  it("persists the scalars from a frontmatter-bearing prefix and omits them for prefix-less outputs", async () => {
+    const res = await writeProvenance(tempDir, agentInputs(), "sync");
+    expect(res.written).toBe(true);
+
+    const manifest = await readManifest();
+    expect(manifest.schemaVersion).toBe(1);
+    const agentEntry = manifest.outputs.find((o) => o.path === AGENT_PATH);
+    expect(agentEntry?.emittedModel).toBe("claude-fable-5");
+    expect(agentEntry?.emittedEffort).toBe("high");
+
+    // Prefix-less output: JSON.stringify drops the undefined fields, so the
+    // persisted row carries NO emitted* keys at all (old-reader-identical shape).
+    const plainEntry = manifest.outputs.find((o) => o.path === "CLAUDE.md");
+    expect(plainEntry).toBeDefined();
+    expect(Object.keys(plainEntry!)).not.toContain("emittedModel");
+    expect(Object.keys(plainEntry!)).not.toContain("emittedEffort");
+  });
+
+  it("stays idempotent across two identical runs — no generatedAt flip from the new fields", async () => {
+    const first = await writeProvenance(tempDir, agentInputs(), "sync");
+    expect(first.written).toBe(true);
+    const stamped = await readManifest();
+    const sentinelBytes =
+      JSON.stringify({ ...stamped, generatedAt: SENTINEL_AT, lastRunId: SENTINEL_RUN }, null, 2) +
+      "\n";
+    await writeFile(provenancePath(), sentinelBytes, "utf-8");
+
+    const second = await writeProvenance(tempDir, agentInputs(), "sync");
+    expect(second.written).toBe(true);
+
+    // Match branch carried the sentinels: the scalar fields did not break the
+    // idempotency comparison, and the on-disk bytes are unchanged.
+    expect(await readFile(provenancePath(), "utf-8")).toBe(sentinelBytes);
+  });
+
+  it("treats an emittedModel-only difference as a change: fresh generatedAt + refreshed scalar", async () => {
+    const first = await writeProvenance(tempDir, agentInputs(), "sync");
+    expect(first.written).toBe(true);
+    const stamped = await readManifest();
+    // Simulate a pre-move manifest: same contentHash (the model line lives in
+    // the PREFIX, which the block hash never covers), different recorded model.
+    const mutated: ProvenanceManifest = {
+      ...stamped,
+      generatedAt: SENTINEL_AT,
+      lastRunId: SENTINEL_RUN,
+      outputs: stamped.outputs.map((o) =>
+        o.path === AGENT_PATH ? { ...o, emittedModel: "claude-old-model" } : o,
+      ),
+    };
+    await writeFile(provenancePath(), JSON.stringify(mutated, null, 2) + "\n", "utf-8");
+
+    const second = await writeProvenance(tempDir, agentInputs(), "sync");
+    expect(second.written).toBe(true);
+
+    const after = await readManifest();
+    // The scalar difference invalidated the carry-forward…
+    expect(after.generatedAt).not.toBe(SENTINEL_AT);
+    expect(after.lastRunId).not.toBe(SENTINEL_RUN);
+    // …and the persisted scalar refreshed to the emit-time value.
+    expect(after.outputs.find((o) => o.path === AGENT_PATH)?.emittedModel).toBe("claude-fable-5");
+  });
+});

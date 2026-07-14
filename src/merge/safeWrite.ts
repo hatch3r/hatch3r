@@ -1782,6 +1782,7 @@ async function safeWriteFileLocked(
     // it is deny-clean by authorship exactly like the managed body (see the
     // D1-7-fix scope-narrow rationale above).
     let stubHealed: "missing" | "stale" | null = null;
+    const stubFieldChanges: string[] = [];
     const incomingSplit = splitAtManagedBlock(content, filePath);
     if (incomingSplit && incomingSplit.prefix.trim() !== "") {
       const mergedSplit = splitAtManagedBlock(merged, filePath);
@@ -1791,6 +1792,25 @@ async function safeWriteFileLocked(
         isHealableManagedPrefix(mergedSplit.prefix)
       ) {
         stubHealed = mergedSplit.prefix.trim() === "" ? "missing" : "stale";
+        // release/2.7.0: the stale-stub replacement silently discards any
+        // edit to the hatch3r-owned `model:`/`effort:` lines in the old
+        // prefix. Record each changed field so the warning below makes the
+        // discard visible. Wording stays neutral by design: with no baseline
+        // here, a diff fires both for a user hand-edit AND when hatch3r's own
+        // model mapping moved (an expected one-time burst across migrated
+        // agents on the first post-upgrade sync). `status` owns the
+        // attribution (it compares against the provenance baseline).
+        if (stubHealed === "stale") {
+          for (const field of ["model", "effort"] as const) {
+            const oldValue = readPrefixFrontmatterField(mergedSplit.prefix, field);
+            const newValue = readPrefixFrontmatterField(incomingSplit.prefix, field);
+            if (oldValue !== newValue) {
+              stubFieldChanges.push(
+                `${field}: ${oldValue ?? "(absent)"} → ${newValue ?? "(absent)"}`,
+              );
+            }
+          }
+        }
         merged = incomingSplit.prefix + mergedSplit.rest;
       }
     }
@@ -1817,6 +1837,13 @@ async function safeWriteFileLocked(
       warningParts.push(
         `Restored the byte-0 frontmatter stub in ${filePath} (previous prefix was ${stubHealed === "missing" ? "empty" : "a stale generated stub"}): slash-command pickers read the \`description:\` field before the HATCH3R:BEGIN marker. To customize the description, use \`.hatch3r/<type>/<id>.customize.yaml\` — sync regenerates the stub itself.`,
       );
+      // release/2.7.0: make a model/effort discard visible (neutral wording —
+      // see the capture site above for why no hand-edit attribution is made).
+      if (stubFieldChanges.length > 0) {
+        warningParts.push(
+          `${filePath}: frontmatter model/effort changed on regeneration (${stubFieldChanges.join(", ")}). Durable per-agent overrides: \`.hatch3r/<type>/<id>.customize.yaml\` (model:/effort:) or \`hatch.json\` models.*.`,
+        );
+      }
     }
     if (warningParts.length > 0) {
       return { path: filePath, action: "updated", warning: warningParts.join(" ") };
@@ -1903,4 +1930,45 @@ function isManagedFileName(fileName: string): boolean {
 export function isManagedPath(filePath: string): boolean {
   const fileName = basename(filePath) ?? "";
   return isManagedFileName(fileName);
+}
+
+/**
+ * release/2.7.0: read a single scalar frontmatter field (`model:` or
+ * `effort:`) out of an out-of-block PREFIX — the slice before the
+ * HATCH3R:BEGIN marker (`splitAtManagedBlock().prefix`).
+ *
+ * Line-anchored scan between the first `---` fence pair, using the same fence
+ * walk as `isHealableManagedPrefix` (managedBlocks.ts) — heal-path callers
+ * pass prefixes that helper already validated as exactly one YAML frontmatter
+ * block or whitespace. Returns the trimmed value; `undefined` when the prefix
+ * has no complete fence pair or the field is absent/value-less.
+ *
+ * Three consumers read this ONE parse so they agree byte-for-byte on what was
+ * emitted: the stub-heal warning above (old vs new prefix), the provenance
+ * writer's `emittedModel`/`emittedEffort` scalars (src/manifest/provenance.ts),
+ * and the `status` stub-drift attribution (src/cli/commands/status.ts).
+ */
+export function readPrefixFrontmatterField(
+  prefix: string,
+  field: "model" | "effort",
+): string | undefined {
+  const lines = prefix.split("\n");
+  let i = 0;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
+  if (i >= lines.length || (lines[i] ?? "").trim() !== "---") return undefined;
+  let close = i + 1;
+  while (close < lines.length && (lines[close] ?? "").trim() !== "---") close++;
+  if (close >= lines.length) return undefined; // unterminated fence — no frontmatter block
+  const fieldRe = new RegExp(`^${field}:\\s*(.+)$`);
+  for (let k = i + 1; k < close; k++) {
+    // Strip a CRLF checkout's trailing \r BEFORE matching: `.` excludes line
+    // terminators (\r included), so `(.+)$` would otherwise never match the
+    // line at all. The fence checks above are already CRLF-safe via trim().
+    const match = fieldRe.exec((lines[k] ?? "").replace(/\r$/, ""));
+    if (match) {
+      const value = (match[1] ?? "").trim();
+      if (value !== "") return value;
+    }
+  }
+  return undefined;
 }

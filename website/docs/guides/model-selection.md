@@ -11,7 +11,7 @@ hatch3r lets you configure preferred AI models for your agents — and, where th
 
 When you configure a model, hatch3r includes it in the generated config for each tool (Claude Code, Cursor, Copilot). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
 
-When no model is configured at any level, hatch3r does not emit a model preference. Each platform uses its own default.
+When no model is configured at any level, hatch3r does not emit a model preference and the platform uses its own default. Since 2.6.0 every canonical agent ships a model *class* in its frontmatter (see [Model Classes](#model-classes)) — and since 2.7.0 an optional reasoning-*effort* level (see [Effort](#effort)) — so for agents the "nothing configured" case no longer occurs. It still applies to skills and commands, which carry no canonical `model:`.
 
 ## Configuration Points
 
@@ -33,13 +33,46 @@ The same four layers apply per artifact class (`agents`, `skills`, `commands`):
 4. **Manifest default** -- `hatch.json` -> `models.default` -- applies to **agents only**. Skills and commands never inherit `models.default`: a default that fed them would add `model:` lines to every generated skill/command the moment it is set, and a command-level model switches the whole conversation model — that must stay an explicit per-id choice.
 5. **No model** -- platform uses its own default
 
+## Model Classes
+
+Canonical agents do not pin concrete models. Each declares a capability **class** in `model:` frontmatter — the 4-class ladder `frontier | advanced | standard | economy`, capability-descending (widened from the 2.6.0 3-class ladder in 2.7.0). A class travels through the resolution order above like any other `model:` value and is mapped to each platform's native vocabulary at emission time. Legacy words remain accepted as synonyms in user overrides only (`fast` -> `economy`, `standard`/`default` -> `standard`, `reasoning`/`strongest` -> `frontier`); the canonical corpus itself uses only the four class words.
+
+| Class | Claude Code | Cursor (native) | Copilot (native) |
+|-------|-------------|-----------------|------------------|
+| `frontier` | `model: fable` + `effort: xhigh` (authored `max` on 3 agents) | `model: claude-fable-5[effort=high]` — bracket iff resolved effort ≥ `xhigh`, clamped to `high` | `model: Claude Fable 5` |
+| `advanced` | `model: opus` + `effort:` (authored, else `high`) | `model: claude-opus-4-8` (+ `[effort=high]` iff ≥ `xhigh`) | `model: Claude Opus 4.8` |
+| `standard` | `model: sonnet` (no `effort:` line) | omitted (inherit-by-omission) | omitted (picker default) |
+| `economy` | `model: haiku` + `effort: medium` (authored `low` on the 3 loaders) | `model: fast` (never bracketed) | `model: Claude Haiku 4.5` |
+
+Two knobs adjust class emission:
+
+- **`models.tiers.<class>`** in `hatch.json` pins what a class means project-wide — the pinned value replaces the adapter map verbatim (then alias-expands). Legacy keys (`default`, `strongest`, ...) still resolve; the canonical key wins when both are present. `models.tiers.<class>: "inherit"` is the per-class off-switch: no native model/effort fields for that class.
+- **`cursor.agentModelPins` / `copilot.agentModelPins`** — `"native"` (default) emits the table above; `"conservative"` restores the pre-2.7.0 posture (Cursor `advanced`/`frontier`: no pin, one advisory body line naming the class; Copilot: every class word omitted). `models.tiers` pins are honored under both.
+
+On Claude Code the native field is gated to Claude-recognizable values; if your organization's model allowlist excludes an emitted model, Claude Code itself falls back to `inherit` (the session model) — platform-documented behavior.
+
+## Effort
+
+Since 2.7.0, reasoning effort is a first-class axis orthogonal to class: class selects which model serves an agent; effort sets how much reasoning that model spends. Five levels: `low | medium | high | xhigh | max`.
+
+Per-agent resolution, highest source first:
+
+1. `.hatch3r/agents/{id}.customize.yaml` `effort:` — agents only, closed five-word enum
+2. Authored `effort:` frontmatter on the canonical agent
+3. `hatch.json` -> `models.tierEfforts.<class>` — per-class pin (canonical class keys only)
+4. Built-in class default: `frontier` -> `xhigh`, `advanced` -> `high`, `economy` -> `medium`; `standard` has none — no `effort:` line is emitted and the platform default applies (inherit-by-omission)
+
+The class-level stages (3–4) apply only when the emitted model came from a class mapping; a concrete user-set model gets explicit per-agent effort only. Authored effort sits above every class-level source, so a `models.tierEfforts` pin can never lower an agent below its authored level — only a per-agent `.customize.yaml` `effort:` can.
+
+Per adapter: Claude Code emits the resolved level verbatim as a native `effort:` frontmatter key; Cursor appends `[effort=high]` to `advanced`/`frontier` pins only when the resolved effort is `xhigh` or `max` (clamped to the documented `high`); Copilot has no effort surface and drops the resolved level at emission.
+
 ## Emission Surfaces
 
-Model lines are emitted only where the tool documents a `model` field on that surface. `inherit` is never written — an omitted field IS the inherit/unset semantic on every surface — and values the platform cannot recognize (for example `gpt-4` on Claude Code, or the hatch3r tier words `standard`/`fast`) are omitted rather than shipped as dead frontmatter.
+Model lines are emitted only where the tool documents a `model` field on that surface. `inherit` is never written — an omitted field IS the inherit/unset semantic on every surface. Class words are mapped per the [Model Classes](#model-classes) table; any other platform-unrecognizable value (for example `gpt-4` on Claude Code) is omitted rather than shipped as dead frontmatter.
 
 | Adapter | Agents | Skills | Commands |
 |---------|--------|--------|----------|
-| Claude Code | `model:` in `.claude/agents/*.md` (+ `## Recommended Model` prose) | `model:` in `.claude/skills/*/SKILL.md` | `model:` in `.claude/commands/*.md` |
+| Claude Code | `model:` (+ `effort:`) in `.claude/agents/*.md` (+ `## Recommended Model` prose) | `model:` in `.claude/skills/*/SKILL.md` | `model:` in `.claude/commands/*.md` |
 | Copilot | `model:` in `.github/agents/*.agent.md` | never (SKILL.md model support unverified) | `model:` in `.github/prompts/*.prompt.md` (string form; no `inherit` keyword — unset = field omitted) |
 | Cursor | `model:` in `.cursor/agents/*.md` | never (no documented field) | never (no documented field) |
 
@@ -49,8 +82,9 @@ Use short aliases instead of full model IDs. hatch3r resolves them before emitti
 
 | Alias | Resolves To |
 |-------|-------------|
+| `fable` | `claude-fable-5` |
 | `opus` | `claude-opus-4-8` |
-| `sonnet` | `claude-sonnet-4-6` |
+| `sonnet` | `claude-sonnet-5` |
 | `haiku` | `claude-haiku-4-5` |
 | `codex` | `gpt-5.3-codex` |
 | `codex-prev` | `gpt-5.2-codex` |
@@ -60,7 +94,7 @@ Use short aliases instead of full model IDs. hatch3r resolves them before emitti
 | `gemini-flash` | `gemini-3-flash` |
 | `gemini-stable` | `gemini-2.5-pro` |
 
-Unknown values are passed through as-is.
+Unknown values are passed through as-is. The four model-class words and their legacy synonyms are deliberately NOT aliases — they are capability classes mapped per adapter, not model ids.
 
 ## Examples
 
@@ -69,10 +103,15 @@ Unknown values are passed through as-is.
 ```json
 {
   "models": {
-    "default": "opus",
     "agents": {
       "hatch3r-lint-fixer": "sonnet",
       "hatch3r-testability": "gemini-pro"
+    },
+    "tiers": {
+      "frontier": "fable"
+    },
+    "tierEfforts": {
+      "advanced": "xhigh"
     }
   }
 }
@@ -80,13 +119,14 @@ Unknown values are passed through as-is.
 
 ### Canonical agent frontmatter
 
-In the canonical `agents/hatch3r-implementer.md` (bundled content):
+In the canonical `agents/hatch3r-architect.md` (bundled content) — class word plus authored effort:
 
 ```yaml
 ---
-id: hatch3r-implementer
-description: Focused implementation agent for a single issue.
-model: opus
+id: hatch3r-architect
+description: System architect who designs architecture and evaluates trade-offs.
+model: frontier
+effort: xhigh
 ---
 ```
 
@@ -96,22 +136,19 @@ In `.hatch3r/agents/hatch3r-reviewer.customize.yaml` (keyed by id via its filena
 
 ```yaml
 model: codex
+effort: high
 ```
 
 ## Built-in Agent Defaults
 
-Some agents ship with a default model in their canonical frontmatter. These defaults are tuned for the agent's cognitive profile.
+Every one of the 30 canonical agents ships a model **class** in its frontmatter — no concrete model id appears anywhere in the canonical corpus. 22 also author an `effort:` level:
 
-| Agent | Default | Rationale |
-|-------|---------|-----------|
-| `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost |
-| `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback |
-| `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy |
-| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis |
-| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation |
-| `hatch3r-testability` | `sonnet` | Edge-case identification and test design |
-
-Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-performance`) use the platform's own default.
+| Class | Agents | Authored effort |
+|-------|--------|-----------------|
+| `frontier` (16) | the 10 CQ specialists (`ui`, `ux`, `security`, `reliability`, `testability`, `scalability`, `performance`, `maintainability`, `enhancability`, `product-spec`) + `reviewer`, `architect`, `edge-case-analyst`, `incident-responder`, `greenfield-spec`, `brownfield-spec` | `xhigh` (13); `max` on `security`, `reviewer`, `edge-case-analyst` |
+| `advanced` (3) | `implementer`, `fixer`, `creator` | `xhigh` |
+| `standard` (6) | `researcher`, `docs-writer`, `devops`, `pack-installer`, `dependency-drafter`, `handoff-preparer` | -- (platform default) |
+| `economy` (5) | `lint-fixer`, `ci-watcher`, `context-rules`, `handoff-loader`, `learnings-loader` | `low` on the 3 loaders; -- (class default `medium`) on the rest |
 
 Override at any higher precedence level:
 
@@ -127,15 +164,16 @@ Override at any higher precedence level:
 
 ### Cross-Platform Override
 
-Built-in defaults resolve to Anthropic model IDs. Cursor and Copilot can also drive non-Anthropic providers (e.g. OpenAI GPT models) — to run hatch3r agents on those, set a project-wide override:
+Class words map per adapter, so nothing vendor-specific ships by default on surfaces without a mapping. To route every class to another vendor's models, pin the classes project-wide:
 
 ```json
 {
   "models": {
-    "default": "codex",
-    "agents": {
-      "hatch3r-lint-fixer": "codex-spark",
-      "hatch3r-ci-watcher": "codex-spark"
+    "tiers": {
+      "economy": "codex-spark",
+      "standard": "codex",
+      "advanced": "codex",
+      "frontier": "codex"
     }
   }
 }
@@ -145,9 +183,9 @@ Built-in defaults resolve to Anthropic model IDs. Cursor and Copilot can also dr
 
 | Platform | Native config? | When model is set |
 |----------|:--------------:|-------------------|
-| Cursor | Yes | `model:` in agent YAML frontmatter |
-| Copilot | Yes (VS Code) | `model:` in agent/prompt YAML; ignored on github.com |
-| Claude Code | Yes | `model:` in agent/skill/command YAML frontmatter (Claude-recognizable values); agents also carry `## Recommended Model` guidance for the `/model` + env-var override path |
+| Cursor | Yes | `model:` in agent YAML frontmatter; effort rides as the `[effort=high]` bracket suffix on `advanced`/`frontier` pins when the resolved effort is `xhigh`+ |
+| Copilot | Yes (VS Code) | `model:` in agent/prompt YAML; ignored on github.com; no effort surface — the resolved effort is dropped at emission |
+| Claude Code | Yes | `model:` + `effort:` in agent YAML frontmatter (Claude-recognizable values); skills/commands get `model:` only; agents also carry `## Recommended Model` guidance for the `/model` + env-var override path |
 
 - **Native config** -- the tool can apply the model directly
 - **Guidance** -- the model is included as instructional text; users set it manually

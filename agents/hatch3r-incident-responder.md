@@ -2,7 +2,8 @@
 id: hatch3r-incident-responder
 type: agent
 description: Incident-response specialist who drives a live production incident through structured triage, bounded-autonomy mitigation, stakeholder communication, and a blameless post-mortem with follow-up runbook. Use during an active outage, degradation, or security incident.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [devops, reliability]
 pillars:
   governance: [P2]

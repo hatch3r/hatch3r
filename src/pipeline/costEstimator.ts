@@ -42,6 +42,8 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
 import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failureLog.js";
+import { resolveModelAlias } from "../models/aliases.js";
+import { CLAUDE_TIER_MODEL_MAP, normalizeModelClass } from "../models/tiers.js";
 // Type-only import (erased at compile — no runtime cycle with observability,
 // which imports the USD-cost helpers below at run time). PipelineTokenSummary
 // is the token-estimation aggregate produced by observability's token helpers.
@@ -982,7 +984,11 @@ export interface ModelRate {
  * `accessed:` rows (a second source alongside the cost-tracking skill table) and
  * warns — or, under `--strict`, errors — when a row crosses its 90-day window.
  * When re-fetching, update the rates + `accessed` date in BOTH homes together —
- * the parity test fails on any drift.
+ * the parity test fails on any drift. Tier aliases and model-class words carry
+ * no rows here: {@link resolveModelRate} derives them through
+ * `MODEL_ALIASES`/`CLAUDE_TIER_MODEL_MAP` (release/2.7.0 — the former local
+ * `TIER_ALIASES` shadow map was deleted so the class → model → rate chain has
+ * a single home and cannot drift from the emission path).
  */
 export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
   "claude-fable-5": { inputCostPer1M: 10.0, outputCostPer1M: 50.0, accessed: "2026-07-13" },
@@ -995,38 +1001,27 @@ export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
 } as const;
 
 /**
- * Tier-alias → canonical-model-id map for {@link resolveModelRate}. Each alias
- * points at the current default model in that tier; bump these when a new model
- * version ships. Kept separate from {@link MODEL_RATES} so the rate map stays a
- * pure id→rate table. Also carries the model-class words
- * `economy`/`default`/`strongest` (src/models/tiers.ts), mapped to the same
- * targets as their Claude tier aliases (haiku/sonnet/opus per
- * `CLAUDE_TIER_MODEL_MAP`), so `hatch3r explain --cost --model strongest`
- * resolves a rate for a class-authored agent.
- */
-const TIER_ALIASES: Readonly<Record<string, keyof typeof MODEL_RATES>> = {
-  opus: "claude-opus-4-8",
-  sonnet: "claude-sonnet-5",
-  haiku: "claude-haiku-4-5",
-  fable: "claude-fable-5",
-  economy: "claude-haiku-4-5",
-  default: "claude-sonnet-5",
-  strongest: "claude-opus-4-8",
-} as const;
-
-/**
- * Resolve a model selector to its {@link ModelRate} (D6-18). Accepts a tier
- * alias (`opus`/`sonnet`/`haiku`, case-insensitive) or an exact model id from
- * {@link MODEL_RATES}. Returns `null` for an unknown selector so the caller can
- * surface an actionable error listing the valid selectors.
+ * Resolve a model selector to its {@link ModelRate} (D6-18; class-derived
+ * release/2.7.0). Accepts a model-class word (`economy`/`standard`/
+ * `advanced`/`frontier`, plus the legacy synonyms `fast`/`default`/
+ * `strongest`/`reasoning` via `normalizeModelClass`), a model alias
+ * (`opus`/`sonnet`/`haiku`/`fable`, case-insensitive), or an exact model id
+ * from {@link MODEL_RATES}. A class word derives its rate through
+ * `CLAUDE_TIER_MODEL_MAP` + `resolveModelAlias` — the same chain the Claude
+ * emission path walks — so `hatch3r explain --cost --model frontier` prices
+ * exactly the model a class-authored agent would run, with no shadow map to
+ * drift. Returns `null` for an unknown selector (including non-Claude ids
+ * with no rate row) so the caller can surface an actionable error listing the
+ * valid selectors.
  *
  * Pure function — no I/O, never throws.
  */
 export function resolveModelRate(selector: string): ModelRate | null {
   const key = selector.trim().toLowerCase();
-  const aliased = TIER_ALIASES[key];
-  if (aliased) return MODEL_RATES[aliased];
-  return MODEL_RATES[key] ?? null;
+  const cls = normalizeModelClass(key);
+  const modelId =
+    cls !== null ? resolveModelAlias(CLAUDE_TIER_MODEL_MAP[cls]) : resolveModelAlias(key);
+  return MODEL_RATES[modelId] ?? null;
 }
 
 /**

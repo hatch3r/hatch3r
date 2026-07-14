@@ -2,7 +2,7 @@
 id: hatch3r-handoff-preparer
 type: agent
 description: Prepare a canonical handoff document capturing mid-work session state. Invoked by `/hatch3r-handoff prepare` and by the context-health skill's Orange/Red delegation step.
-model: default
+model: standard
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

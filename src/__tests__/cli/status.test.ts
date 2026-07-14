@@ -653,6 +653,129 @@ describe("status command", () => {
     });
   });
 
+  // release/2.7.0 stub-edit attribution: the provenance baseline records the
+  // emit-time `model:`/`effort:` prefix scalars (emittedModel/emittedEffort),
+  // so a hand-edited stub is reported as `user-modified` /
+  // `frontmatter-stub-edited` instead of the pre-2.7.0 blanket
+  // `canonical-outdated` — which mislabeled the user's edit as hatch3r's own
+  // format move right before the safeWrite stub heal silently discarded it.
+  describe("frontmatter stub-edit attribution (release/2.7.0)", () => {
+    /**
+     * Sync a claude-tool project and locate an emitted agent file whose
+     * out-of-block prefix carries a `model:` line (the claude adapter emits
+     * `model:`/`effort:` above the HATCH3R:BEGIN marker for every agent whose
+     * canonical model resolves to a Claude-recognizable value).
+     */
+    async function syncAndFindModelBearingAgent(): Promise<{
+      relPath: string;
+      absPath: string;
+      original: string;
+    }> {
+      const agentsDir = join(tempDir, ".claude", "agents");
+      const files = await readdir(agentsDir);
+      for (const f of files) {
+        const absPath = join(agentsDir, f);
+        const original = await readFile(absPath, "utf-8");
+        const markerIdx = original.indexOf("<!-- HATCH3R:BEGIN -->");
+        if (markerIdx <= 0) continue;
+        if (!/^model: .+$/m.test(original.slice(0, markerIdx))) continue;
+        return { relPath: posix.join(".claude", "agents", f), absPath, original };
+      }
+      throw new Error(
+        "fixture: no emitted .claude/agents file carries a model: line in its prefix",
+      );
+    }
+
+    it("attributes an on-disk model edit as user-modified / frontmatter-stub-edited", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { relPath, absPath, original } = await syncAndFindModelBearingAgent();
+
+      // Hand-edit the hatch3r-owned prefix: swap the model value, keeping the
+      // prefix a pure frontmatter stub (heal-eligible) and the block untouched.
+      await writeFile(absPath, original.replace(/^model: .+$/m, "model: my-hand-pick"), "utf-8");
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === relPath);
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftKind).toBe("user-modified");
+      expect(entry!.driftDetail).toBe("frontmatter-stub-edited");
+      // The message names the on-disk value and the durable override channels.
+      expect(entry!.driftMessage).toContain("my-hand-pick");
+      expect(entry!.driftMessage).toContain("customize.yaml");
+      expect(entry!.driftMessage).toContain("models.*");
+      expect(report.driftKindCounts.userModified).toBeGreaterThanOrEqual(1);
+    });
+
+    it("keeps canonical-outdated / frontmatter-stub when disk matches the baseline and only regeneration moved", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { relPath, absPath, original } = await syncAndFindModelBearingAgent();
+
+      // Simulate a canonical mapping move: disk AND baseline agree on the OLD
+      // value while fresh regeneration emits the current one.
+      await writeFile(
+        absPath,
+        original.replace(/^model: .+$/m, "model: legacy-mapped-model"),
+        "utf-8",
+      );
+      const provPath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const prov = JSON.parse(await readFile(provPath, "utf-8")) as {
+        outputs: Array<{ path: string; emittedModel?: string; emittedEffort?: string }>;
+      };
+      const row = prov.outputs.find((o) => o.path === relPath);
+      expect(row).toBeDefined();
+      row!.emittedModel = "legacy-mapped-model";
+      await writeFile(provPath, JSON.stringify(prov, null, 2) + "\n", "utf-8");
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === relPath);
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftKind).toBe("canonical-outdated");
+      expect(entry!.driftDetail).toBe("frontmatter-stub");
+      expect(entry!.driftMessage).toBeUndefined();
+    });
+
+    it("falls back to canonical-outdated / frontmatter-stub when the baseline lacks the scalars (pre-2.7.0 manifest)", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { relPath, absPath, original } = await syncAndFindModelBearingAgent();
+
+      await writeFile(absPath, original.replace(/^model: .+$/m, "model: my-hand-pick"), "utf-8");
+      // Strip the release/2.7.0 scalars — the shape a pre-upgrade manifest has.
+      const provPath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const prov = JSON.parse(await readFile(provPath, "utf-8")) as {
+        outputs: Array<{ path: string; emittedModel?: string; emittedEffort?: string }>;
+      };
+      for (const outRow of prov.outputs) {
+        delete outRow.emittedModel;
+        delete outRow.emittedEffort;
+      }
+      await writeFile(provPath, JSON.stringify(prov, null, 2) + "\n", "utf-8");
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === relPath);
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftKind).toBe("canonical-outdated");
+      expect(entry!.driftDetail).toBe("frontmatter-stub");
+    });
+  });
+
   // D14-1 (Cycle 11 Wave 1, Critical): monorepo per-package outputs must not be
   // reported as `unexpected` orphans. init/sync write each adapter output into
   // every `<package>/.hatch3r/<rel>` and stamp those paths into

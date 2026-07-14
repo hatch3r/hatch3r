@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import {
   atomicWriteFile,
   isManagedPath,
+  readPrefixFrontmatterField,
   safeWriteFile,
   sweepOrphanTmpFiles,
   formatOrphanTmpSweepDiagnostic,
@@ -2319,6 +2320,170 @@ describe("safeWriteFile frontmatter stub heal (release/2.6.0)", () => {
     expect(result.action).toBe("unchanged");
     const onDisk = await readFile(filePath, "utf-8");
     expect(onDisk).toBe(userPrefixed);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// release/2.7.0 — the stale-stub heal replaces a hatch3r-owned frontmatter
+// prefix wholesale, silently discarding any change to its `model:`/`effort:`
+// lines (a user hand-edit or hatch3r's own mapping move — indistinguishable
+// here without a baseline, which is why the warning wording stays neutral;
+// `status` owns the attribution via the provenance baseline). These tests pin
+// the discard-visibility warning plus the readPrefixFrontmatterField parse
+// that safeWrite, provenance, and status share.
+// ───────────────────────────────────────────────────────────────────────────
+describe("safeWriteFile stub-heal model/effort change warning (release/2.7.0)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-stub-model-"));
+    return tempDir;
+  }
+
+  const BLOCK = "<!-- HATCH3R:BEGIN -->\nbody line\n<!-- HATCH3R:END -->\n";
+  const stub = (fields: string): string => `---\nname: hatch3r-test\n${fields}\n---\n\n`;
+
+  it("names old and new values + the durable channels when the healed stub's model changed", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    await writeFile(filePath, `${stub("model: opus")}${BLOCK}`, "utf-8");
+
+    const incoming = `${stub("model: fable")}${BLOCK}`;
+    const result = await safeWriteFile(filePath, incoming, { managedContent: "body line" });
+
+    expect(result.action).toBe("updated");
+    expect(result.warning).toContain("model: opus → fable");
+    expect(result.warning).toContain("customize.yaml");
+    expect(result.warning).toContain("models.*");
+    expect(await readFile(filePath, "utf-8")).toBe(incoming);
+  });
+
+  it("reports each changed field, including one going absent", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    await writeFile(filePath, `${stub("model: opus\neffort: high")}${BLOCK}`, "utf-8");
+
+    // Model moves; effort disappears entirely from the regenerated stub.
+    const incoming = `${stub("model: fable")}${BLOCK}`;
+    const result = await safeWriteFile(filePath, incoming, { managedContent: "body line" });
+
+    expect(result.warning).toContain("model: opus → fable");
+    expect(result.warning).toContain("effort: high → (absent)");
+  });
+
+  it("emits no model/effort sentence when the healed stub kept both values", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    // Stale stub: description changed, model + effort identical.
+    await writeFile(
+      filePath,
+      `---\nname: hatch3r-test\ndescription: "Old."\nmodel: fable\neffort: high\n---\n\n${BLOCK}`,
+      "utf-8",
+    );
+
+    const incoming = `---\nname: hatch3r-test\ndescription: "New."\nmodel: fable\neffort: high\n---\n\n${BLOCK}`;
+    const result = await safeWriteFile(filePath, incoming, { managedContent: "body line" });
+
+    // The stale-stub heal warning itself still fires…
+    expect(result.action).toBe("updated");
+    expect(result.warning).toContain("stale generated stub");
+    // …but no model/effort change sentence rides along.
+    expect(result.warning).not.toContain("changed on regeneration");
+  });
+
+  it("emits no model/effort sentence on the empty-prefix ('missing') heal", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    await writeFile(filePath, BLOCK, "utf-8");
+
+    // The old prefix is empty — nothing was discarded — so only the
+    // stub-restore warning fires even though the incoming stub introduces a
+    // model line.
+    const result = await safeWriteFile(filePath, `${stub("model: fable")}${BLOCK}`, {
+      managedContent: "body line",
+    });
+
+    expect(result.action).toBe("updated");
+    expect(result.warning).toContain("frontmatter stub");
+    expect(result.warning).not.toContain("changed on regeneration");
+  });
+
+  it("emits no warning at all for a prefix-less write (no heal path)", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    await writeFile(filePath, BLOCK, "utf-8");
+
+    const incoming = "<!-- HATCH3R:BEGIN -->\nnew body\n<!-- HATCH3R:END -->\n";
+    const result = await safeWriteFile(filePath, incoming, { managedContent: "new body" });
+
+    expect(result.action).toBe("updated");
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("stays heal-idempotent: repeat write after a model-changing heal is unchanged, no warning", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "hatch3r-implementer.md");
+    await writeFile(filePath, `${stub("model: opus")}${BLOCK}`, "utf-8");
+    const incoming = `${stub("model: fable")}${BLOCK}`;
+    await safeWriteFile(filePath, incoming, { managedContent: "body line" });
+
+    const second = await safeWriteFile(filePath, incoming, { managedContent: "body line" });
+
+    expect(second.action).toBe("unchanged");
+    expect(second.warning).toBeUndefined();
+    expect(await readFile(filePath, "utf-8")).toBe(incoming);
+  });
+});
+
+describe("readPrefixFrontmatterField (release/2.7.0)", () => {
+  const PREFIX = "---\nname: hatch3r-implementer\nmodel: claude-fable-5\neffort: high\n---\n\n";
+
+  it("reads model and effort from a generated stub prefix", () => {
+    expect(readPrefixFrontmatterField(PREFIX, "model")).toBe("claude-fable-5");
+    expect(readPrefixFrontmatterField(PREFIX, "effort")).toBe("high");
+  });
+
+  it("returns undefined for an absent field", () => {
+    expect(readPrefixFrontmatterField("---\nname: x\n---\n", "model")).toBeUndefined();
+    expect(readPrefixFrontmatterField(PREFIX.replace("effort: high\n", ""), "effort")).toBeUndefined();
+  });
+
+  it("returns undefined when the prefix has no frontmatter fences", () => {
+    expect(readPrefixFrontmatterField("", "model")).toBeUndefined();
+    expect(readPrefixFrontmatterField("   \n\n", "model")).toBeUndefined();
+    expect(readPrefixFrontmatterField("model: opus\n", "model")).toBeUndefined();
+    expect(readPrefixFrontmatterField("# prose, not frontmatter\n", "model")).toBeUndefined();
+  });
+
+  it("returns undefined for an unterminated fence", () => {
+    expect(readPrefixFrontmatterField("---\nmodel: opus\n", "model")).toBeUndefined();
+  });
+
+  it("trims surrounding whitespace and a CRLF carriage return from the value", () => {
+    expect(readPrefixFrontmatterField("---\r\nmodel:   opus  \r\n---\r\n", "model")).toBe("opus");
+  });
+
+  it("tolerates leading blank lines before the opening fence", () => {
+    expect(readPrefixFrontmatterField("\n\n---\nmodel: opus\n---\n", "model")).toBe("opus");
+  });
+
+  it("returns undefined for a value-less field line", () => {
+    expect(readPrefixFrontmatterField("---\nmodel:\n---\n", "model")).toBeUndefined();
+    expect(readPrefixFrontmatterField("---\nmodel:   \n---\n", "model")).toBeUndefined();
+  });
+
+  it("does not read a field outside the closing fence", () => {
+    expect(readPrefixFrontmatterField("---\nname: x\n---\nmodel: opus\n", "model")).toBeUndefined();
+  });
+
+  it("does not match a key that merely ends with the field name", () => {
+    expect(readPrefixFrontmatterField("---\nsubmodel: opus\n---\n", "model")).toBeUndefined();
   });
 });
 

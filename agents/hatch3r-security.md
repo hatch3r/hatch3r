@@ -3,7 +3,8 @@ id: hatch3r-security
 type: agent
 description: Security quality specialist — reviews generated code for OAuth 2.1 + OIDC + DPoP + WebAuthn server-side, supply-chain integrity (SBOM + provenance + SHA-pin + cosign), and OWASP ASI controls. Use when security-sensitive code or release-touching changes land.
 protected: true
-model: strongest
+model: frontier
+effort: max
 tags: [review, security, supply-chain, floor:security, floor:content-quality]
 pillars:
   governance: [P6]

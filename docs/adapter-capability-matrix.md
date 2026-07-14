@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-07-11 (Cycle-12 D9-SA9.4-01 — File Path Mapping rows regenerated from a full in-memory run of all 3 adapters against the canonical root; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.5.0
+> **Last verified**: 2026-07-14 (release/2.7.0 — Agent Model Customization section regenerated for the 4-class ladder + effort axis; File Path Mapping rows last regenerated 2026-07-11 from a full in-memory run of all 3 adapters, Cycle-12 D9-SA9.4-01; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.7.0
 
 Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -74,15 +74,26 @@ Since 2.2.0, per-artifact model configuration extends beyond agents: `models.ski
 |---------|----------|-------|
 | **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `is_background:` for v2.5+ sub-agent control. |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
-| **claude** | Native (frontmatter `model:`) | Emits `model:` in sub-agent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
+| **claude** | Native (frontmatter `model:` + `effort:`) | Emits `model:` — and, since 2.7.0, `effort:` — in sub-agent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-07-14); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
 
-**Model-class routing (2.6.0).** Canonical agents declare a model **class** — `economy | default | strongest` (`src/models/tiers.ts`) — instead of a concrete id. Each adapter routes a class-word `model:` value through its own map at emission time; a `models.tiers.<class>` pin in `hatch.json` replaces the adapter map verbatim (then alias-expands). Legacy `fast`/`standard`/`reasoning` values normalize to classes on user overrides only — the canonical corpus carries class words exclusively (validator mode `--model-class`). See [model-selection.md → Model Classes](model-selection.md#model-classes).
+**Model-class routing (2.7.0).** Canonical agents declare a model **class** — the 4-class ladder `frontier | advanced | standard | economy` (`src/models/tiers.ts`; widened from the 2.6.0 3-class ladder) — instead of a concrete id, plus an optional reasoning-effort level (`low | medium | high | xhigh | max`). Each adapter routes a class-word `model:` value through its own map at emission time; a `models.tiers.<class>` pin in `hatch.json` replaces the adapter map verbatim (then alias-expands), and `models.tiers.<class>: "inherit"` is the per-class off-switch (no native model/effort fields for that class). Legacy values (`fast`/`default`/`reasoning`/`strongest`, plus the pre-2.6.0 middle-tier `standard`) normalize to classes on user overrides only — the canonical corpus carries the four class words exclusively (validator mode `--model-class`). `cursor.agentModelPins` / `copilot.agentModelPins` (`"native"` default, `"conservative"` optional) select the emission posture per adapter. See [model-selection.md → Model Classes](model-selection.md#model-classes) and [→ Effort](model-selection.md#effort).
 
-| Class | cursor | copilot | claude |
-|-------|--------|---------|--------|
-| `economy` | `model: fast` | omitted | `model: haiku` + `effort: medium` |
-| `default` | omitted (inherit-by-omission) | omitted | `model: sonnet` (no `effort:` line) |
-| `strongest` | advisory body line (no native value) | omitted | `model: opus` + `effort: high` |
+| Class | cursor (native) | copilot (native) | claude |
+|-------|-----------------|------------------|--------|
+| `frontier` | `model: claude-fable-5[effort=high]` (bracket iff resolved effort ≥ `xhigh`, clamped to `high`) | `model: Claude Fable 5` | `model: fable` + `effort: xhigh` (authored `max` on 3 agents) |
+| `advanced` | `model: claude-opus-4-8` (+ `[effort=high]` iff ≥ `xhigh`) | `model: Claude Opus 4.8` | `model: opus` + `effort:` (authored, else `high`) |
+| `standard` | omitted (inherit-by-omission) | omitted (picker default) | `model: sonnet` (no `effort:` line) |
+| `economy` | `model: fast` (never bracketed) | `model: Claude Haiku 4.5` | `model: haiku` + `effort: medium` (authored `low` on the 3 loaders) |
+
+Under `agentModelPins: "conservative"`: cursor `advanced`/`frontier` emit no native pin — one advisory body line names the class and the Cursor model picker (`economy`/`standard` unchanged); copilot omits every class word. `models.tiers` pins are honored identically under both postures.
+
+**`effortOverride` capability.** The `ADAPTER_CAPABILITIES` boolean recording whether the adapter carries the resolved effort level onto its native surface (pinned by `src/__tests__/adapters/capabilityMatrixDrift.test.ts`):
+
+| Adapter | effortOverride | Surface |
+|---------|:--------------:|---------|
+| **claude** | Y | Native `effort:` frontmatter key beside `model:` |
+| **cursor** | Y | `[effort=high]` bracket on `advanced`/`frontier` pins — appended iff resolved effort ≥ `xhigh`, clamped to the documented `high` |
+| **copilot** | -- | No effort surface (single display-name `model` string); resolved effort dropped at emission |
 
 ### Native User-Question / Triage Tool
 
@@ -158,7 +169,7 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules | `.claude/rules/{NN}-hatch3r-{id}.md` | Header + description + content; `{NN}` = precedence prefix (`10`/`30`/`50`/`70`). Glob-scoped rules prepend a documented block-sequence `paths:` frontmatter fence |
-| agents | `.claude/agents/hatch3r-{id}.md` | YAML frontmatter (`description`, `tools`, `disallowedTools`, `permissionMode`, native `model:`) + `## Recommended Model` prose (non-minimal mode) |
+| agents | `.claude/agents/hatch3r-{id}.md` | YAML frontmatter (`description`, `tools`, `disallowedTools`, `permissionMode`, native `model:`, `effort:`) + `## Recommended Model` prose (non-minimal mode) |
 | skills | `.claude/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | commands | `.claude/commands/hatch3r-{id}.md` | Raw content |
 | mcp | `.mcp.json` | Resolved MCP config with Claude Code compatibility transforms (see below) |

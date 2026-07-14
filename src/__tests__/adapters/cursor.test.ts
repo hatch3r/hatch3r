@@ -266,25 +266,40 @@ You are a test agent.`,
     }
   });
 
-  // Model classes (release/2.6.0, dead-value fix): Cursor natively understands
-  // only `fast`, `inherit`, or a concrete model id, so class words never ship
-  // verbatim — economy maps to `fast`, default omits the field, strongest gets
-  // an advisory body line (unless a models.tiers pin supplies a concrete id).
-  describe("model-class emission (release/2.6.0)", () => {
+  // Model classes (release/2.7.0, 4-class ladder): Cursor natively understands
+  // `fast`, `inherit`, or a concrete model id — optionally with per-model
+  // bracket options (verbatim docs example `claude-opus-4-8[effort=high]`,
+  // cursor.com/docs/subagents.md accessed 2026-07-14) — so class words never
+  // ship verbatim. Default `agentModelPins: "native"` posture: economy ->
+  // `fast`, standard -> omit, advanced/frontier -> concrete id via alias
+  // expansion + `[effort=high]` iff the resolved effort ranks >= xhigh
+  // (clamp: `high` is the only documented bracket effort value). A
+  // `models.tiers` pin is operator-owned and emits verbatim (never
+  // bracket-appended); a pin of `inherit` omits the field with an advisory
+  // body line naming the class. `"conservative"` restores the pre-2.7.0
+  // advisory/omit posture for advanced/frontier.
+  describe("model-class emission (release/2.7.0)", () => {
     async function generateAgentWithModel(
       model: string,
-      manifestOverrides: Parameters<typeof makeManifest>[0] = {},
+      opts: {
+        manifest?: Parameters<typeof makeManifest>[0];
+        effort?: string;
+        agentModelPins?: "native" | "conservative";
+      } = {},
     ): Promise<{ content: string; fm: string }> {
       const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-class-"));
       try {
         const agentsDir = join(tempDir, "agents");
         await mkdir(join(agentsDir, "agents"), { recursive: true });
+        const effortLine = opts.effort ? `\neffort: ${opts.effort}` : "";
         await writeFile(
           join(agentsDir, "agents", "test-agent.md"),
-          `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}\n---\n# Test Agent\n\nYou are a test agent.`,
+          `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}${effortLine}\n---\n# Test Agent\n\nYou are a test agent.`,
           "utf-8",
         );
-        const outputs = await adapter.generate(agentsDir, makeManifest(manifestOverrides));
+        const manifest = makeManifest(opts.manifest ?? {});
+        if (opts.agentModelPins) manifest.cursor = { agentModelPins: opts.agentModelPins };
+        const outputs = await adapter.generate(agentsDir, manifest);
         const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
         expect(agentFile).toBeDefined();
         const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
@@ -295,43 +310,156 @@ You are a test agent.`,
       }
     }
 
-    it("economy → model: fast (Cursor's native cost keyword)", async () => {
-      const { fm } = await generateAgentWithModel("economy");
+    it("frontier + authored effort xhigh → model: claude-fable-5[effort=high]", async () => {
+      const { fm } = await generateAgentWithModel("frontier", { effort: "xhigh" });
+      expect(fm).toMatch(/^model: claude-fable-5\[effort=high\]$/m);
+    });
+
+    it("frontier + authored effort max → bracket clamps to the documented ceiling [effort=high]", async () => {
+      // Bracket effort values above `high` are undocumented
+      // (cursor.com/docs/subagents.md, accessed 2026-07-14), so xhigh/max
+      // resolutions write the documented ceiling — never a raw max/xhigh.
+      const { fm } = await generateAgentWithModel("frontier", { effort: "max" });
+      expect(fm).toMatch(/^model: claude-fable-5\[effort=high\]$/m);
+      expect(fm).not.toContain("[effort=max]");
+      expect(fm).not.toContain("[effort=xhigh]");
+    });
+
+    it("advanced + authored xhigh → claude-opus-4-8[effort=high]; built-in high → NO bracket", async () => {
+      const authored = await generateAgentWithModel("advanced", { effort: "xhigh" });
+      expect(authored.fm).toMatch(/^model: claude-opus-4-8\[effort=high\]$/m);
+      // No authored effort: the advanced class default is plain `high`
+      // (CLASS_DEFAULT_EFFORT_MAP), which ranks below xhigh → no bracket, so
+      // an authored-xhigh advanced agent stays distinguishable from a default
+      // one (bracketing plain `high` would erase that distinction).
+      const builtin = await generateAgentWithModel("advanced");
+      expect(builtin.fm).toMatch(/^model: claude-opus-4-8$/m);
+      expect(builtin.fm).not.toContain("[effort=");
+    });
+
+    it("models.tierEfforts class pin feeds the bracket decision (advanced pinned xhigh)", async () => {
+      const { fm } = await generateAgentWithModel("advanced", {
+        manifest: { models: { tierEfforts: { advanced: "xhigh" } } },
+      });
+      expect(fm).toMatch(/^model: claude-opus-4-8\[effort=high\]$/m);
+    });
+
+    it("standard → NO model line (inherit-by-omission); legacy `default` identically", async () => {
+      const standard = await generateAgentWithModel("standard");
+      expect(standard.fm).not.toMatch(/^model:/m);
+      const legacy = await generateAgentWithModel("default");
+      expect(legacy.fm).not.toMatch(/^model:/m);
+    });
+
+    it("economy → model: fast, never bracketed even with authored effort", async () => {
+      // `fast` is Cursor's cost keyword, not a concrete model id; a
+      // keyword+bracket combination is undocumented, so economy never
+      // carries bracket options regardless of effort.
+      const { fm } = await generateAgentWithModel("economy", { effort: "max" });
       expect(fm).toMatch(/^model: fast$/m);
+      expect(fm).not.toContain("[effort=");
     });
 
-    it("default → NO model line (inherit-by-omission)", async () => {
-      const { fm } = await generateAgentWithModel("default");
-      expect(fm).not.toMatch(/^model:/m);
-    });
-
-    it("strongest → no native field + one advisory body line", async () => {
-      const { content, fm } = await generateAgentWithModel("strongest");
-      expect(fm).not.toMatch(/^model:/m);
-      expect(content).toContain(
-        "Model class: strongest — pin this agent to the highest-capability model in the Cursor model picker.",
-      );
-    });
-
-    it("models.tiers.strongest concrete id → emitted (alias-expanded), no advisory line", async () => {
-      const { content, fm } = await generateAgentWithModel("strongest", {
-        models: { tiers: { strongest: "fable" } },
+    it("models.tiers pin emits verbatim — never bracket-appended", async () => {
+      // frontier's class-default effort is xhigh (bracket-eligible), but the
+      // pin is operator-owned: emitted after alias expansion with NO bracket.
+      const { fm } = await generateAgentWithModel("frontier", {
+        manifest: { models: { tiers: { frontier: "fable" } } },
       });
       expect(fm).toMatch(/^model: claude-fable-5$/m);
-      expect(content).not.toContain("pin this agent to the highest-capability model");
+      expect(fm).not.toContain("[effort=");
     });
 
-    it("non-class values still emit verbatim (concrete id, inherit, user fast)", async () => {
+    it("an operator-bracketed models.tiers pin passes through untouched", async () => {
+      // A bracketed string is not a MODEL_ALIASES key, so alias expansion
+      // leaves it intact — and the adapter must not append a second bracket.
+      const { fm } = await generateAgentWithModel("frontier", {
+        manifest: { models: { tiers: { frontier: "claude-opus-4-8[effort=high]" } } },
+      });
+      expect(fm).toMatch(/^model: claude-opus-4-8\[effort=high\]$/m);
+    });
+
+    it("models.tiers pin `inherit` → no model line + advisory body line naming the class", async () => {
+      const { content, fm } = await generateAgentWithModel("frontier", {
+        manifest: { models: { tiers: { frontier: "inherit" } } },
+      });
+      expect(fm).not.toMatch(/^model:/m);
+      expect(content).toContain("Model class: frontier");
+      expect(content).toContain("inherit");
+    });
+
+    it("conservative mode: advanced/frontier advisory-only, no model lines; economy keeps fast", async () => {
+      const frontier = await generateAgentWithModel("frontier", { agentModelPins: "conservative" });
+      expect(frontier.fm).not.toMatch(/^model:/m);
+      expect(frontier.content).toContain("Model class: frontier");
+      expect(frontier.content).toContain("Cursor model picker");
+      const advanced = await generateAgentWithModel("advanced", { agentModelPins: "conservative" });
+      expect(advanced.fm).not.toMatch(/^model:/m);
+      expect(advanced.content).toContain("Model class: advanced");
+      const economy = await generateAgentWithModel("economy", { agentModelPins: "conservative" });
+      expect(economy.fm).toMatch(/^model: fast$/m);
+    });
+
+    it("legacy `strongest` routes to the frontier emission (concrete pin, not advisory)", async () => {
+      // No authored effort → frontier's class default xhigh → bracket.
+      const { content, fm } = await generateAgentWithModel("strongest");
+      expect(fm).toMatch(/^model: claude-fable-5\[effort=high\]$/m);
+      expect(content).not.toContain("Model class: strongest");
+    });
+
+    it("models.tiers pin under the legacy `strongest` KEY still resolves (alias-expanded, unbracketed)", async () => {
+      const { fm } = await generateAgentWithModel("strongest", {
+        manifest: { models: { tiers: { strongest: "fable" } } },
+      });
+      expect(fm).toMatch(/^model: claude-fable-5$/m);
+      expect(fm).not.toContain("[effort=");
+    });
+
+    it("customize-yaml effort beats frontmatter effort for the bracket decision", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-effort-cust-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        // Frontmatter says plain `high` (no bracket); customize raises it to
+        // xhigh — the customize layer wins, so the bracket appears.
+        await writeFile(
+          join(agentsDir, "agents", "test-agent.md"),
+          "---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: advanced\neffort: high\n---\n# Test Agent\n\nYou are a test agent.",
+          "utf-8",
+        );
+        await mkdir(join(tempDir, ".hatch3r", "agents"), { recursive: true });
+        await writeFile(
+          join(tempDir, ".hatch3r", "agents", "test-agent.customize.yaml"),
+          "effort: xhigh\n",
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest(), tempDir);
+        const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
+        expect(agentFile).toBeDefined();
+        const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch![1]).toMatch(/^model: claude-opus-4-8\[effort=high\]$/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("non-class values still emit verbatim (concrete id, inherit) — no bracket even with effort", async () => {
       const concrete = await generateAgentWithModel("claude-opus-4-8");
       expect(concrete.fm).toMatch(/^model: claude-opus-4-8$/m);
       const inherit = await generateAgentWithModel("inherit");
       expect(inherit.fm).toMatch(/^model: inherit$/m);
+      // User-set concrete models never gain a bracket — effort composes only
+      // with class-mapped emission (hatch3r cannot assume effort semantics
+      // for an operator-chosen concrete model).
+      const concreteWithEffort = await generateAgentWithModel("claude-opus-4-8", { effort: "max" });
+      expect(concreteWithEffort.fm).toMatch(/^model: claude-opus-4-8$/m);
+      expect(concreteWithEffort.fm).not.toContain("[effort=");
     });
 
-    it("REGRESSION: `model: standard` can never ship (legacy word maps through the class path)", async () => {
+    it("REGRESSION: `model: standard` can never ship (the word maps through the class path)", async () => {
       // The pre-2.6.0 emission wrote the tier word verbatim, shipping a dead
-      // `model: standard` field on 23 agents. `standard` now normalizes to the
-      // `default` class -> the field is OMITTED entirely.
+      // `model: standard` field on 23 agents. `standard` is the canonical
+      // middle class in the 2.7.0 ladder → the field is OMITTED entirely.
       const { content } = await generateAgentWithModel("standard");
       expect(content).not.toContain("model: standard");
       const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);

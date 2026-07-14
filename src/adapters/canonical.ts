@@ -504,6 +504,10 @@ export function parseFrontmatter(
     if (typeof parsed.name === "string") metadata.name = parsed.name;
     if (typeof parsed.scope === "string") metadata.scope = parsed.scope;
     if (typeof parsed.model === "string") metadata.model = parsed.model;
+    // release/2.7.0 effort axis: string-typed only, carried verbatim beside
+    // `model` — normalization + gating live in resolveAgentEffort and the
+    // adapter emission paths, not the parser.
+    if (typeof parsed.effort === "string") metadata.effort = parsed.effort;
     if (typeof parsed.agent === "string") metadata.agent = parsed.agent;
     if (typeof parsed.event === "string") metadata.event = parsed.event;
     if (typeof parsed.globs === "string") metadata.globs = parsed.globs;
@@ -863,6 +867,9 @@ async function readSingleMd(
     // auto-attached in Cursor/Copilot and loaded unconditionally in Claude).
     globs: metadata.globs,
     model: metadata.model,
+    // release/2.7.0: pass through the optional `effort:` reasoning-effort
+    // level beside `model`. Undefined for artifacts that do not declare it.
+    effort: metadata.effort,
     protected: metadata.protected,
     readonly: metadata.readonly,
     background: metadata.background,

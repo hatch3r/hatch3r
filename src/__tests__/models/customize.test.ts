@@ -45,6 +45,47 @@ describe("readCustomization", () => {
     expect(result).toEqual({ model: "opus" });
   });
 
+  it("reads effort for agents (release/2.7.0 effort axis)", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "effort: xhigh",
+      "utf-8",
+    );
+    const result = await readCustomization(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result).toEqual({ effort: "xhigh" });
+  });
+
+  it("reads model and effort together, verbatim (enum gating is apply-time, not read-time)", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "model: opus\neffort: TURBO",
+      "utf-8",
+    );
+    const result = await readCustomization(projectRoot, "agents", "hatch3r-reviewer");
+    // The reader is a plain string reader like `model` — the non-level value
+    // survives here and is stripped by the adapters/customization.ts enum gate.
+    expect(result).toEqual({ model: "opus", effort: "TURBO" });
+  });
+
+  it("ignores an empty-string effort (same non-empty rule as model)", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      'effort: ""',
+      "utf-8",
+    );
+    const result = await readCustomization(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result).toBeUndefined();
+  });
+
   it("reads scope for rules", async () => {
     const projectRoot = await createProjectRoot();
     const dir = join(projectRoot, ".hatch3r", "rules");

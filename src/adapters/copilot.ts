@@ -23,7 +23,7 @@ import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { resolveModelAlias } from "../models/aliases.js";
-import { normalizeModelClass, resolveTierModel } from "../models/tiers.js";
+import { COPILOT_TIER_MODEL_MAP, normalizeModelClass, resolveTierModel } from "../models/tiers.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
 import {
@@ -139,60 +139,101 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
 const COPILOT_AGENT_PROMPT_CAP = 30_000;
 
 /**
+ * release/2.7.0: value set of {@link COPILOT_TIER_MODEL_MAP} — the
+ * adapter-curated supported-models display names the class mapping emits.
+ * Checked first in {@link isCopilotRecognizableModel} so a map value can
+ * never be dropped by the gate (the map and the gate would otherwise be two
+ * independently-editable sources that could desynchronize).
+ */
+const COPILOT_NATIVE_CLASS_MODELS: ReadonlySet<string> = new Set(
+  Object.values(COPILOT_TIER_MODEL_MAP).filter((v): v is string => v !== undefined),
+);
+
+/**
  * D9-16 (Cycle 11 Wave 3, D9, P3 model resolution + P5 silent-failure): the
  * GitHub Copilot `.agent.md` `model:` frontmatter field expects a model the
  * Copilot model picker resolves — a provider-dated model ID
  * (`claude-sonnet-4.5`, `gpt-5.2-codex`, `gemini-3-flash`) or a documented
- * display name carrying a `(copilot)` qualifier (`GPT-5.2 (copilot)`). Source:
+ * display name. Sources:
  * https://docs.github.com/en/copilot/reference/custom-agents-configuration +
- * the agent-frontmatter `model:` examples on
- * https://code.visualstudio.com/docs/agent-customization/custom-agents
- * (accessed 2026-06-06).
+ * https://docs.github.com/en/copilot/reference/ai-models/supported-models
+ * (both accessed 2026-07-14).
  *
- * The hatch3r-internal model-class words `economy`/`default`/`strongest`
- * (authored on all 30 canonical agents' `model:` frontmatter; legacy synonyms
- * `standard`/`fast`) are NOT in `MODEL_ALIASES`, so `resolveAgentModel` →
+ * The hatch3r-internal model-class words `economy`/`standard`/`advanced`/
+ * `frontier` (release/2.7.0 4-class ladder, authored on canonical agents'
+ * `model:` frontmatter; legacy synonyms `fast`/`default`/`reasoning`/
+ * `strongest`) are NOT in `MODEL_ALIASES`, so `resolveAgentModel` →
  * `resolveModelAlias` passes them through verbatim. Copilot cannot resolve a
  * class word, so it silently falls back to the picker default — the per-agent
  * class becomes a no-op AND the emitted file carries an unrecognized value (a
  * silent-failure surface, CONSTITUTION §2 P5). Gate native emission to a
- * recognizable value; a class word without a `models.tiers` pin is omitted
- * (Copilot then uses its default, which is the same effective behaviour but
- * without shipping a dead field). This mirrors `isClaudeRecognizableModel`
- * (src/adapters/claude.ts) for the Copilot surface.
+ * recognizable value; class words route through the class mapping at the
+ * emission sites instead (`models.tiers` pin, else `COPILOT_TIER_MODEL_MAP`
+ * under the default `"native"` posture, else omission). This mirrors
+ * `isClaudeRecognizableModel` (src/adapters/claude.ts) for the Copilot
+ * surface.
+ *
+ * release/2.7.0 widening: the supported-models reference lists picker models
+ * by DISPLAY NAME ("Claude Opus 4.5", "GPT-5.2", "Gemini 3 Pro"), and users
+ * copy those labels verbatim from the VS Code model picker into
+ * `models.agents.<id>` — the prior id-prefix-only gate dropped every such
+ * value with a spurious D9-SA9.3-06 warning despite it being a documented
+ * picker value. Accept the three documented display-name families
+ * (`Claude `/`GPT-<digit>`/`Gemini `); non-family vendors (MAI-Code-1-Flash,
+ * Raptor mini, Kimi-K2.7-Code) keep the warn-and-omit path because their
+ * naming is unpredictable (three distinct patterns already) and cannot be
+ * family-matched.
  */
 function isCopilotRecognizableModel(model: string): boolean {
+  // release/2.7.0: the class-map display names are adapter-curated from the
+  // official supported-models page (docs.github.com/en/copilot/reference/
+  // ai-models/supported-models, accessed 2026-07-14), so they bypass the
+  // family regexes by construction — set membership keeps "map row => emits"
+  // true even if a future map row falls outside the families below.
+  if (COPILOT_NATIVE_CLASS_MODELS.has(model)) return true;
   return (
     /^claude-/.test(model) ||
     /^gpt-/.test(model) ||
     /^codex-/.test(model) ||
     /^gemini-/.test(model) ||
+    // release/2.7.0: supported-models display-name families (JSDoc above).
+    /^Claude\s/.test(model) ||
+    /^GPT-\d/.test(model) ||
+    /^Gemini\s/.test(model) ||
     // Documented display-name form: a `(copilot)`-qualified picker label.
     /\(copilot\)\s*$/.test(model)
   );
 }
 
 /**
- * hatch3r-internal `model:` placeholders the Copilot surface omits by design, so
- * {@link CopilotAdapter.warnIfModelDropped} stays silent on them. Three provenance
- * groups: (1) the model-class words authored on canonical agents' `model:`
- * frontmatter — `economy`/`default`/`strongest` (src/models/tiers.ts) — whose
- * Copilot expression is omission unless a `models.tiers` pin supplies a
- * recognizable model; (2) the legacy pre-2.6.0 tier words `standard`/`fast`
- * (still accepted on user overrides) plus the other `TriageTier` members
- * `light`/`deep` (src/pipeline/costEstimator.ts) for forward-compat if an agent
- * adopts them; (3) the `inherit` sentinel, which `resolveModelAlias` passes
- * through verbatim and whose emission IS omission (src/models/resolve.ts). None
- * is a user model choice, so a drop warning on any of them would be per-sync
- * noise on the shipped agent corpus, not the signal D9-SA9.3-06 targets (an
- * unrecognized USER-configured model).
+ * hatch3r-internal `model:` placeholders the Copilot surface never fires a
+ * drop warning for, so {@link CopilotAdapter.warnIfModelDropped} stays silent
+ * on them. Three provenance groups: (1) the release/2.7.0 4-class ladder
+ * words authored on canonical agents' `model:` frontmatter —
+ * `economy`/`standard`/`advanced`/`frontier` (src/models/tiers.ts) — whose
+ * Copilot expression is the class mapping at the emission sites
+ * (`models.tiers` pin, else `COPILOT_TIER_MODEL_MAP` under the `"native"`
+ * posture, else omission); (2) the legacy class synonyms
+ * `fast`/`default`/`reasoning`/`strongest` (still accepted on user overrides
+ * across the 2.6.0 and 2.7.0 ladder migrations — `reasoning` was MISSING
+ * from this set pre-2.7.0, so a `model: reasoning` user override fired a
+ * spurious drop warning on every sync) plus the other `TriageTier` members
+ * `light`/`deep` (src/pipeline/costEstimator.ts) for forward-compat if an
+ * agent adopts them; (3) the `inherit` sentinel, which `resolveModelAlias`
+ * passes through verbatim and whose emission IS omission
+ * (src/models/resolve.ts). None is a user model choice, so a drop warning on
+ * any of them would be per-sync noise on the shipped agent corpus, not the
+ * signal D9-SA9.3-06 targets (an unrecognized USER-configured model).
  */
 const COPILOT_INTENTIONALLY_OMITTED_MODELS: ReadonlySet<string> = new Set([
   "economy",
-  "default",
-  "strongest",
   "standard",
+  "advanced",
+  "frontier",
   "fast",
+  "default",
+  "reasoning",
+  "strongest",
   "light",
   "deep",
   "inherit",
@@ -348,20 +389,21 @@ export class CopilotAdapter extends BaseAdapter {
 
   /**
    * D9-SA9.3-06 (Cycle 12, D9, P1 + P5 silent-failure): {@link isCopilotRecognizableModel}
-   * admits only the four provider-prefix families (`claude-`/`gpt-`/`codex-`/`gemini-`)
-   * plus a `(copilot)`-qualified display name. GitHub's supported-models reference
-   * (docs.github.com/en/copilot/reference/ai-models/supported-models, accessed
-   * 2026-07-12) also lists picker models OUTSIDE those prefixes — `MAI-Code-1-Flash`
+   * admits the four provider-prefix id families (`claude-`/`gpt-`/`codex-`/`gemini-`),
+   * the three display-name families (`Claude `/`GPT-<digit>`/`Gemini ` — release/2.7.0
+   * widening), the class-map display names, and a `(copilot)`-qualified label. GitHub's
+   * supported-models reference (docs.github.com/en/copilot/reference/ai-models/supported-models,
+   * accessed 2026-07-14) also lists picker models OUTSIDE every family — `MAI-Code-1-Flash`
    * (Microsoft), `Raptor mini` (fine-tuned GPT-5 mini), `Kimi-K2.7-Code` (Moonshot AI).
    * A user who sets `models.agents.<id>` to such a valid Copilot model has the `model:`
    * field OMITTED by the recognizable-value gate at the emission sites, and Copilot falls
    * back to the picker default — the explicit per-agent choice becomes a silent no-op. The
-   * non-prefix vendors are unpredictable (three already), so widening the regex cannot
-   * generalize; this converts the drop into an audit-visible sync warning per the Silent
-   * Failure Contract (CONSTITUTION §2 P5). The field stays omitted — D9-16's safe fallback
-   * is preserved, no dead field is shipped — only the operator-facing signal is added. The
-   * hatch3r-internal placeholders in {@link COPILOT_INTENTIONALLY_OMITTED_MODELS} are not
-   * user model choices and never warn.
+   * non-family vendors are unpredictable (three distinct patterns already), so widening the
+   * regex further cannot generalize; this converts the drop into an audit-visible sync
+   * warning per the Silent Failure Contract (CONSTITUTION §2 P5). The field stays omitted —
+   * D9-16's safe fallback is preserved, no dead field is shipped — only the operator-facing
+   * signal is added. The hatch3r-internal placeholders in
+   * {@link COPILOT_INTENTIONALLY_OMITTED_MODELS} are not user model choices and never warn.
    */
   private warnIfModelDropped(artifactPath: string, model: string | undefined): void {
     if (!model || isCopilotRecognizableModel(model)) return;
@@ -612,6 +654,11 @@ jobs:
 
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      // release/2.7.0: class-word emission posture. `"native"` (default when
+      // absent) maps classes through COPILOT_TIER_MODEL_MAP; `"conservative"`
+      // restores the pre-2.7.0 omit posture. `models.tiers` pins are honored
+      // identically under both.
+      const agentModelPins = ctx.manifest.copilot?.agentModelPins ?? "native";
       for (const agent of agents) {
         // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -626,22 +673,47 @@ jobs:
         const desc = overrides.description ?? agent.description;
         const prefixedId = toPrefixedId(agent.id);
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
-        // D9-16 (Cycle 11 Wave 3, P3 + P5): emit `model:` only when it resolves
-        // to a Copilot-recognizable value. The model-class words
-        // `economy`/`default`/`strongest` (on all 30 canonical agents; legacy
-        // `standard`/`fast`) are not Copilot picker names; emitting them ships
-        // a dead field Copilot silently ignores while falling back to its
-        // default. A class word maps through the operator's `models.tiers`
-        // pin first (release/2.6.0) — a pinned value that passes the gate is
-        // emitted; otherwise the class is silently omitted (never a drop
-        // warning: class words are in COPILOT_INTENTIONALLY_OMITTED_MODELS).
+        // D9-16 (Cycle 11 Wave 3, P3 + P5) + release/2.7.0 model classes: emit
+        // `model:` only as a value the Copilot picker resolves. A class word
+        // (`economy|standard|advanced|frontier`; legacy synonyms
+        // `fast|default|reasoning|strongest`) resolves in this order:
+        //   1. `models.tiers.<class>` pin (alias-expanded, so a pinned `fable`
+        //      reaches the gate as `claude-fable-5`) — the operator override
+        //      beats the built-in map. An `inherit` pin, or a pin that fails
+        //      the recognizable-value gate, is omitted — silently, because
+        //      the resolved agent value is a class word
+        //      (COPILOT_INTENTIONALLY_OMITTED_MODELS), never a drop warning.
+        //   2. Under the default `copilot.agentModelPins: "native"` posture,
+        //      the class maps through COPILOT_TIER_MODEL_MAP to a
+        //      supported-models display name as a SINGLE string — the Copilot
+        //      CLI rejects the array form
+        //      (docs.github.com/en/copilot/reference/custom-agents-configuration,
+        //      accessed 2026-07-14). Map values pass the gate by construction
+        //      (COPILOT_NATIVE_CLASS_MODELS). `standard` has no map row:
+        //      omitted, the picker default applies.
+        //   3. `"conservative"` restores the pre-2.7.0 posture: every class
+        //      word is omitted (pins from step 1 still win).
+        // release/2.7.0 effort axis: NO effort field is emitted on this
+        // surface under any input — the Copilot custom-agents frontmatter
+        // reference documents no reasoning-effort key
+        // (docs.github.com/en/copilot/reference/custom-agents-configuration,
+        // accessed 2026-07-14), so emitting one would ship dead frontmatter
+        // (the exact D9-16 silent-failure class). The capability matrix pins
+        // this as `effortOverride: false` (src/adapters/index.ts), and the
+        // capabilityMatrixDrift code-probe asserts this file never invokes
+        // the effort resolver.
         const modelClass = model ? normalizeModelClass(model) : null;
         if (modelClass) {
-          // Alias-expanded like every resolveAgentModel result (a pinned
-          // `fable` reaches the gate as `claude-fable-5` and passes).
           const tierPinRaw = resolveTierModel(modelClass, ctx.manifest);
           const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
-          if (tierPin && isCopilotRecognizableModel(tierPin)) lines.push(`model: ${tierPin}`);
+          if (tierPin !== undefined) {
+            // `inherit` never matches the gate, so an inherit pin omits the
+            // field — exactly its defined emission (see src/models/tiers.ts).
+            if (isCopilotRecognizableModel(tierPin)) lines.push(`model: ${tierPin}`);
+          } else if (agentModelPins === "native") {
+            const mapped = COPILOT_TIER_MODEL_MAP[modelClass];
+            if (mapped !== undefined) lines.push(`model: ${mapped}`);
+          }
         } else if (model && isCopilotRecognizableModel(model)) {
           lines.push(`model: ${model}`);
         }

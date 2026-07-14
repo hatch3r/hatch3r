@@ -571,12 +571,25 @@ describe("resolveModelRate", () => {
     expect(resolveModelRate("fable")).toEqual(MODEL_RATES["claude-fable-5"]);
   });
 
-  it("resolves the model-class words to the same targets as their Claude tier aliases (release/2.6.0)", () => {
-    // economy/default/strongest mirror haiku/sonnet/opus so
-    // `hatch3r explain --cost --model strongest` resolves for class-authored agents.
-    expect(resolveModelRate("economy")).toEqual(resolveModelRate("haiku"));
-    expect(resolveModelRate("default")).toEqual(resolveModelRate("sonnet"));
-    expect(resolveModelRate("strongest")).toEqual(resolveModelRate("opus"));
+  it("derives the four model-class words through CLAUDE_TIER_MODEL_MAP + alias expansion (release/2.7.0)", () => {
+    // economy/standard/advanced/frontier price the exact model the Claude
+    // emission path would run (class -> alias -> id), with no shadow map.
+    expect(resolveModelRate("economy")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+    expect(resolveModelRate("standard")).toEqual(MODEL_RATES["claude-sonnet-5"]);
+    expect(resolveModelRate("advanced")).toEqual(MODEL_RATES["claude-opus-4-8"]);
+    expect(resolveModelRate("frontier")).toEqual(MODEL_RATES["claude-fable-5"]);
+    // The frontier class prices at the fable rates ($10/$50 per 1M in/out).
+    expect(resolveModelRate("frontier")!.inputCostPer1M).toBe(10.0);
+    expect(resolveModelRate("frontier")!.outputCostPer1M).toBe(50.0);
+  });
+
+  it("resolves the legacy class synonyms via normalizeModelClass (fast/default/strongest/reasoning)", () => {
+    expect(resolveModelRate("fast")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+    expect(resolveModelRate("default")).toEqual(MODEL_RATES["claude-sonnet-5"]);
+    // 2.6.0 `strongest` normalizes to the frontier class, so it now prices at
+    // the top-class (fable) rates rather than the old opus mapping.
+    expect(resolveModelRate("strongest")).toEqual(MODEL_RATES["claude-fable-5"]);
+    expect(resolveModelRate("reasoning")).toEqual(MODEL_RATES["claude-fable-5"]);
   });
 
   it("resolves exact model ids", () => {
@@ -590,6 +603,14 @@ describe("resolveModelRate", () => {
   it("returns null for an unknown selector", () => {
     expect(resolveModelRate("gpt-4")).toBeNull();
     expect(resolveModelRate("")).toBeNull();
+  });
+
+  it("returns null for non-Claude aliases with no rate row (codex/gemini)", () => {
+    // `codex`/`gemini-pro` ARE MODEL_ALIASES keys, but their expanded ids
+    // carry no MODEL_RATES row — the derivation must fall through to null,
+    // not invent a rate.
+    expect(resolveModelRate("codex")).toBeNull();
+    expect(resolveModelRate("gemini-pro")).toBeNull();
   });
 
   it("prices Opus higher than the Sonnet-biased default (the D6-18 bug)", () => {

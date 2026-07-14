@@ -7,6 +7,7 @@ import {
   type CustomizableType,
 } from "../models/customize.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
+import { normalizeEffortLevel } from "../models/tiers.js";
 
 // D3-SA3.3-10: exported so the floor-admission invariant test imports this map
 // instead of hand-mirroring it — any newly-customizable type is then covered
@@ -49,6 +50,21 @@ export const TYPES_WITHOUT_MODEL: ReadonlySet<string> = new Set([
   "rule",
   "prompt",
   "hook",
+]);
+// `effort` is consumed only on agents (release/2.7.0): the reasoning-effort
+// axis rides the per-subagent model emission, and only the adapters' AGENT
+// loops compose it (src/models/resolve.ts::resolveAgentEffort +
+// defaultEffortForClass in src/models/tiers.ts). Skills/commands/rules ignore
+// it entirely. D2-SA2.3-12: `rule`, `skill`, and `command` are the reachable
+// members; `prompt` and `hook` are the same unreachable forward-declarations
+// as in TYPES_WITHOUT_SCOPE (TYPE_TO_DIR early-return), kept so the
+// classification is already correct the day those types become customizable.
+export const TYPES_WITHOUT_EFFORT: ReadonlySet<string> = new Set([
+  "rule",
+  "prompt",
+  "hook",
+  "skill",
+  "command",
 ]);
 
 // D2-SA2.1-05: frontmatter-safe model-id charset. Byte-identical mirror of the
@@ -843,6 +859,11 @@ function truncateToByteBudget(input: string, maxBytes: number): string {
  *       {skill, prompt, hook} (#116) and on protected artifacts.
  *     - `description` honored unless `protected`.
  *     - `model` honored unless its value fails the deny-pattern scan.
+ *     - `effort` honored on agents only (warns and drops on every other
+ *       type per TYPES_WITHOUT_EFFORT) and only when the value normalizes to
+ *       one of the five effort levels (low|medium|high|xhigh|max); stored in
+ *       normalized form. Enum membership subsumes the structural
+ *       injection guard, so `effort` is absent from the field loop.
  *   Layer 3 — `.hatch3r/{type}/{id}.customize.md` body. Capped at
  *     MAX_CUSTOMIZE_MD_BYTES (10240) or MAX_PROTECTED_CUSTOMIZE_MD_BYTES
  *     (2048) on protected artifacts. promptGuard + deny-pattern scan; any hit
@@ -948,6 +969,33 @@ async function applyCustomizationImpl(
   if (overrides.model !== undefined && TYPES_WITHOUT_MODEL.has(file.type)) {
     warnings.push(`Model override on ${file.type} "${file.id}" has no effect — only agents, skills, and commands carry a model. Ignoring.`);
     delete overrides.model;
+  }
+
+  // release/2.7.0: warn-and-drop `effort` on every non-agent type. The
+  // reasoning-effort override is consumed only by the adapters' agent loops
+  // (resolveAgentEffort); on any other type it would succeed silently with no
+  // runtime effect. Same pattern as TYPES_WITHOUT_SCOPE / TYPES_WITHOUT_MODEL;
+  // uses the module-level TYPES_WITHOUT_EFFORT single source (see above).
+  if (overrides.effort !== undefined && TYPES_WITHOUT_EFFORT.has(file.type)) {
+    warnings.push(`Effort override on ${file.type} "${file.id}" has no effect — only agents carry an effort level. Ignoring.`);
+    delete overrides.effort;
+  }
+
+  // release/2.7.0 enum gate: `effort` is a closed five-word enum, so it is
+  // gated by membership rather than joining the structural injection-guard
+  // loop below — closed-enum membership is strictly stronger than
+  // SAFE_MODEL_RE (no newline, colon, bracket, or any other non-enum byte
+  // survives normalization, so no YAML break-out is expressible). null =>
+  // strip with a Blocked warning; non-null => store the normalized form so
+  // adapters emit a platform-exact value (" XHIGH " -> "xhigh").
+  if (overrides.effort !== undefined) {
+    const normalizedEffort = normalizeEffortLevel(overrides.effort);
+    if (normalizedEffort === null) {
+      warnings.push(`Blocked: YAML effort for ${file.id} — must be one of low|medium|high|xhigh|max. Stripped field.`);
+      delete overrides.effort;
+    } else {
+      overrides.effort = normalizedEffort;
+    }
   }
 
   for (const field of ["description", "scope", "model"] as const) {
