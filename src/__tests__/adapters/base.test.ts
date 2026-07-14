@@ -1133,7 +1133,7 @@ describe("commands/shared companion emission (D2-SA2.1-01)", () => {
   }> = [
     { name: "claude", make: () => new ClaudeAdapter(), emittedPath: ".claude/commands/shared/orchestration-frame.md" },
     { name: "cursor", make: () => new CursorAdapter(), emittedPath: ".cursor/commands/shared/orchestration-frame.md" },
-    // Copilot routes command companions under `.github/prompts/` (board/revision).
+    // Copilot routes command companions under `.github/prompts/` (board/rework).
     { name: "copilot", make: () => new CopilotAdapter(), emittedPath: ".github/prompts/shared/orchestration-frame.md" },
   ];
 

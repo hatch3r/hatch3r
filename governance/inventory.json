@@ -14,7 +14,7 @@
     "agentsModes": 23,
     "agentsShared": 16,
     "commandsBoard": 11,
-    "commandsRevision": 4,
+    "commandsRework": 3,
     "checks": 5,
     "githubAgents": 4,
     "testFiles": 261,
@@ -294,7 +294,7 @@
       "hatch3r-quick-change.md",
       "hatch3r-refactor-plan.md",
       "hatch3r-release.md",
-      "hatch3r-revision.md",
+      "hatch3r-rework.md",
       "hatch3r-roadmap.md",
       "hatch3r-security-audit.md",
       "hatch3r-slo-scaffold.md",
@@ -413,11 +413,10 @@
       "shared-github.md",
       "shared-gitlab.md"
     ],
-    "commandsRevision": [
-      "revision-board-integration.md",
-      "revision-delegation.md",
-      "revision-modes.md",
-      "revision-quality.md"
+    "commandsRework": [
+      "rework-board-integration.md",
+      "rework-modes.md",
+      "rework-plan.md"
     ],
     "checks": [
       "accessibility.md",

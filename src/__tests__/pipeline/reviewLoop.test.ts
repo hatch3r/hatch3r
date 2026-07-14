@@ -386,13 +386,9 @@ describe("reviewLoop", () => {
         regex: /max\s+(\d+)\s+iterations/g,
         occurrences: 2,
       },
-      {
-        path: "commands/hatch3r-revision.md",
-        label: "revision review loop (table row + Stage 1 body)",
-        loopClass: "code",
-        regex: /max\s+(\d+)\s+iterations/g,
-        occurrences: 2,
-      },
+      // release/2.6.0: commands/hatch3r-rework.md (formerly revision) left the
+      // registry — the redesigned command runs a single read-only reviewer
+      // validation pass and states no review-loop cap.
       {
         path: "commands/hatch3r-board-pickup.md",
         label: "board-pickup review loop (table row)",
@@ -540,21 +536,19 @@ describe("reviewLoop", () => {
         regex: /If the code-class cap of (\d+) iterations completes/g,
         occurrences: 1,
       },
-      // Finding D7-SA7.2-02 (Cycle 12): three cap-stating files the
-      // hand-maintained registry forgot. pr-resolve.md delegates its Stage-1
-      // review loop to revision-quality.md and states the code-class cap 5×;
-      // commands/revision/revision-quality.md is the shared loop body BOTH
-      // revision.md and pr-resolve.md execute (2×); the adhoc-orchestrate SKILL
-      // states the generic default-class Phase-3 bound in its Per-Turn
-      // Pipeline-State Header ("max 4 iterations"). The prior `length >= 20`
-      // floor could not catch their omission; the completeness assertion below
-      // now enforces membership. pr-resolve/revision-quality run the revision-
-      // class code loop (code-class cap 3); adhoc-orchestrate carries the full
-      // default bound (4).
+      // Finding D7-SA7.2-02 (Cycle 12): cap-stating files the hand-maintained
+      // registry forgot. pr-resolve.md states the code-class cap 5× (its
+      // Stage-1 loop body is self-contained since the 2.6.0 rework redesign
+      // retired the shared revision-quality.md loop body); the
+      // adhoc-orchestrate SKILL states the generic default-class Phase-3 bound
+      // in its Per-Turn Pipeline-State Header ("max 4 iterations"). The prior
+      // `length >= 20` floor could not catch their omission; the completeness
+      // assertion below now enforces membership. pr-resolve runs the code-class
+      // loop (cap 3); adhoc-orchestrate carries the full default bound (4).
       {
         path: "commands/hatch3r-pr-resolve.md",
         label:
-          "pr-resolve delegated Stage-1 review loop (frontmatter + table + Tier-2 + Step-6 body)",
+          "pr-resolve Stage-1 review loop (frontmatter + table + Tier-2 + Step-7b body)",
         loopClass: "code",
         regex: /max\s+(\d+)\s+iterations/g,
         occurrences: 4,
@@ -564,20 +558,6 @@ describe("reviewLoop", () => {
         label: "pr-resolve Step-10 review-loop-cap ASK trigger",
         loopClass: "code",
         regex: /Review loop hits (\d+) iterations with findings remaining/g,
-        occurrences: 1,
-      },
-      {
-        path: "commands/revision/revision-quality.md",
-        label: "revision-quality shared Stage-1 review loop body (max N)",
-        loopClass: "code",
-        regex: /max\s+(\d+)\s+iterations/g,
-        occurrences: 1,
-      },
-      {
-        path: "commands/revision/revision-quality.md",
-        label: "revision-quality Stage-1 iteration-cap ASK directive",
-        loopClass: "code",
-        regex: /If\s+(\d+)\s+iterations complete/g,
         occurrences: 1,
       },
       {
@@ -605,9 +585,9 @@ describe("reviewLoop", () => {
       // iterations") and assert each appears as a CAP_SURFACE_REGISTRY path.
       // This replaces the prior `length >= 20` floor, which only caught the
       // registry being emptied and let a cap-stating file be omitted while CI
-      // stayed green — the exact re-opened gap for pr-resolve.md,
-      // revision-quality.md, and the adhoc-orchestrate SKILL. 32 entries across
-      // 20 distinct registered files today. The detector is a lower bound tuned
+      // stayed green — the exact re-opened gap for pr-resolve.md and the
+      // adhoc-orchestrate SKILL. 29 entries across 18 distinct registered
+      // files today. The detector is a lower bound tuned
       // to the drift-prone "max N iterations" form: reviewer/fixer state the cap
       // as "review-fix cycles" and are covered by explicit entries the detector
       // does not re-flag — safe, since the assertion only requires

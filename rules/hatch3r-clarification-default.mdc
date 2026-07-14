@@ -65,7 +65,7 @@ Binds every hatch3r-invoked workflow that mutates artifacts in the end-user repo
 
 ## Confidence-floor calibration (D13-SA13.3-F13.3.3)
 
-The five-trigger set above is the floor for *scope/intent* ambiguity. Orthogonally, the `--confidence-floor=any|medium|high` flag (and the persisted `hatch3r config confidence_floor=...` default) calibrates a *result-confidence* ASK surface in the core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-quick-change`, `hatch3r-revision`). At floor `high`, the orchestrator ASKs the user on every low-confidence finding regardless of severity — an additional, user-selected ASK trigger layered on top of the always-on five-trigger set. The floor never relaxes the five triggers; it only adds ASK pressure on uncertain results. Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`.
+The five-trigger set above is the floor for *scope/intent* ambiguity. Orthogonally, the `--confidence-floor=any|medium|high` flag (and the persisted `hatch3r config confidence_floor=...` default) calibrates a *result-confidence* ASK surface in the core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-quick-change`, `hatch3r-rework`). At floor `high`, the orchestrator ASKs the user on every low-confidence finding regardless of severity — an additional, user-selected ASK trigger layered on top of the always-on five-trigger set. The floor never relaxes the five triggers; it only adds ASK pressure on uncertain results. Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`.
 
 ## Exemptions (D5-M5)
 

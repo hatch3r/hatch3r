@@ -318,36 +318,38 @@ describe("D13: Findings trend calculation", () => {
 describe("D13-12: read-only code-review surface (--review-only)", () => {
   // Finding D13-SA13.1-F2: development-workflow activity (3) Code review had no
   // read-only standalone surface — hatch3r-reviewer spawns only post-implementation
-  // and the standalone code-facing surfaces (pr-resolve, the default revision flow)
-  // both mutate. The fix adds a --review-only stop-after-reviewer mode to
-  // hatch3r-revision. These assertions read the canonical artifacts and pin the
-  // wiring so the surface cannot silently regress.
+  // and the standalone code-facing surfaces both wrote something (pr-resolve
+  // mutates code; the default rework flow writes planning artifacts). The fix
+  // added a --review-only stop-after-reviewer mode, carried by hatch3r-rework
+  // (formerly hatch3r-revision) since the 2.6.0 plan-not-execute redesign.
+  // These assertions read the canonical artifacts and pin the wiring so the
+  // surface cannot silently regress.
   const repoRoot = process.cwd();
   const modes = readFileSync(
-    join(repoRoot, "commands/revision/revision-modes.md"),
+    join(repoRoot, "commands/rework/rework-modes.md"),
     "utf-8",
   );
   const command = readFileSync(
-    join(repoRoot, "commands/hatch3r-revision.md"),
+    join(repoRoot, "commands/hatch3r-rework.md"),
     "utf-8",
   );
 
-  it("documents a --review-only mode in the revision modes file", () => {
+  it("documents a --review-only mode in the rework modes file", () => {
     expect(modes).toContain("## Review-Only Mode");
     expect(modes).toContain("--review-only");
-    // It must be a read-only surface: no fix, no commit, no learnings write.
+    // It must be a read-only surface: no plan write, no todo.md, no learnings.
     expect(modes).toMatch(/read-only code-review surface/i);
   });
 
-  it("the --review-only mode skips every mutating step", () => {
-    // The behavior table marks fix implementation, commit/push, and learnings
-    // capture as skipped — the defining property of a "review this code, no
-    // changes" surface.
+  it("the --review-only mode skips every writing step", () => {
+    // The behavior table marks the plan write, board housekeeping, and
+    // learnings capture as skipped — the defining property of a "review this
+    // code, no changes" surface.
     const reviewSection = modes.slice(modes.indexOf("## Review-Only Mode"));
-    expect(reviewSection).toMatch(/Step 6 Fix implementation.*\*\*Skipped\*\*/s);
-    expect(reviewSection).toMatch(/Step 8 Commit and push.*\*\*Skipped\*\*/s);
+    expect(reviewSection).toMatch(/Step 7 Write the rework plan.*\*\*Skipped\*\*/s);
+    expect(reviewSection).toMatch(/Step 8 Board housekeeping.*\*\*Skipped\*\*/s);
     expect(reviewSection).toMatch(/Step 10 Capture learnings.*\*\*Skipped\*\*/s);
-    // Single reviewer pass, no fixer / re-review loop.
+    // Single reviewer pass, no researcher enrichment, no second pass.
     expect(reviewSection).toMatch(/Single `hatch3r-reviewer` pass only/);
   });
 
@@ -356,23 +358,25 @@ describe("D13-12: read-only code-review surface (--review-only)", () => {
     expect(modes).toContain("(3) Code review");
   });
 
-  it("surfaces the --review-only flag in the core revision command", () => {
+  it("surfaces the --review-only flag in the core rework command", () => {
     expect(command).toContain("--review-only");
     expect(command).toContain("### Review-Only Mode");
     // The core file points to the modes file for the full behavior table.
-    expect(command).toMatch(/revision-modes\.md` -> Review-Only Mode/);
-    // The modes-file pointer at the bottom advertises the new mode.
+    expect(command).toMatch(/rework-modes\.md` -> Review-Only Mode/);
+    // The modes-file pointer at the bottom advertises the mode.
     expect(command).toMatch(/review-only mode \(`--review-only`\)/);
   });
 
-  it("carves --review-only out of the always-commit guardrail", () => {
-    // The "Always commit and push" guardrail must not contradict a non-mutating
-    // mode — it explicitly exempts --review-only.
+  it("replaces the retired always-commit guardrail with the never-commit contract", () => {
+    // The 2.6.0 redesign ends every run at the rework plan — the modes file
+    // must carry the never-commit guardrail and no residue of the old
+    // always-commit one.
     const guardrail = modes
       .split("\n")
-      .find((line) => line.includes("Always commit and push"));
+      .find((line) => line.includes("Never commit or push"));
     expect(guardrail).toBeDefined();
-    expect(guardrail).toContain("--review-only");
+    expect(guardrail).toContain("rework plan + execution prompt");
+    expect(modes).not.toContain("Always commit and push");
   });
 });
 

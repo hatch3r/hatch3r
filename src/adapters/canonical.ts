@@ -189,7 +189,7 @@ export function resolveRuleGlobs(
  * Two orthogonal signals combined with AND:
  * 1. Top-level-only: the file's path relative to `baseDir` must not contain
  *    a path separator. This excludes companion subdirectories such as
- *    `commands/board/`, `commands/revision/`, `agents/modes/`, and
+ *    `commands/board/`, `commands/rework/`, `agents/modes/`, and
  *    `agents/shared/` whose contents are sub-workflows or shared reference
  *    material invoked by parent commands/agents, not directly by users.
  * 2. Frontmatter-type whitelist: `frontmatterType` must be either absent

@@ -80,7 +80,7 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 
 ## Cross-PR Finding Memory (D13-SA13.1-F08)
 
-This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation (Cross-PR Findings block = input #5 in Inputs You Receive). When the orchestrator (`commands/hatch3r-pr-resolve.md`, `commands/hatch3r-board-pickup.md`, or `commands/revision/revision-quality.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
+This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation (Cross-PR Findings block = input #5 in Inputs You Receive). When the orchestrator (`commands/hatch3r-pr-resolve.md` or `commands/hatch3r-board-pickup.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
 
 `.hatch3r/review-findings/` format (project-local, mirrors the `.hatch3r/learnings/` schema; the orchestrator owns the lookup, this agent consumes the supplied rows):
 
@@ -299,7 +299,7 @@ SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vec
 - `hatch3r-architect` (conditional) — dispatch when reviewed changes cross architectural seams (new module, dependency-graph change, cross-layer call).
 - `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
 
-The dispatching orchestrator (workflow / revision / board-pickup / quick-change command) emits the applicable CQ specialists in parallel subject to `max_phase4_parallel` batching. Each CQ specialist enforces the CQ1-CQ9 measurable floors from CONSTITUTION §2B.
+The dispatching orchestrator (workflow / board-pickup / quick-change command) emits the applicable CQ specialists in parallel subject to `max_phase4_parallel` batching. Each CQ specialist enforces the CQ1-CQ9 measurable floors from CONSTITUTION §2B.
 
 ## Specialist Delegation
 

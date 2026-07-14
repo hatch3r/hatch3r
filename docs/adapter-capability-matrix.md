@@ -189,7 +189,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 
 ### Companion content
 
-Support subdirectories under `agents/`, `commands/`, and `skills/` — `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, and per-skill `references/` — are reference material a parent artifact consumes, not standalone picker entries. Each adapter copies them verbatim into its native tree, preserving the relative subpath. Example (`agents/modes/architecture.md`):
+Support subdirectories under `agents/`, `commands/`, and `skills/` — `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/rework/`, and per-skill `references/` — are reference material a parent artifact consumes, not standalone picker entries. Each adapter copies them verbatim into its native tree, preserving the relative subpath. Example (`agents/modes/architecture.md`):
 
 | Adapter | Companion output path |
 |---------|-----------------------|

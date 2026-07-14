@@ -265,7 +265,7 @@ Applies to API code and protobufs.`,
   });
 
   // Slash-picker fix (release/2.6.0, S1c): command companions land under
-  // `.claude/commands/board|revision|shared/`, where the namespaced picker
+  // `.claude/commands/board|rework|shared/`, where the namespaced picker
   // reads `description:` at byte 0 — they now carry the same byte-0 stub the
   // primary command emission does. Agent companions stay raw: `.claude/agents/**`
   // is parsed as agent definitions, and a stub would register reference

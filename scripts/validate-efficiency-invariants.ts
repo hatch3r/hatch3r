@@ -928,6 +928,7 @@ const PLAN_HANDOFF_COMMANDS: readonly string[] = [
   "hatch3r-roadmap.md",
   "hatch3r-spec.md",
   "hatch3r-plan.md",
+  "hatch3r-rework.md",
 ];
 
 const ITERATION_SUMMARY_HEADING = "## Iteration Summary";

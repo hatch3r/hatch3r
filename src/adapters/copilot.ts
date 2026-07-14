@@ -833,10 +833,10 @@ jobs:
       ["agents/modes", ctx.features.agents, (f) => `.github/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`, { emitFmStub: true }],
-      ["commands/revision", ctx.features.commands, (f) => `.github/prompts/revision/${f}`, { emitFmStub: true }],
+      ["commands/rework", ctx.features.commands, (f) => `.github/prompts/rework/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
       // every emitted orchestrator command. Copilot routes command companions
-      // under `.github/prompts/` (matching the board/revision rows above), so the
+      // under `.github/prompts/` (matching the board/rework rows above), so the
       // shared frame ships to `.github/prompts/shared/` and its references resolve.
       ["commands/shared", ctx.features.commands, (f) => `.github/prompts/shared/${f}`, { emitFmStub: true }],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.github/checks/${f}`],

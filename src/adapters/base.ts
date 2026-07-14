@@ -159,7 +159,7 @@ export type CleanMcpEntry = Omit<McpServerEntry, "_disabled" | "_description">;
  * array references these members by name — a typo (e.g. `"agents/share"`) is a
  * compile error instead of a silent zero-output emission, and the canonical
  * set lives in one place (D02-SA2.1 checklist: walks `agents/modes/`,
- * `agents/shared/`, `commands/board/`, `commands/revision/`, `commands/shared/`,
+ * `agents/shared/`, `commands/board/`, `commands/rework/`, `commands/shared/`,
  * `checks/`).
  *
  * D2-SA2.1-01 (Cycle 12 Wave 2, P5): `commands/shared/` — home of the
@@ -177,7 +177,7 @@ export const KNOWN_COMPANION_SUBDIRS = [
   "agents/modes",
   "agents/shared",
   "commands/board",
-  "commands/revision",
+  "commands/rework",
   "commands/shared",
   "checks",
 ] as const;
@@ -1058,7 +1058,7 @@ export abstract class BaseAdapter implements Adapter {
    *
    * Companion content lives under support subdirectories of the canonical
    * tree (`agents/modes/`, `agents/shared/`, `commands/board/`,
-   * `commands/revision/`, `checks/`) and is referenced by primary
+   * `commands/rework/`, `checks/`) and is referenced by primary
    * artifacts via path strings such as
    * `agents/shared/quality-charter.md` or
    * `agents/modes/architecture.md`. Pre-1.9.0 these files were

@@ -192,7 +192,7 @@ Applies to API code and protobufs.`,
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.github/prompts/board/`,
-    // `.github/prompts/revision/`) are emitted but excluded from this count.
+    // `.github/prompts/rework/`) are emitted but excluded from this count.
     const prompts = outputs.filter((o) => /^\.github\/prompts\/[^/]+\.md$/.test(o.path));
     // Only the command-derived prompt file remains (1), not the fixture's
     // prompts-dir entry.
@@ -389,7 +389,7 @@ Applies to API code and protobufs.`,
   });
 
   // Slash-picker fix (release/2.6.0, S1c): command companions under
-  // `.github/prompts/board|revision|shared/` carry the byte-0 stub for
+  // `.github/prompts/board|rework|shared/` carry the byte-0 stub for
   // cross-adapter parity (plain `.md` companions — VS Code's prompt loader
   // ignores them, but byte-0 `description:` readers stop rendering the
   // HATCH3R:BEGIN marker). Agent companions stay raw — `.github/agents/**`

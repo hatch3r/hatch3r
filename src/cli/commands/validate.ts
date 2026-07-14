@@ -206,7 +206,7 @@ async function validateFrontmatter(
         } else if (entry.isDirectory()) {
           // SKILL.md is only the convention under skills/. Other dirs have their
           // own substructure (agents/modes/, agents/shared/, commands/board/,
-          // commands/revision/) that doesn't carry SKILL.md.
+          // commands/rework/) that doesn't carry SKILL.md.
           if (dir !== "skills") continue;
           const skillPath = join(dirPath, entry.name, "SKILL.md");
           try {
@@ -1936,7 +1936,7 @@ export const COMPANION_SUBDIRS: readonly string[] = [
   "agents/shared/",
   "agents/modes/",
   "commands/board/",
-  "commands/revision/",
+  "commands/rework/",
   "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — cited by orchestrators, not a standalone mutating command
   "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
 ];

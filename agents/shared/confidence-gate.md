@@ -10,13 +10,13 @@ cache_friendly: true
 
 > Last updated: 2026-06-09
 
-This is the canonical body of the Stage-1 review-loop gate that closes the reviewer ↔ fixer loop. It is the runtime twin of `evaluateReviewGate` in `src/pipeline/reviewLoop.ts` (the same decision matrix tested at `src/__tests__/pipeline/reviewLoop.test.ts` → "D13-3: confidence floor"). Consuming command sub-files (`commands/board/pickup-delegation.md`, `commands/board/pickup-delegation-multi.md`, `commands/revision/revision-quality.md`) cite this file via a one-line pointer so the floor logic lives in one place rather than re-stated per sub-file (D13-SA13.3-F3, single-source-of-truth per CONSTITUTION §2 P4).
+This is the canonical body of the Stage-1 review-loop gate that closes the reviewer ↔ fixer loop. It is the runtime twin of `evaluateReviewGate` in `src/pipeline/reviewLoop.ts` (the same decision matrix tested at `src/__tests__/pipeline/reviewLoop.test.ts` → "D13-3: confidence floor"). Consuming command sub-files (`commands/board/pickup-delegation.md`, `commands/board/pickup-delegation-multi.md`, `commands/rework/rework-plan.md` — the latter consumes the floor branches only, with no fixer branch: rework validation findings feed a plan, never a fixer spawn) cite this file via a one-line pointer so the floor logic lives in one place rather than re-stated per sub-file (D13-SA13.3-F3, single-source-of-truth per CONSTITUTION §2 P4).
 
 ### Inputs the gate evaluates
 
 1. **Severity counts** — Critical / Warning / Suggestion from the latest `hatch3r-reviewer` pass.
 2. **Reviewer confidence** — the top-level `confidence: high | medium | low` field the reviewer emits (per the Confidence Propagation Contract; an absent or unparseable value is treated as `low`, never as a pass).
-3. **Confidence floor** — the resolved `--confidence-floor` value (`any` | `medium` | `high`), passed in verbatim by the core orchestrator (`commands/hatch3r-board-pickup.md` → Confidence Floor; `commands/hatch3r-revision.md` → Confidence Floor). Default `any`.
+3. **Confidence floor** — the resolved `--confidence-floor` value (`any` | `medium` | `high`), passed in verbatim by the core orchestrator (`commands/hatch3r-board-pickup.md` → Confidence Floor; `commands/hatch3r-rework.md` → Confidence Floor). Default `any`.
 4. **Iteration budget** — iterations remaining against the code-class cap (`DEFAULT_MAX_REVIEW_ITERATIONS` floor of 3).
 5. **Deterministic iteration confidence** — the iteration-derived signal `reviewLoopConfidence` (`src/pipeline/reviewLoop.ts`): `low` when the loop took ≥3 iterations or terminated non-clean (max-iterations / oscillation / divergence / design-objection), else `high` (clean on iteration 1) or `medium` (clean on iteration 2). Unlike input 2 this is computed from the loop, not self-assigned, so it caps an over-confident self-rating (Finding D13-21).
 

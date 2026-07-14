@@ -52,7 +52,7 @@ Browser verification is opt-in per command session. The orchestrator follows a s
 | `hatch3r-workflow` | `hatch3r-board-fill` |
 | `hatch3r-board-pickup` | `hatch3r-roadmap` |
 | `hatch3r-quick-change` | `hatch3r-refactor-plan` |
-| `hatch3r-revision` | `hatch3r-security-audit` |
+| `hatch3r-rework` | `hatch3r-security-audit` |
 | `hatch3r-debug` | |
 
 Commands in the "Does NOT Support" column are documentation-only, planning-only, or non-implementation commands. They MUST NOT prompt for browser verification. Skills (including `hatch3r-board-groom`, `hatch3r-board-refresh`, `hatch3r-release`) are invoked outside the orchestrator command lifecycle and therefore do not prompt for browser verification.

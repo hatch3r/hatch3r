@@ -39,7 +39,7 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
 /**
  * Agent assertiveness calibration — the result-confidence floor at which the
  * core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
- * `hatch3r-quick-change`, `hatch3r-revision`) tighten their review/ASK gate
+ * `hatch3r-quick-change`, `hatch3r-rework`) tighten their review/ASK gate
  * (D13-SA13.3-F13.3.3, Pillar P1). Orthogonal to `--effort` (work-effort depth)
  * and to the always-on four-trigger scope/intent ambiguity gate in
  * `rules/hatch3r-clarification-default.md` — the floor only adds ASK pressure on

@@ -80,7 +80,7 @@ export const AGENT_COMMAND_NAMES = new Set([
   "design-system-create", "diagnose", "feature-plan", "handoff", "healthcheck",
   "incident-response", "migration-plan", "onboard", "pack-install", "plan",
   "pr-resolve", "project-spec", "quick-change", "refactor-plan", "release",
-  "revision", "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan",
+  "rework", "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan",
   "workflow",
   // skills/hatch3r-* commonly mistyped at the terminal (curated subset — the
   // drift guard requires each listed name to exist on disk, not that every

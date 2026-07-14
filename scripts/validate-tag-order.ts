@@ -54,7 +54,7 @@
  * groups — `agents/hatch3r-*.md`, `skills/hatch3r-<name>/SKILL.md`,
  * `rules/hatch3r-*.md`, `commands/hatch3r-*.md`, `hooks/hatch3r-*.md`.
  * Support/companion subdirectories (`agents/shared`, `agents/modes`,
- * `commands/board`, `commands/revision`) are not standalone picker items
+ * `commands/board`, `commands/rework`) are not standalone picker items
  * and are out of scope.
  *
  * Pillars: P1 (CLI UI/UX — picker discoverability), P5 (Governance

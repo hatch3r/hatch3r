@@ -221,7 +221,7 @@ Canonical schema for the one-sentence multi-task / epic / batch handling in the 
 
 ## Pipeline Pattern (Cross-Command Consistency)
 
-Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, `board-pickup`, `revision`, `quick-change`, `board-fill`) MUST follow the canonical pattern below. Per-command deviations require an explicit rationale in the command body's "Pipeline Deviations" subsection.
+Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, `board-pickup`, `quick-change`, `board-fill`) MUST follow the canonical pattern below. Per-command deviations require an explicit rationale in the command body's "Pipeline Deviations" subsection.
 
 | Stage | Canonical agent | Required at Tier | Carve-out |
 |-------|-----------------|------------------|-----------|
@@ -240,7 +240,7 @@ Single canonical policy for every pipeline command (reconciles the per-command t
 | Window fraction (primary) | Action | Turn-count fallback (coarse) |
 |---------------------------|--------|------------------------------|
 | `> 50%` | Compress: apply the numbered strategies below in order. | implementation/review ≈ 25 turns; quick-change ≈ 15 (fast-completion scope); debug ≈ 20 |
-| `> 75%` | Restart: suggest a fresh chat / batch split carrying a progress summary of completed + remaining work; a fresh-context command (`hatch3r-revision`) just re-runs. | ≈ 1.5× the compress turn count |
+| `> 75%` | Restart: suggest a fresh chat / batch split carrying a progress summary of completed + remaining work; a fresh-context command (`hatch3r-rework`) just re-runs. | ≈ 1.5× the compress turn count |
 
 1. **Summarize Phase 1 output.** Replace full research findings with a structured summary: affected files (list), blast radius (count + top 3), key conventions (bullet points). Keep raw data only for the fields the current phase needs.
 2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings.

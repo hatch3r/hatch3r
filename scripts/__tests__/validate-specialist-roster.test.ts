@@ -25,7 +25,6 @@ interface Fixture {
 
 const COMMAND_FILES = [
   "hatch3r-workflow.md",
-  "hatch3r-revision.md",
   "hatch3r-board-pickup.md",
   "hatch3r-pr-resolve.md",
   "hatch3r-quick-change.md",
@@ -246,12 +245,12 @@ describe("validate-specialist-roster", () => {
   });
 
   it("ERRORs when a full-pipeline command drops the evaluate-mode docs-writer", async () => {
-    const revPath = join(fx.rootDir, "commands", "hatch3r-revision.md");
+    const bpPath = join(fx.rootDir, "commands", "hatch3r-board-pickup.md");
     const { readFile } = await import("node:fs/promises");
-    const body = await readFile(revPath, "utf-8");
+    const body = await readFile(bpPath, "utf-8");
     const stripped = body.replace("hatch3r-docs-writer, ", "");
     expect(stripped).not.toBe(body);
-    await writeFile(revPath, stripped, "utf-8");
+    await writeFile(bpPath, stripped, "utf-8");
 
     const r = await runValidator({ rootDir: fx.rootDir });
     const miss = r.findings.find(
@@ -263,19 +262,19 @@ describe("validate-specialist-roster", () => {
   it("ERRORs when a full-pipeline command drops a mandatory-on-match specialist (2.2.0)", async () => {
     // hatch3r-ux is "mandatory-on-match" — a full-pipeline orchestrator must be
     // able to dispatch the hard-mandate Tier 2/3 specialist, so dropping it
-    // from revision's agentPipeline is a ROSTER-CMD-MISSING error.
-    const revPath = join(fx.rootDir, "commands", "hatch3r-revision.md");
+    // from board-pickup's agentPipeline is a ROSTER-CMD-MISSING error.
+    const bpPath = join(fx.rootDir, "commands", "hatch3r-board-pickup.md");
     const { readFile } = await import("node:fs/promises");
-    const body = await readFile(revPath, "utf-8");
+    const body = await readFile(bpPath, "utf-8");
     const stripped = body.replace("hatch3r-ux, ", "");
     expect(stripped).not.toBe(body);
-    await writeFile(revPath, stripped, "utf-8");
+    await writeFile(bpPath, stripped, "utf-8");
 
     const r = await runValidator({ rootDir: fx.rootDir });
     const miss = r.findings.find(
       (f) =>
         f.code === "ROSTER-CMD-MISSING" &&
-        f.file === "commands/hatch3r-revision.md" &&
+        f.file === "commands/hatch3r-board-pickup.md" &&
         f.message.includes("hatch3r-ux"),
     );
     expect(miss).toBeDefined();

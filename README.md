@@ -28,7 +28,7 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 | **Agents** | 30 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 10 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability/product-spec), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
 | **Rules** | 70 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
-| **Commands** | 32 | Board management, planning (router `plan`, feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
+| **Commands** | 32 | Board management, planning (router `plan`, feature, bug, refactor, test), workflow, quick-change, bug-pipeline, rework, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.0.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
@@ -109,7 +109,7 @@ Invoked inside your coding tool (e.g., as Cursor commands). All are prefixed `ha
 
 - **Board management:** `board-fill`, `board-pickup` (lifecycle helpers `board-init`, `board-groom`, `board-refresh`, `board-shared` ship as skills)
 - **Planning:** `plan` (router), `project-spec`, `codebase-map`, `roadmap`, `feature-plan`, `bug-plan`, `refactor-plan`, `migration-plan`, `test-plan`, `api-spec`
-- **Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `pr-resolve`, `handoff`
+- **Workflow:** `workflow`, `quick-change`, `rework`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `pr-resolve`, `handoff`
 - **Operations:** `healthcheck`, `security-audit`, `report` (helpers `dep-audit`, `release`, `context-health`, `cost-tracking`, `recipe` ship as skills)
 - **Customization:** `create` (single `hatch3r-customize` skill covers agent/command/skill/rule customization)
 

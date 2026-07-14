@@ -547,7 +547,7 @@ export class CursorAdapter extends BaseAdapter {
       ["agents/modes", ctx.features.agents, (f) => `.cursor/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.cursor/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.cursor/commands/board/${f}`, { emitFmStub: true }],
-      ["commands/revision", ctx.features.commands, (f) => `.cursor/commands/revision/${f}`, { emitFmStub: true }],
+      ["commands/rework", ctx.features.commands, (f) => `.cursor/commands/rework/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
       // every emitted orchestrator command; ship it under the native command
       // companion path so those references resolve on the user's disk.

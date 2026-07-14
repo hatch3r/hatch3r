@@ -55,6 +55,7 @@ const PLAN_HANDOFF_ROSTER = [
   "hatch3r-roadmap.md",
   "hatch3r-spec.md",
   "hatch3r-plan.md",
+  "hatch3r-rework.md",
 ] as const;
 
 describe("hatch3r-workflow --plan-file intake (S7)", () => {

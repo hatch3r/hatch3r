@@ -399,7 +399,7 @@ You are a test agent.`,
   });
 
   // Slash-picker fix (release/2.6.0, S1c): command companions under
-  // `.cursor/commands/board|revision|shared/` carry the byte-0 stub the
+  // `.cursor/commands/board|rework|shared/` carry the byte-0 stub the
   // primary command emission uses (Cursor's picker reads `description:` at
   // byte 0); agent companions stay raw — `.cursor/agents/**` is parsed as
   // subagent definitions and a stub would register reference files as agents.
@@ -427,7 +427,7 @@ You are a test agent.`,
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.cursor/commands/board/`,
-    // `.cursor/commands/revision/`) are emitted but excluded from this count.
+    // `.cursor/commands/rework/`) are emitted but excluded from this count.
     const commands = outputs.filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path));
     expect(commands.length).toBe(1);
 

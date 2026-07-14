@@ -1515,7 +1515,7 @@ export class ClaudeAdapter extends BaseAdapter {
     results.push(...commandOutputs.map(rewrapWithCacheBreakpoints));
 
     // Companion/reference content (`agents/modes/`, `agents/shared/`,
-    // `commands/board/`, `commands/revision/`, `checks/`) is referenced by
+    // `commands/board/`, `commands/rework/`, `checks/`) is referenced by
     // primary artifacts via plain `agents/shared/quality-charter.md`-style
     // path strings. Without these subtrees on disk the runtime agent's
     // Read/Grep cannot resolve those references — the bundled-content
@@ -1541,7 +1541,7 @@ export class ClaudeAdapter extends BaseAdapter {
       ["agents/modes", ctx.features.agents, (f) => `.claude/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`, { emitFmStub: true }],
-      ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`, { emitFmStub: true }],
+      ["commands/rework", ctx.features.commands, (f) => `.claude/commands/rework/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion that all
       // emitted orchestrator commands reference; ship it under the native
       // command companion path so those references resolve on the user's disk.

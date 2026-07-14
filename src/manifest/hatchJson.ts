@@ -1318,7 +1318,7 @@ export function readConfidenceFloor(m: HatchManifest | null | undefined): Confid
  * {@link maturityDirective}). This payload carries the resolved floor and its
  * second-pass effect into the same per-adapter marker surface, so the four core
  * orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
- * `hatch3r-quick-change`, `hatch3r-revision`) read the configured floor from the
+ * `hatch3r-quick-change`, `hatch3r-rework`) read the configured floor from the
  * artifact they already load instead of it being a write-only config key.
  *
  * The effect text mirrors the per-floor semantics documented on `ConfidenceFloor`
