@@ -1319,4 +1319,213 @@ model: economy`,
     expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS"))).toHaveLength(0);
     expect(errorCount).toBe(0);
   });
+
+  // ── Mode K: plan-handoff (release/2.6.0) ─────────────────────────
+  const PLAN_HANDOFF_FLAGS = {
+    triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, planHandoff: true,
+  } as const;
+
+  const FRAME_BODY = `# Orchestration Frame
+
+## Plan-Execution Handoff (terminal block)
+
+Template first line: \`/hatch3r-workflow --plan-file=<plan-path>\`
+`;
+
+  /** Seeds commands/shared/orchestration-frame.md so check (c) passes. */
+  async function writeFrame(commandsDir: string, body: string = FRAME_BODY): Promise<void> {
+    const dir = join(commandsDir, "shared");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "orchestration-frame.md"), body, "utf-8");
+  }
+
+  it("Mode K: ERRORs (PLAN-HANDOFF-BLOCK-MISS) when a plan_handoff command has no handoff block", async () => {
+    await writeFrame(fx.commandsDir);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-myplan.md"),
+      `id: hatch3r-myplan
+type: command
+description: Planning command
+tags: [planning]
+orchestrator: true
+agentPipeline: [hatch3r-researcher]
+plan_handoff: true`,
+      `# My Plan
+
+## Iteration Summary (mandatory output)
+
+Close the run with the recap.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const miss = findings.filter((f) => f.code === "PLAN-HANDOFF-BLOCK-MISS");
+    expect(miss).toHaveLength(1);
+    expect(miss[0].file).toBe("commands/hatch3r-myplan.md");
+    expect(miss[0].message).toContain("Execute This Plan");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode K: ERRORs when the handoff block appears BEFORE the Iteration Summary heading", async () => {
+    await writeFrame(fx.commandsDir);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-myplan.md"),
+      `id: hatch3r-myplan
+type: command
+description: Planning command
+tags: [planning]
+orchestrator: true
+agentPipeline: [hatch3r-researcher]
+plan_handoff: true`,
+      `# My Plan
+
+## Execute This Plan
+
+Block emitted too early.
+
+## Iteration Summary (mandatory output)
+
+Close the run with the recap.
+`,
+    );
+
+    const { findings } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const miss = findings.filter((f) => f.code === "PLAN-HANDOFF-BLOCK-MISS");
+    expect(miss).toHaveLength(1);
+    expect(miss[0].message).toContain("BEFORE");
+  });
+
+  it("Mode K: ERRORs (PLAN-HANDOFF-ROSTER-MISS) when a pinned roster file lacks plan_handoff: true", async () => {
+    await writeFrame(fx.commandsDir);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-feature-plan.md"),
+      `id: hatch3r-feature-plan
+type: command
+description: Feature planning
+tags: [planning]
+orchestrator: true
+agentPipeline: [hatch3r-researcher]`,
+      `# Feature Plan
+
+## Iteration Summary (mandatory output)
+
+Close the run with the recap.
+
+## Execute This Plan
+
+Handoff block.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const roster = findings.filter((f) => f.code === "PLAN-HANDOFF-ROSTER-MISS");
+    expect(roster).toHaveLength(1);
+    expect(roster[0].file).toBe("commands/hatch3r-feature-plan.md");
+    // No BLOCK-MISS: the block check only binds commands declaring the key.
+    expect(findings.filter((f) => f.code === "PLAN-HANDOFF-BLOCK-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode K: ERRORs (PLAN-HANDOFF-FRAME-MISS) when the frame lacks the --plan-file= template line", async () => {
+    await writeFrame(fx.commandsDir, "# Orchestration Frame\n\n## Plan-Execution Handoff (terminal block)\n\nNo template here.\n");
+
+    const { findings } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const frame = findings.filter((f) => f.code === "PLAN-HANDOFF-FRAME-MISS");
+    expect(frame).toHaveLength(1);
+    expect(frame[0].message).toContain("--plan-file=");
+  });
+
+  it("Mode K: ERRORs (PLAN-HANDOFF-FRAME-MISS) when the frame file is absent entirely", async () => {
+    const { findings } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const frame = findings.filter((f) => f.code === "PLAN-HANDOFF-FRAME-MISS");
+    expect(frame).toHaveLength(1);
+    expect(frame[0].message).toContain("not found");
+  });
+
+  it("Mode K: PASSes a roster command with plan_handoff: true and the block after the recap", async () => {
+    await writeFrame(fx.commandsDir);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-feature-plan.md"),
+      `id: hatch3r-feature-plan
+type: command
+description: Feature planning
+tags: [planning]
+orchestrator: true
+agentPipeline: [hatch3r-researcher]
+plan_handoff: true`,
+      `# Feature Plan
+
+## Iteration Summary (mandatory output)
+
+Close the run with the recap.
+
+## Execute This Plan
+
+Handoff block after the recap.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("PLAN-HANDOFF"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode K: PASSes when the trailer is a pointer line naming Plan-Execution Handoff (no literal heading)", async () => {
+    await writeFrame(fx.commandsDir);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-myplan.md"),
+      `id: hatch3r-myplan
+type: command
+description: Planning command
+tags: [planning]
+orchestrator: true
+agentPipeline: [hatch3r-researcher]
+plan_handoff: true`,
+      `# My Plan
+
+## Iteration Summary (mandatory output)
+
+Close the run with the recap. Then emit the Plan-Execution Handoff block per the orchestration frame.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_HANDOFF_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("PLAN-HANDOFF"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
 });

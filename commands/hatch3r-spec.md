@@ -10,6 +10,7 @@ pillars:
   governance: [P1, P2, P8]
   content-quality: [CQ10, CQ8, CQ9]
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -225,3 +226,10 @@ Both blocks land in the Iteration Summary recap (cost facet; full blocks on the 
 - hatch3r design decision: `--effort` universal override + triage_tiers (Decision 17)
 - `commands/hatch3r-roadmap.md` (next step — reads `docs/specs/`, emits the board-fill-format `todo.md`)
 - `commands/hatch3r-board-fill.md` (orchestrator pattern reference; consumes roadmap's `todo.md`)
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape B (chain) — the spec manifest is not directly executable, so the first line is the canonical next command: `/hatch3r-project-spec` (greenfield — the PRD feeds the technical-design layer) or `/hatch3r-roadmap` (either state — sequence the specs into a board-ready todo.md); still a fenced copy-paste prompt with `<one-line scope>` from the requirements deliverable and top-3 criteria from `docs/specs/acceptance-criteria.md`. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

@@ -7,9 +7,13 @@ title: Agent Commands
 
 Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
 
-There are 31 agent commands.
+There are 32 agent commands.
 
 ## Spec and Planning Commands
+
+### plan
+
+Planning router. Classifies a free-form planning request against the nine planning flows (feature-plan, bug-plan, migration-plan, refactor-plan, test-plan, api-spec, project-spec, roadmap, spec), confirms the match, and drives the matched flow(s) with shared intake context. Produces one consolidated outcome and a single copy-paste plan-execution prompt for a fresh session.
 
 ### spec
 

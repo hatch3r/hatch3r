@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 6
@@ -535,3 +536,10 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Related
 
 - **Skill:** `hatch3r-feature` — the implement-side counterpart to this plan-only command. This command fans out parallel researcher sub-agents and a docs-writer to produce a feature spec (`docs/specs/`), ADRs, and epic-shaped `todo.md` entries; it writes no product code. Use this command to design and spec a new capability (user stories, acceptance criteria, sub-issue breakdown); use the `hatch3r-feature` skill to implement an approved spec as a vertical slice. Sequential plan → implement seam.
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/specs/{NN}_{feature-slug}.md` (the Step 5 spec path this run wrote); `<one-line scope>` from the Step 1 feature brief; top-3 criteria from the spec's acceptance-criteria section. When Step 6 wrote todo.md entries, append the board-alternative line. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

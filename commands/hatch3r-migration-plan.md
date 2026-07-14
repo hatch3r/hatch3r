@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 3
@@ -441,3 +442,10 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Command:** `hatch3r-feature-plan` — plan features that depend on the migration target's new capabilities
 - **Skill:** `hatch3r-migration` — the execute-side counterpart to this plan-only command; it runs the phased migration inline (breaking-change analysis, phased rollout, rollback). Use this command to produce the researcher-backed plan; use the `hatch3r-migration` skill to execute an approved plan or run a single-dependency migration.
 - **Skill:** `hatch3r-refactor` — execution workflow for migration phases involving code restructuring
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/migrations/{dependency}_{current}_to_{target}.md` (the migration plan this run wrote); `<one-line scope>` from the migration target; top-3 criteria from the phase verification and rollback checks. When Step 7 wrote todo.md phase entries, append the board-alternative line. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

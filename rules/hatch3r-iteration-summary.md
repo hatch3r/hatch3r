@@ -12,7 +12,7 @@ scope: always
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with exactly one sanctioned trailer permitted after it, the Plan-Execution Handoff block (see §Plan-Execution Handoff below). The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
 
 ## Pre-Execution Cost Preview
 
@@ -96,7 +96,11 @@ Absence of the line on a recorded bypass is a P5 gate failure.
 
 ## Validation Gate
 
-A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
+A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. A `plan_handoff: true` run that closes without the Plan-Execution Handoff block fails the gate identically. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
+
+## Plan-Execution Handoff (plan_handoff: true)
+
+Commands whose frontmatter declares `plan_handoff: true` MUST append the Plan-Execution Handoff block immediately after the recap. Format, shapes (A direct / B chain), Tier-1 carve-out, and suppression rule are owned by `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block) — this rule points there and restates nothing. The block is the ONE sanctioned post-recap trailer; every other run still closes with the recap itself.
 
 ## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 

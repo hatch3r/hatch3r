@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 2
@@ -666,3 +667,10 @@ hatch3r supports 3 adapters as of 1.9.0 (Cursor, Claude Code, Copilot). Adapter 
 - **Technical items must justify business impact.** Every technical item (refactor, debt paydown, infrastructure) should state what business outcome it enables or unblocks.
 - **Never overwrite `AGENTS.md`** without explicit user confirmation.
 - **Sub-agents must not create files.** They return structured text results to the orchestrator. Only the orchestrator writes files.
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape B (chain) — the roadmap's todo.md IS the plan, so the first line is the canonical next command, not a `--plan-file` invocation: `/hatch3r-board-fill` (still a fenced copy-paste prompt with `<one-line scope>` from the roadmap's milestone summary and top-3 criteria from the P1 items), then `/hatch3r-board-pickup` to start delivery. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 3
@@ -401,3 +402,10 @@ servers:
 - **Agent:** `hatch3r-researcher` — performs codebase scan for route definitions
 - **Agent:** `hatch3r-docs-writer` — assembles the final spec document
 - **Agent:** `hatch3r-reviewer` — validates the generated spec for correctness
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/api/openapi.yaml` (the spec this run wrote — point at `docs/api/drift-report.md` instead when the run was validate-mode and the fix work lives there); `<one-line scope>` from the API surface scanned; top-3 criteria from the reviewer's validation findings. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

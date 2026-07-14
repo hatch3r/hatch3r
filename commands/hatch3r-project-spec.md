@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 7
@@ -1241,3 +1242,10 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **All 7 researchers must complete before proceeding to Step 3.** Do not generate specs from partial research.
 - **Sub-agents must not create files.** They return structured text results to the orchestrator. Only the orchestrator writes files in Step 7.
 - **Never overwrite `AGENTS.md`** without explicit user confirmation.
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape B (chain) — the design tree is not directly executable, so the first line is the canonical next command: `/hatch3r-roadmap` (sequence the module specs into a dependency-ordered rollout); still a fenced copy-paste prompt with `<one-line scope>` from the vision brief and top-3 criteria from the per-module acceptance criteria. The generated todo.md also feeds `/hatch3r-board-fill` directly. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

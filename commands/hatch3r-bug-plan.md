@@ -11,6 +11,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: deep
 triage_tiers: [1, 2, 3]
+plan_handoff: true
 supports_resume: true
 sub_agents_spawned:
   count: 5
@@ -469,3 +470,10 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.
 - **Preserve existing todo.md content.** Never overwrite or reorganize existing items without explicit user approval.
 - **Distinguish fixes from improvements.** If the investigation reveals that the "bug" is actually expected behavior or a missing feature, flag this to the user and recommend using `hatch3r-feature-plan` instead.
+---
+
+## Execute This Plan
+
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/investigations/{NN}_{bug-slug}.md` (the investigation report this run wrote); `<one-line scope>` from the Step 1 bug brief; top-3 criteria from the report's fix-path and regression-coverage items. When todo.md fix entries were written, append the board-alternative line. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

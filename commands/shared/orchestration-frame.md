@@ -9,7 +9,7 @@ cache_friendly: true
 
 # Orchestration Frame (shared command boilerplate)
 
-> Last updated: 2026-06-09
+> Last updated: 2026-07-14
 > Pillars: P4 (Lean Coverage, primary — kills the ~30-file restatement of these six blocks), P7 (Speed & Token Efficiency, supporting — static cacheable frame).
 
 Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` orchestrators (§0 Detect Ambiguity ×30, Confidence Propagation Contract ×26, checkpoint contract ×28, Per-Turn Pipeline-State Header ×29, End-of-Turn Delegation Attestation ×30, `cost_estimate` block ×30 at the D22-4 measurement). This file is their single source of truth. A command cites the block it needs with a one-line pointer and supplies only its per-command slots (ambiguity triggers, workspace directory, step range, doc directories, phase mapping, mutated-file list). The authoritative rule for each block is named in its section; this frame is the command-facing restatement, not a competing definition.
@@ -17,7 +17,7 @@ Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` 
 Citation template (drop into the command where the block used to live):
 
 ```
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
 ```
 
 `<…>` slots below are the only text a command varies; everything outside them is invariant and lives here.
@@ -132,3 +132,42 @@ inline_edits_by_orchestrator: none
 ```
 
 Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation next turn. The block sits beside the Iteration Summary, not inside it, preserving the recap contract verbatim.
+
+---
+
+## Plan-Execution Handoff (terminal block)
+
+Authoritative rule: `rules/hatch3r-iteration-summary.md` → Plan-Execution Handoff. Plan-producing orchestrator commands (frontmatter `plan_handoff: true`) close the conversation with ONE copy-pasteable block that executes the produced plan in a FRESH session. Rationale: fresh context = clean execution baseline — long-context degradation is measurable, and the executing run re-reads only the plan, not this run's derivation history.
+
+The literal template (slots in angle brackets):
+
+````markdown
+## Execute This Plan
+
+Copy this into a FRESH session to execute the plan:
+
+```text
+/hatch3r-workflow --plan-file=<plan-path>
+
+Execute the plan at <plan-path> — <one-line scope>.
+Top acceptance criteria (full list in the plan file):
+- <criterion 1>
+- <criterion 2>
+- <criterion 3>
+```
+
+<only when todo.md entries were written this run:> Board alternative: run /hatch3r-board-fill to triage the new todo.md entries, then /hatch3r-board-pickup.
+````
+
+| Shape | First line | Used by |
+|-------|------------|---------|
+| **A (direct)** | `/hatch3r-workflow --plan-file=<path>` | feature-plan, bug-plan, migration-plan, refactor-plan, test-plan, api-spec, rework (upcoming), plan (consolidated: one numbered fenced prompt per plan artifact, run in order) |
+| **B (chain)** | the canonical next command | roadmap → `/hatch3r-board-fill` (its todo.md IS the plan); spec → `/hatch3r-project-spec` or `/hatch3r-roadmap`; project-spec → `/hatch3r-roadmap`. Still a fenced copy-paste prompt with the scope + criteria lines |
+
+**Tier-1 carve-out:** a cleanup-only plan (≤3 single-line findings) MAY substitute `/hatch3r-quick-change` with the findings inlined as its batch input.
+
+**Suppression rule:** a flow executed UNDER `/hatch3r-plan` does not emit its own block — the router emits one consolidated block covering every artifact produced.
+
+**Position rule:** the block appears immediately AFTER the `## Iteration Summary` recap — the one sanctioned post-recap trailer.
+
+Per-command slot: `<plan-path>` (the command's documented artifact path), the `<one-line scope>` source, and the acceptance-criteria source (spec section, investigation report, or plan step list).
