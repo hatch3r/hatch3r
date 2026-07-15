@@ -16,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 7
   rationale: Per-release fanout — implementer applies the version-bump + changelog + SBOM mutations and docs-writer reconciles repo/website docs (parallel, disjoint files); reviewer ↔ fixer review loop verifies the release diff (max 3 iterations); testability (CQ5) and security (CQ3) run the mandatory final-quality pass in parallel; ci-watcher diagnoses any red gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

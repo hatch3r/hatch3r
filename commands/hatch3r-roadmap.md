@@ -16,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 2
   rationale: Two parallel hatch3r-researcher modes (business-priority + technical-readiness) in Step 3 to inform sequencing; one hatch3r-docs-writer in Step 6 assembles todo.md on their merged output (serialized on the research → assembly dependency edge). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

@@ -64,6 +64,7 @@ Every release artifact ships a CycloneDX 1.7 (or 1.6) or SPDX 3.0.1 SBOM, commit
 Target SLSA Build L3 for production release artifacts: ephemeral hosted runner, isolated builder identity, signed in-toto provenance, transparency log inclusion. SLSA v1.2 (November 2025) is the current spec — it adds a Source track and stays backward-compatible on the Build track, so v1.0/v1.1 Build L3 artifacts also meet v1.2 Build L3.
 
 - GitHub Actions implementation: `slsa-framework/slsa-github-generator` (language-agnostic generators for npm, container, generic artifact).
+- Successor routes: the OpenSSF-funded modernization plan for the generator (`github.com/ossf/tac/issues/537`, accessed 2026-07-09) moves the ecosystem toward GitHub platform-native artifact attestations (SLSA Build L2 by default) composed by SLSA reusable workflows to reach L3 (`github.com/slsa-framework/slsa-github-generator` + `github.com/slsa-framework/slsa` issue 1501, accessed 2026-07-09). SHA-pinned generator workflows keep working through the transition; new release pipelines evaluate the attestations + reusable-workflows route first.
 - Deploy-time verification: `slsa-verifier` CLI confirms provenance, builder identity allow-list, and source-repo match before the artifact is consumed.
 - Pin the generator action to a 40-char commit SHA per the action-pinning policy below.
 

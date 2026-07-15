@@ -17,6 +17,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 15
   rationale: Full delivery pipeline across the canonical phases (1 Research → 2 Implement → 3 Review Loop → 4 Final Quality per the Phase Crosswalk) — researcher (canonical phase 1), implementer (one per independent module, canonical phase 2), reviewer ↔ fixer review loop (canonical phase 3), then a parallel Final-Quality batch (canonical phase 4 — docs-writer + lint-fixer + CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability — testability and security cover the always-on test + security gates) bounded by max_phase4_parallel. The count of 15 is the standard Full Tier 3 fan-out; `hatch3r-edge-case-analyst` is listed as a conditional CQ4/CQ5 supporting analyst (phase_4_trigger-gated on multi-entity wiring), spawned beyond the baseline only when the diff wires ≥2 domain entities. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

@@ -73,7 +73,7 @@ const TIER23_DELEGATION =
   "- Tier 2 (multi-file): spawn parallel sub-agents per concern via the Task tool.\n" +
   "- Tier 3 (multi-module): one fresh sub-agent per module; orchestrator integrates only.\n";
 const EMISSION_DIRECTIVE =
-  "Never under-fan-out to save tokens. Emit `sub_agents_spawned: { count, rationale }` in your output.\n";
+  "Never under-fan-out to save tokens. Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.\n";
 
 describe("validate-fanout-emission", () => {
   let fx: Fixture;
@@ -186,7 +186,8 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer]
 sub_agents_spawned:
   count: 0
-  rationale: Placeholder rationale`,
+  rationale: Placeholder rationale
+  task_structure: sequential`,
       `# Workflow\n`,
     );
 
@@ -206,7 +207,8 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer]
 sub_agents_spawned:
   count: "two"
-  rationale: Placeholder rationale`,
+  rationale: Placeholder rationale
+  task_structure: sequential`,
       `# Workflow\n`,
     );
 
@@ -227,7 +229,8 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer]
 sub_agents_spawned:
   count: 3
-  rationale: ""`,
+  rationale: ""
+  task_structure: sequential`,
       `# Workflow\n`,
     );
 
@@ -388,7 +391,8 @@ orchestrator: true
 agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
 sub_agents_spawned:
   count: 1
-  rationale: A single spec author writes the document`,
+  rationale: A single spec author writes the document
+  task_structure: sequential`,
       `# Spec\n`,
     );
 
@@ -454,7 +458,8 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 sub_agents_spawned:
   count: 2
-  rationale: A researcher and a docs-writer compose the spec on the merged module-impact analysis; the 9 CQ vectors advise pre-write`,
+  rationale: A researcher and a docs-writer compose the spec on the merged module-impact analysis; the 9 CQ vectors advise pre-write
+  task_structure: mixed`,
       `# Feature plan\n`,
     );
 
@@ -473,7 +478,8 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 sub_agents_spawned:
   count: 2
-  rationale: Some agents do the work and produce output`,
+  rationale: Some agents do the work and produce output
+  task_structure: mixed`,
       `# Thing\n`,
     );
 
@@ -528,12 +534,12 @@ sub_agents_spawned:
 
   // ── P8 B2 task_structure companion (2026-07-09 amendment) ────────
   //
-  // Enforced as a WARNING during the corpus-backfill window (D5-SA5.8-01 /
-  // D7-SA7.6-01): a missing/invalid companion flags the author without reding
-  // the gate, and the widened skill-directive regex no longer hard-blocks the
-  // constitution-current 3-key form (the self-lock the 2-key-only regex created).
+  // ERROR since 2026-07-15: the release/2.7.0 corpus backfill closed the
+  // warning-first rollout window (D5-SA5.8-01 / D7-SA7.6-01), so a missing or
+  // invalid companion now fails the gate like count/rationale, and the skill
+  // directive regex requires the 3-key form.
 
-  it("WARNs (not errors) when an orchestrator command omits the task_structure companion", async () => {
+  it("ERRORs when an orchestrator command omits the task_structure companion", async () => {
     await writeArtifact(
       join(fx.commandsDir, "hatch3r-onboard.md"),
       `id: hatch3r-onboard
@@ -548,13 +554,13 @@ sub_agents_spawned:
     );
 
     const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
-    expect(result.errorCount).toBe(0);
     const miss = result.findings.find((f) => f.code === "P8-FANOUT-TASKSTRUCT-MISS");
     expect(miss).toBeDefined();
-    expect(miss?.level).toBe("warning");
+    expect(miss?.level).toBe("error");
+    expect(result.errorCount).toBe(1);
   });
 
-  it("WARNs (not errors) on an invalid task_structure value", async () => {
+  it("ERRORs on an invalid task_structure value", async () => {
     await writeArtifact(
       join(fx.commandsDir, "hatch3r-onboard.md"),
       `id: hatch3r-onboard
@@ -570,10 +576,25 @@ sub_agents_spawned:
     );
 
     const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
-    expect(result.errorCount).toBe(0);
     const bad = result.findings.find((f) => f.code === "P8-FANOUT-TASKSTRUCT-INVALID");
     expect(bad).toBeDefined();
-    expect(bad?.level).toBe("warning");
+    expect(bad?.level).toBe("error");
+    expect(result.errorCount).toBe(1);
+  });
+
+  it("ERRORs on a delegating skill carrying only the 2-key directive (task_structure required)", async () => {
+    await writeSkill(
+      fx.skillsDir,
+      "hatch3r-feature",
+      SKILL_FM,
+      `# Feature\n\n${TIER23_DELEGATION}\n` +
+        "Never under-fan-out to save tokens. Emit `sub_agents_spawned: { count, rationale }` in your output.\n",
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.checkedSkills).toBe(1);
+    expect(result.errorCount).toBe(1);
+    expect(result.findings.some((f) => f.code === "P8-FANOUT-SKILL-MISS")).toBe(true);
   });
 
   it("PASSes clean with a valid task_structure companion", async () => {

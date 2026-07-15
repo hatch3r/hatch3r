@@ -85,6 +85,14 @@
  *                     TOP_FLOOR_IDS agent AUTHORS `effort:` at xhigh or above
  *                     (EFFORT-FLOOR) — the frontier floor binds reasoning
  *                     depth as well as model class.
+ *   --quick-start-cap The website quick-start fast path
+ *                     (website/docs/getting-started/quick-start.md) stays
+ *                     within 200 raw lines (EVOLVE run a2a16b59 split remedy /
+ *                     S2-F4 — the page sat at 304 lines pre-split; deep
+ *                     reference material lives in
+ *                     website/docs/reference/quick-start-reference.md).
+ *                     Error-level on breach; an absent file is skipped so
+ *                     clones without website/ stay green.
  *   --plan-handoff    Plan-execution handoff contract (release/2.6.0):
  *                     (a) every `commands/hatch3r-*.md` with
  *                     `plan_handoff: true` carries the `## Execute This Plan`
@@ -97,7 +105,7 @@
  *                     the `## Plan-Execution Handoff` section and the literal
  *                     `--plan-file=` template line.
  *
- * No flags → all eleven modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all twelve modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/EVOLVE.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -199,6 +207,8 @@ interface ModeFlags {
   modelClass?: boolean;
   /** Mode K — plan-execution handoff contract on plan-producing commands (release/2.6.0). */
   planHandoff?: boolean;
+  /** Mode L — website quick-start fast-path line cap (EVOLVE a2a16b59 / S2-F4). */
+  quickStartCap?: boolean;
 }
 
 interface RunOptions {
@@ -217,6 +227,8 @@ interface RunOptions {
    * silently skipped so tests don't need to seed them.
    */
   extraOrchestratorFiles?: string[];
+  /** Quick-start page for Mode L (defaults to QUICK_START_REL under ROOT); test fixtures inject a tmpdir path. */
+  quickStartFile?: string;
 }
 
 interface RunResult {
@@ -232,7 +244,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
     "--rule-narrative", "--orch-contract", "--efficiency-tier",
     "--rule-line-cap", "--runtime-efficiency", "--model-class",
-    "--plan-handoff",
+    "--plan-handoff", "--quick-start-cap",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
@@ -240,7 +252,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
       ruleNarrative: true, orchContract: true, efficiencyTier: true,
       ruleLineCap: true, runtimeEfficiency: true, modelClass: true,
-      planHandoff: true,
+      planHandoff: true, quickStartCap: true,
     };
   }
   return {
@@ -255,6 +267,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     runtimeEfficiency: requested.has("--runtime-efficiency"),
     modelClass: requested.has("--model-class"),
     planHandoff: requested.has("--plan-handoff"),
+    quickStartCap: requested.has("--quick-start-cap"),
   };
 }
 
@@ -1072,6 +1085,33 @@ async function checkPlanHandoffFrame(frameAbs: string): Promise<Finding[]> {
   return out;
 }
 
+// ── Mode L: quick-start line cap (S2-F4) ────────────────────────────
+//
+// EVOLVE run a2a16b59 split the website quick-start into a ≤200-line fast
+// path plus a deep-reference page (website/docs/reference/
+// quick-start-reference.md). S2-F4 is the enforcement half of that pair:
+// without a gate the fast path regrows past the cap silently (it sat at 304
+// lines pre-split). Raw-line semantics match Mode H (`wc -l` newline count
+// via countNewlines). An absent file is skipped — partial clones and test
+// fixtures may not carry `website/` — mirroring the AUDIT-EXECUTE tolerance.
+
+const QUICK_START_REL = "website/docs/getting-started/quick-start.md";
+const QUICK_START_LINE_CAP = 200;
+
+async function checkQuickStartCap(absPath: string): Promise<Finding[]> {
+  if (!existsSync(absPath)) return [];
+  const raw = await readFile(absPath, "utf-8");
+  const lineCount = countNewlines(raw);
+  if (lineCount <= QUICK_START_LINE_CAP) return [];
+  return [{
+    level: "error", code: "QUICK-START-CAP", file: QUICK_START_REL,
+    message:
+      `${lineCount} lines exceeds the ${QUICK_START_LINE_CAP}-line fast-path cap ` +
+      `(EVOLVE a2a16b59 split remedy / S2-F4 — move deep-reference material to ` +
+      `website/docs/reference/quick-start-reference.md and keep the fast path lean)`,
+  }];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function listSkillFiles(dir: string): Promise<string[]> {
@@ -1228,6 +1268,9 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
     for (const f of commandFiles) findings.push(...checkPlanHandoffBlock(f));
     findings.push(...checkPlanHandoffRoster(commandFiles));
     findings.push(...(await checkPlanHandoffFrame(join(cmdDir, "shared", "orchestration-frame.md"))));
+  }
+  if (opts.flags.quickStartCap) {
+    findings.push(...(await checkQuickStartCap(opts.quickStartFile ?? join(ROOT, QUICK_START_REL))));
   }
 
   let errorCount = 0, warningCount = 0;

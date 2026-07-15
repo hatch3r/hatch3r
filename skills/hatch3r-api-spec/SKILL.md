@@ -151,7 +151,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (multiple services or spec + client-codegen + CI-gate concerns): spawn parallel sub-agents per concern via the Task tool.
 - Tier 3 (cross-service contract suite): one fresh sub-agent per service spec; orchestrator integrates only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Error Handling
 

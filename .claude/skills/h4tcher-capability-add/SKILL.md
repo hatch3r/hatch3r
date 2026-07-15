@@ -71,7 +71,7 @@ For T1: inline authoring — skip to Step 5. For T2/T3: dispatch parallel `Task`
 4. Explicit guardrail: "no branches, no commits, no PRs".
 5. Workspace write target: `.audit-workspace/capability-add-{slot}.md`.
 
-Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 1-3 on T2, >=3 on T3 — one per artifact-type slot. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 1-3 on T2, >=3 on T3 — one per artifact-type slot. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output (the `Sub-agents` field of the Step 7 summary; `task_structure: parallelizable` — the T2/T3 artifact-type slots are disjoint).
 
 ## Step 5: Cross-Skill Delegation (load-bearing)
 

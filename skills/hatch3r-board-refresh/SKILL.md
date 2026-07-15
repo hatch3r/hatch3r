@@ -236,7 +236,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (multi-lane refresh with re-scoping or reclassification): spawn parallel sub-agents per lane via the Task tool.
 - Tier 3 (cross-board reconciliation): one fresh sub-agent per board or lane; orchestrator integrates only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Error Handling
 

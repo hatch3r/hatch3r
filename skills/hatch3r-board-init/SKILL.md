@@ -536,7 +536,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (board + multiple lanes + seed issues): spawn parallel sub-agents per concern via the Task tool.
 - Tier 3 (multi-board or migration-from-existing init): one fresh sub-agent per board or lane; orchestrator integrates only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Error Handling
 

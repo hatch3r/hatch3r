@@ -16,6 +16,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-implementer writes the SLI/SLO/alert scaffold files (code mutation flows through the implementer per the Mandatory Delegation Directive); one hatch3r-reliability gates the result against the CQ4 floor (SLO completeness, multi-burn-rate alert correctness). N services fan out to N parallel implementers; the implement -> gate edge is the only serialization. Cost-dominance per CONSTITUTION §2 P8.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

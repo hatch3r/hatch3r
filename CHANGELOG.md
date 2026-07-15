@@ -27,7 +27,14 @@ The model-class ladder widens from 3 to 4 — `frontier | advanced | standard | 
 
 ### Governance
 
-- **Terminology-currency amendment queued (release not blocked)** — CONSTITUTION §6 Decision 34, the §2 P7 model-allocation wording, and the D02/D07 domain rows still carry the 2.6.0 3-word ladder; the rename to the 4-word ladder is queued as an EVOLVE amendment (per-file owner consent, §8). The shipped rules and validators carry the enforceable vocabulary, so the lag is documentation currency, not a behavior gap.
+- **Terminology-currency amendment: landed.** CONSTITUTION §6 Decision 34, the §2 P7 model-allocation wording, and the D02/D07 domain rows now carry the 4-word ladder + effort dimension — the domain rows via owner-consented CL-3 batch (hatch3r-governance #7), the constitutional wording via the §8 amendment queue landed on owner re-confirmation 2026-07-15 (hatch3r-governance #8).
+
+### Chore — queued-work drain (2026-07-15, rode the release branch)
+
+- **EVOLVE a2a16b59 manifests closed** — anti-slop validator header repointed to the CONSTITUTION §2 P5 single home; quick-start split (304 → 197 lines + `website/docs/reference/quick-start-reference.md`) with a new `QUICK-START-CAP` efficiency check; new `scripts/validate-workspace-state.ts` (EVOLVE checkpoint/ledger schema gate, standalone `validate:workspace-state`); `scripts/validate-finding-registry.ts` gains the S12-F2 invariant lane (severity 5-enum · open⇒cycle · terminal-disposition⇒terminal-status); `src/audit/archive.ts` types new archive-index entries (`artifact_type`, 9-value enum) and round-trips unknown index keys; legacy registry + 2026-04-19 EVOLVE report relocated into the governance archive.
+- **C4/C5/C6 review-quality floors (EVOLVE a2a16b59 round-2 adoptions)** — `rules/hatch3r-reviewer-calibration.md`: change-risk N-selection table with authorship (agent- vs human-authored) as an explicit risk input, plus the AI-reviewer qualification gate (seeded-bug catch rate + declared false-positive budget + human triage before trust); `rules/hatch3r-git-conventions.md`: Change Size section (≤400-changed-lines default ceiling, stacked-change escape hatch) per DORA 2025 capability 5; `rules/hatch3r-dependency-management.md`: SLSA successor routes (platform-native attestations + reusable workflows) beside the pinned generator.
+- **CL-2 drift gate shipped** — new `scripts/validate-content-claims.ts` (+ tests, wired into `validate:efficiency`): flags skill/command bodies claiming a self-provided runtime or own-invocation flags with no `src/cli` backing (`CONTENT-CLAIM-PHANTOM-RUNTIME`/`-STORE`); proposal archived as applied. Merge-blocking once the CI `validate` umbrella becomes a required check (owner act).
+- **P8 `task_structure` companion now enforced** — `validate-fanout-emission.ts` promotes the companion to error level and requires the 3-key emission directive; backfilled across 4 orchestrator commands, 41 shipped skills, and the maintainer presets. Decision-citation fix in `rules/hatch3r-agent-orchestration-detail.md` (27 → 30).
 
 ### Upgrade notes
 

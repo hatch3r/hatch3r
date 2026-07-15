@@ -2,14 +2,19 @@
 /**
  * scripts/validate-anti-slop.ts — F16.1-H5 (Cycle 10 D16 cross-domain).
  *
- * The anti-slop wordlist (`CLAUDE.md` -> "## Anti-Slop Wordlist" and
- * `.claude/rules/anti-slop-enforcement.md`) is enforced inside `governance/`,
- * `agents/`, `commands/`, `rules/`, `skills/`, `hooks/` by the audit cycle —
- * but the framework's own user-facing surfaces (README, SECURITY, CONTRIBUTING,
- * the current CHANGELOG entry, and the npm + Cursor manifest descriptions) had
- * no automated gate, so phrases like "battle-tested" shipped to npm and the
- * Cursor marketplace. F16.1-H5 closes that gap: this validator scans those
- * surfaces against the same wordlist and fails CI on any hit.
+ * The anti-slop wordlist's canonical home is the `governance/CONSTITUTION.md`
+ * §2 P5 → Anti-Slop Wordlist table (single physical home per
+ * amendment-procedure §3.4); `CLAUDE.md` -> "## Anti-Slop Wordlist" and
+ * `.claude/rules/anti-slop-enforcement.md` are its two one-way row-for-row
+ * mirrors, refreshed in the same sweep. That wordlist is enforced inside
+ * `governance/`, `agents/`, `commands/`, `rules/`, `skills/`, `hooks/` by the
+ * audit cycle — but the framework's own user-facing surfaces (README,
+ * SECURITY, CONTRIBUTING, the current CHANGELOG entry, and the npm + Cursor
+ * manifest descriptions) had no automated gate, so phrases like
+ * "battle-tested" shipped to npm and the Cursor marketplace. F16.1-H5 closes
+ * that gap: this validator scans those surfaces against a scoped
+ * marketing-surface SUBSET of the wordlist (the pattern tables below — not a
+ * row-for-row mirror of the canonical table) and fails CI on any hit.
  *
  * Scope (the surfaces the finding names):
  *   - README.md
