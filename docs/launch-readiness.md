@@ -19,8 +19,8 @@ This document is the single decision point. If a prerequisite is not GREEN, the 
 
 | Field | Value |
 |-------|-------|
-| Current readiness | NO-GO (v2.5.0 release-cut refresh, 2026-07-13) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI); the PRD §1 HOLD was dispositioned cleared-with-exception (2026-07-12, C12-CL1-1): the named-blocker Critical cluster is registry-done, so T2 now waits only on the three human acts — T0 storefront-count repair, T1 directory submissions, and a GO row in §6/the decision log. |
-| Last reviewed | 2026-07-13 (v2.5.0 release cut) |
+| Current readiness | NO-GO (v2.6.0 release-cut refresh, 2026-07-14) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI); the PRD §1 HOLD was dispositioned cleared-with-exception (2026-07-12, C12-CL1-1): the named-blocker Critical cluster is registry-done, so T2 now waits only on the three human acts — T0 storefront-count repair, T1 directory submissions, and a GO row in §6/the decision log. |
+| Last reviewed | 2026-07-14 (v2.6.0 release cut) |
 | Next review trigger | Any §2 prerequisite flips, or any of the three remaining human acts (T0 storefront repair, T1 submissions, GO decision row) lands |
 
 ## 2. Prerequisites
@@ -36,7 +36,7 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 | P5 | Marketplace submission package current (`docs/marketplace-submission.md`) | `docs/marketplace-submission.md` (referenced from F18.3.4) | Status field reads `READY` not `PARTIAL`; counts match `governance/inventory.json`; in-app form URLs reachable |
 | P6 | Latest release published with npm provenance + SBOM | Supply-chain floor policy (npm provenance + SBOM + SHA-pinned actions) | `npm view hatch3r@latest dist.signatures` returns provenance attestation; SBOM artifact present on the corresponding GitHub release |
 
-## 3. Status snapshot (v2.5.0 release-cut refresh, 2026-07-13)
+## 3. Status snapshot (v2.6.0 release-cut refresh, 2026-07-14)
 
 | Prereq | Status | Blocker / evidence |
 |--------|--------|--------------------|
@@ -45,9 +45,9 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 | P3 | GREEN | PRD §5.x is standards-watch only; PRD §14 records the AAIF-stance gate satisfied |
 | P4 | GREEN | PRD §14 documents npm/CLI + Cursor + Claude Code marketplace lanes as live channels; §14 records the 3-lane-documented gate satisfied. Prior sub-note resolved: `add <pack>` shipped as a trust-gated v1 installer in 2.5.0 (Cycle-12 CL-2, D5-SA5.3-09) |
 | P5 | AMBER | `docs/marketplace-submission.md` Status = PARTIAL (agent portion done); human in-app form submissions pending (PRD §1 "submissions pending") |
-| P6 | GREEN | v2.5.0 (published 2026-07-13) verified same-day: `npm view hatch3r@2.5.0 dist.attestations` returns SLSA-v1 provenance; `npm audit signatures` on a scratch install reports 101 verified registry signatures + 7 verified attestations, 0 invalid; `gh release view v2.5.0` ships the `sbom.cdx.json` SBOM asset; dist-tag `latest` = 2.5.0 |
+| P6 | GREEN | v2.6.0 (published 2026-07-14) verified same-day: `npm view hatch3r@2.6.0 dist.attestations` returns SLSA-v1 provenance; `npm audit signatures` on a scratch install reports 101 verified registry signatures + 7 verified attestations, 0 invalid (attestations endpoint lagged publish by ~5 minutes — retried); `gh release view v2.6.0` ships the `sbom.cdx.json` SBOM asset with the CHANGELOG section as body; dist-tag `latest` = 2.6.0. First release published through the PRR-DEFER-1 hardened digest path (publish verified against the gates job's `tarball_sha` output) |
 
-Overall: **NO-GO** for the T2 promotion wave — P2 RED (no GO decision row) + P5 AMBER (submissions pending); P1 flipped GREEN at this refresh, so the gate now waits on human acts only, not engineering.
+Overall: **NO-GO** for the T2 promotion wave — P2 RED (no GO decision row) + P5 AMBER (submissions pending); P1 has been GREEN since the v2.5.0 refresh, so the gate waits on human acts only, not engineering. No launch decision was taken at the v2.6.0 cut (no §6 row added).
 
 ## 4. Launch sequence (recommended)
 
