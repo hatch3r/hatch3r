@@ -44,18 +44,16 @@ Specialized agents that handle distinct responsibilities in your development wor
 
 ## Default Model Assignments
 
-Some agents ship with a default model in their canonical frontmatter, tuned for their cognitive profile.
+Every one of the 30 canonical agents declares a model **class** in its frontmatter — the 4-class ladder `frontier | advanced | standard | economy` — and 22 also author a reasoning-effort level (`low | medium | high | xhigh | max`). Each adapter maps the class to its native model vocabulary at emission time; no concrete model id appears in the canonical corpus.
 
-| Agent | Default Model | Rationale |
-|-------|:-------------:|-----------|
-| `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost matter most |
-| `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback loops |
-| `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy need a capable model |
-| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis requires solid reasoning |
-| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation requires solid reasoning |
-| `hatch3r-testability` | `sonnet` | Edge-case identification and test design need reasoning depth |
+| Class | Agents | Authored effort | Rationale |
+|-------|--------|-----------------|-----------|
+| `frontier` (16) | the 10 CQ specialists (`ui`, `ux`, `security`, `reliability`, `testability`, `scalability`, `performance`, `maintainability`, `enhancability`, `product-spec`) + `reviewer`, `architect`, `edge-case-analyst`, `incident-responder`, `greenfield-spec`, `brownfield-spec` | `xhigh` (13); `max` on `security`, `reviewer`, `edge-case-analyst` | Verdict/sign-off agents — a quality gate evaluated on a cheaper class silently weakens every verdict |
+| `advanced` (3) | `implementer`, `fixer`, `creator` | `xhigh` | Mutating work agents — multi-file code changes carry the highest rework cost per defect |
+| `standard` (6) | `researcher`, `docs-writer`, `devops`, `pack-installer`, `dependency-drafter`, `handoff-preparer` | -- (platform default) | Supporting work agents; runtime allocation raises them to `advanced` on Tier-3 tasks |
+| `economy` (5) | `lint-fixer`, `ci-watcher`, `context-rules`, `handoff-loader`, `learnings-loader` | `low` on the 3 loaders (`context-rules`, `handoff-loader`, `learnings-loader`); -- (class default `medium`) on the rest | Mechanical agents — bounded transformations, re-verified downstream by the review gate |
 
-Agents without a default use the platform's own default. Override any agent's model via [Model Selection](../guides/model-selection).
+Override any agent's model or effort via [Model Selection](../guides/model-selection).
 
 ## Canonical Location
 
@@ -63,9 +61,10 @@ Agent definitions live in the canonical `agents/hatch3r-{id}.md` content (bundle
 
 ```yaml
 ---
-id: hatch3r-implementer
-description: Focused implementation agent for a single issue.
-model: opus
+id: hatch3r-architect
+description: System architect who designs architecture and evaluates trade-offs.
+model: frontier
+effort: xhigh
 ---
 ```
 

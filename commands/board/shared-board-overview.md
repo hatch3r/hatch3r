@@ -12,23 +12,26 @@ If `meta:board-overview` is included in `board.labels.meta`, board commands will
 
 Teams can extend the dashboard with project-specific sections, but the following structure and model recommendations are required.
 
-## Frontier Model Pool
+## Model Pool
 
-When populating the board overview, assign a recommended model to each issue. The pool uses aliases that map to the project's configured model versions in `hatch.json`. Specific model IDs are intentionally omitted here to avoid staleness as model versions change — configure actual model IDs in `hatch.json` under `models`.
+When populating the board overview, assign a recommended model class to each issue. The four class words are the primary vocabulary — each resolves to the concrete model the repo pins in `hatch.json` under `models.tiers`. Specific model IDs are intentionally omitted here to avoid staleness as model versions change. Two cross-vendor aliases (`codex`, `gemini-pro`) stay concrete by design: a class word cannot express vendor-specific strengths.
 
 | Alias | Strength | Use When |
 | ----- | -------- | -------- |
-| `opus` | Code quality, multi-file refactoring, security, deep reasoning | Complex refactors, security-critical, architectural changes, `risk:high` |
-| `codex` | Agentic coding, long-running tasks, tool orchestration | Multi-step implementations, polyglot codebases, complex tool integrations |
-| `gemini-pro` | Large context windows, multimodal, web development | Massive context needs (large epics), web/frontend work |
-| `sonnet` | Balance of quality and speed | Standard features, bugs, docs, QA — when the top-tier model is overkill |
+| `frontier` | Deep reasoning, security analysis, architectural judgment (concrete model per repo: `models.tiers.frontier`) | `risk:high`, security-sensitive, architectural issues |
+| `advanced` | Multi-file implementation depth (concrete model per repo: `models.tiers.advanced`) | Complex multi-file implementation |
+| `standard` | Balance of quality and speed (concrete model per repo: `models.tiers.standard`) | Routine features and bug fixes |
+| `economy` | Fast turnaround at low cost (concrete model per repo: `models.tiers.economy`) | Documentation (`type:docs`), QA validation (`type:qa`), `risk:low` |
+| `codex` | Agentic coding, long-running tasks, tool orchestration (cross-vendor override) | Multi-step implementations, polyglot codebases, complex tool integrations |
+| `gemini-pro` | Very large context windows, multimodal, web development (cross-vendor override) | Massive context needs (large epics), web/frontend work |
 
 ## Model Selection Heuristic (Quality-First)
 
-1. **Default:** `opus` — highest code quality baseline.
+1. **Default:** `frontier` for `risk:high` issues; `standard` otherwise.
 2. **Override to `codex`** if the issue involves heavy agentic coding, long-running multi-step tasks, or multi-language requirements.
 3. **Override to `gemini-pro`** if the issue requires processing very large context (large epic with many sub-issues spanning many files) or is primarily web/frontend work.
-4. **Downgrade to `sonnet`** ONLY for straightforward issues: simple bugs (`risk:low`), documentation (`type:docs`), QA validation (`type:qa`), or issues with clear bounded scope and no architectural impact.
+4. **Upgrade to `advanced`** for complex multi-file implementation that stops short of the `frontier` criteria (`risk:high`, security-sensitive, architectural).
+5. **Downgrade to `economy`** ONLY for straightforward issues: simple bugs (`risk:low`), documentation (`type:docs`), QA validation (`type:qa`), or issues with clear bounded scope and no architectural impact.
 
 ## Board Overview Issue Format
 

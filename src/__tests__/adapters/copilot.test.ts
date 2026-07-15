@@ -757,12 +757,13 @@ You are a test agent.`,
     });
   });
 
-  // D9-16 (Cycle 11 Wave 3, D9, P3/P5): the hatch3r-internal capacity tiers
-  // `standard`/`fast` are not Copilot picker names — Copilot silently falls back
-  // to its default and the emitted `model:` is a dead field. The adapter omits
-  // `model:` for these tier words and keeps it only for a Copilot-recognizable
-  // value (provider-dated ID or `(copilot)` display name).
-  it("omits model: for the hatch3r tier words standard/fast (D9-16)", async () => {
+  // D9-16 (Cycle 11 Wave 3, D9, P3/P5) + release/2.7.0: the hatch3r tier words
+  // `standard`/`fast` are not Copilot picker names — shipping one verbatim is
+  // a dead field Copilot silently ignores. The finding's invariant (never emit
+  // the tier word itself) survives the 2.7.0 ladder: `standard` (CLASS_MID,
+  // no map row) is omitted; legacy `fast` normalizes to economy and maps to
+  // the economy display name under the default native posture.
+  it("never ships the tier words standard/fast verbatim as model: values (D9-16)", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-tier-"));
     try {
       const agentsDir = join(tempDir, "agents");
@@ -787,6 +788,11 @@ You are a test agent.`,
       }
       const std = agentFiles.find((o) => o.path.includes("std-agent"));
       expect(std!.content.slice(0, std!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+      // release/2.7.0: legacy `fast` → economy → the economy display name.
+      const fast = agentFiles.find((o) => o.path.includes("fast-agent"));
+      expect(fast!.content.slice(0, fast!.content.indexOf(MANAGED_BLOCK_START))).toContain(
+        "model: Claude Haiku 4.5",
+      );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -812,15 +818,20 @@ You are a test agent.`,
     }
   });
 
-  // Model classes (release/2.6.0): the class words (economy|default|strongest)
-  // have no Copilot picker expression — they are silently omitted (no dead
-  // field, no drop warning) unless a `models.tiers` pin supplies a value that
-  // passes the D9-16 recognizable-value gate.
-  describe("model-class emission (release/2.6.0)", () => {
-    async function setupClassAgents(tempDir: string): Promise<string> {
+  // Model classes (release/2.7.0, 4-class ladder): under the default
+  // `copilot.agentModelPins: "native"` posture, class words map through
+  // COPILOT_TIER_MODEL_MAP to supported-models display names as a SINGLE
+  // string — the Copilot CLI rejects the array form
+  // (docs.github.com/en/copilot/reference/custom-agents-configuration +
+  // .../ai-models/supported-models, both accessed 2026-07-14). `standard` has
+  // no map row and is omitted (picker default). A `models.tiers` pin beats
+  // the map; `"conservative"` restores the pre-2.7.0 omit-all posture. Class
+  // words never fire a drop warning (COPILOT_INTENTIONALLY_OMITTED_MODELS).
+  describe("model-class emission (release/2.7.0)", () => {
+    async function setupClassAgents(tempDir: string, classes: string[]): Promise<string> {
       const agentsDir = join(tempDir, "agents");
       await mkdir(join(agentsDir, "agents"), { recursive: true });
-      for (const cls of ["economy", "default", "strongest"]) {
+      for (const cls of classes) {
         await writeFile(
           join(agentsDir, "agents", `${cls}-agent.md`),
           `---\nid: ${cls}-agent\ntype: agent\ndescription: A ${cls}-class agent\nmodel: ${cls}\n---\n# ${cls}-agent\n\nYou are a ${cls}-class agent.`,
@@ -830,60 +841,203 @@ You are a test agent.`,
       return agentsDir;
     }
 
-    it("omits the class words silently — no model line, no drop warning", async () => {
-      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-quiet-"));
+    function agentFm(outputs: { path: string; content: string }[], id: string): string {
+      const path = `.github/agents/hatch3r-${id}.agent.md`;
+      const file = outputs.find((o) => o.path === path);
+      expect(file, path).toBeDefined();
+      return file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+    }
+
+    it("native mode maps frontier/advanced/economy to display names; standard omits", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-native-"));
       try {
-        const agentsDir = await setupClassAgents(tempDir);
+        const agentsDir = await setupClassAgents(tempDir, ["frontier", "advanced", "economy", "standard"]);
         const outputs = await adapter.generate(agentsDir, makeManifest());
-        for (const cls of ["economy", "default", "strongest"]) {
-          const agentFile = outputs.find((o) => o.path === `.github/agents/hatch3r-${cls}-agent.agent.md`);
-          expect(agentFile, cls).toBeDefined();
-          const fm = agentFile!.content.slice(0, agentFile!.content.indexOf(MANAGED_BLOCK_START));
-          expect(fm, cls).not.toContain("model:");
-        }
-        // Never a drop warning for class words (COPILOT_INTENTIONALLY_OMITTED_MODELS).
+        const frontier = agentFm(outputs, "frontier-agent");
+        // Single display-name string — never the array form the Copilot CLI
+        // rejects (docs.github.com custom-agents-configuration reference).
+        expect(frontier).toMatch(/^model: Claude Fable 5$/m);
+        expect(frontier).not.toContain("model: [");
+        expect(agentFm(outputs, "advanced-agent")).toMatch(/^model: Claude Opus 4\.8$/m);
+        expect(agentFm(outputs, "economy-agent")).toMatch(/^model: Claude Haiku 4\.5$/m);
+        expect(agentFm(outputs, "standard-agent")).not.toContain("model:");
+        // Class-word mapping is never a drop warning.
         expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
       } finally {
         await rm(tempDir, { recursive: true, force: true });
       }
     });
 
-    it("emits a models.tiers pin that passes the recognizable-value gate (alias-expanded)", async () => {
+    it("conservative mode omits all four class words AND legacy `reasoning` — zero drop warnings", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-conservative-"));
+      try {
+        const classes = ["frontier", "advanced", "economy", "standard", "reasoning"];
+        const agentsDir = await setupClassAgents(tempDir, classes);
+        const manifest = makeManifest();
+        manifest.copilot = { agentModelPins: "conservative" };
+        const outputs = await adapter.generate(agentsDir, manifest);
+        for (const cls of classes) {
+          expect(agentFm(outputs, `${cls}-agent`), cls).not.toContain("model:");
+        }
+        // Pre-2.7.0 `reasoning` was MISSING from the intentional-omission set,
+        // so a `model: reasoning` override fired a spurious drop warning on
+        // every sync — pinned fixed here alongside the class words.
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("a models.tiers pin beats the native class map (alias-expanded id form, not the display name)", async () => {
       const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-pin-"));
       try {
-        const agentsDir = await setupClassAgents(tempDir);
+        const agentsDir = await setupClassAgents(tempDir, ["frontier", "economy", "standard"]);
         const manifest = makeManifest({
-          models: { tiers: { strongest: "fable", economy: "gemini-3-flash" } },
+          models: { tiers: { frontier: "fable", economy: "gemini-3-flash" } },
         });
         const outputs = await adapter.generate(agentsDir, manifest);
-        const strongest = outputs.find((o) => o.path === ".github/agents/hatch3r-strongest-agent.agent.md");
-        // Pin `fable` alias-expands to claude-fable-5 (claude- prefix passes).
-        expect(strongest!.content.slice(0, strongest!.content.indexOf(MANAGED_BLOCK_START))).toContain(
-          "model: claude-fable-5",
-        );
-        const economy = outputs.find((o) => o.path === ".github/agents/hatch3r-economy-agent.agent.md");
-        expect(economy!.content.slice(0, economy!.content.indexOf(MANAGED_BLOCK_START))).toContain(
-          "model: gemini-3-flash",
-        );
-        // Unpinned class stays omitted.
-        const dflt = outputs.find((o) => o.path === ".github/agents/hatch3r-default-agent.agent.md");
-        expect(dflt!.content.slice(0, dflt!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+        const frontier = agentFm(outputs, "frontier-agent");
+        // Pin `fable` alias-expands to claude-fable-5 (claude- prefix passes
+        // the gate) and suppresses the map's display-name row.
+        expect(frontier).toMatch(/^model: claude-fable-5$/m);
+        expect(frontier).not.toContain("Claude Fable 5");
+        expect(agentFm(outputs, "economy-agent")).toMatch(/^model: gemini-3-flash$/m);
+        // Unpinned standard stays omitted (no map row).
+        expect(agentFm(outputs, "standard-agent")).not.toContain("model:");
       } finally {
         await rm(tempDir, { recursive: true, force: true });
       }
     });
 
-    it("stays silent when a models.tiers pin fails the gate (class words never warn)", async () => {
+    it("a models.tiers pin that fails the gate omits silently — never falls back to the map", async () => {
       const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-pin-drop-"));
       try {
-        const agentsDir = await setupClassAgents(tempDir);
-        // A pin outside the four provider prefixes: omitted, but NOT warned —
-        // the resolved agent value is a class word, which is intentional-omission.
-        const manifest = makeManifest({ models: { tiers: { strongest: "MAI-Code-1-Flash" } } });
+        const agentsDir = await setupClassAgents(tempDir, ["frontier"]);
+        // A pin outside every recognizable family: omitted, but NOT warned
+        // (the resolved agent value is a class word — intentional omission),
+        // and the operator's explicit pin is never overridden by the built-in
+        // map row.
+        const manifest = makeManifest({ models: { tiers: { frontier: "MAI-Code-1-Flash" } } });
         const outputs = await adapter.generate(agentsDir, manifest);
-        const strongest = outputs.find((o) => o.path === ".github/agents/hatch3r-strongest-agent.agent.md");
-        expect(strongest!.content.slice(0, strongest!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+        const frontier = agentFm(outputs, "frontier-agent");
+        expect(frontier).not.toContain("model:");
+        expect(frontier).not.toContain("Claude Fable 5");
         expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("a models.tiers pin of `inherit` omits the field in native mode", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-pin-inherit-"));
+      try {
+        const agentsDir = await setupClassAgents(tempDir, ["frontier"]);
+        const manifest = makeManifest({ models: { tiers: { frontier: "inherit" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+        expect(agentFm(outputs, "frontier-agent")).not.toContain("model:");
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("legacy `reasoning` routes to the frontier map row and never warns (pre-2.7.0 spurious-warning fix)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-class-reasoning-"));
+      try {
+        const agentsDir = await setupClassAgents(tempDir, ["reasoning"]);
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        expect(agentFm(outputs, "reasoning-agent")).toMatch(/^model: Claude Fable 5$/m);
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("never emits an effort key — Copilot has no reasoning-effort surface", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-no-effort-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        // The strongest inputs that could tempt an effort emission: a class
+        // word with authored `effort: max` (cursor brackets this; claude
+        // emits an `effort:` key) and a concrete model with authored effort.
+        // The Copilot custom-agents frontmatter reference documents no
+        // reasoning-effort key (docs.github.com/en/copilot/reference/
+        // custom-agents-configuration, accessed 2026-07-14), so nothing may
+        // appear on either.
+        await writeFile(
+          join(agentsDir, "agents", "class-effort-agent.md"),
+          "---\nid: class-effort-agent\ntype: agent\ndescription: A frontier agent with authored effort\nmodel: frontier\neffort: max\n---\n# class-effort-agent\n\nYou are a test agent.",
+          "utf-8",
+        );
+        await writeFile(
+          join(agentsDir, "agents", "concrete-effort-agent.md"),
+          "---\nid: concrete-effort-agent\ntype: agent\ndescription: A pinned-model agent with authored effort\nmodel: claude-sonnet-5\neffort: xhigh\n---\n# concrete-effort-agent\n\nYou are a test agent.",
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const classFm = agentFm(outputs, "class-effort-agent");
+        expect(classFm).toMatch(/^model: Claude Fable 5$/m);
+        expect(classFm).not.toMatch(/^effort:/m);
+        const concreteFm = agentFm(outputs, "concrete-effort-agent");
+        expect(concreteFm).toMatch(/^model: claude-sonnet-5$/m);
+        expect(concreteFm).not.toMatch(/^effort:/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // release/2.7.0 gate widening: GitHub's supported-models reference lists
+  // picker models by display name ("Claude Opus 4.5", "GPT-5.2", "Gemini 3
+  // Pro" — docs.github.com/en/copilot/reference/ai-models/supported-models,
+  // accessed 2026-07-14), and users copy those labels verbatim into
+  // `models.agents.<id>`. The pre-2.7.0 id-prefix-only gate dropped every
+  // such value with a spurious D9-SA9.3-06 warning. The three documented
+  // display-name families now pass; non-family vendors keep the warn path.
+  describe("recognizable-model gate widening (release/2.7.0)", () => {
+    async function setupPlainAgent(tempDir: string, id: string): Promise<string> {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${id}.md`),
+        `---\nid: ${id}\ntype: agent\ndescription: A display-name gate test agent\n---\n# ${id}\n\nYou are a test agent.`,
+        "utf-8",
+      );
+      return agentsDir;
+    }
+
+    it("a user-configured display-name model now emits (Claude/GPT/Gemini families)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-gate-widen-"));
+      try {
+        const agentsDir = await setupPlainAgent(tempDir, "display-agent");
+        const manifest = makeManifest({ models: { agents: { "display-agent": "Claude Opus 4.5" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+        const file = outputs.find((o) => o.path === ".github/agents/hatch3r-display-agent.agent.md");
+        expect(file).toBeDefined();
+        const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).toMatch(/^model: Claude Opus 4\.5$/m);
+        // The pre-widening spurious drop warning must be gone.
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("a non-family vendor display name still warns and omits (Kimi K2.7 Code)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-gate-kimi-"));
+      try {
+        const agentsDir = await setupPlainAgent(tempDir, "kimi-agent");
+        const manifest = makeManifest({ models: { agents: { "kimi-agent": "Kimi K2.7 Code" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+        const file = outputs.find((o) => o.path === ".github/agents/hatch3r-kimi-agent.agent.md");
+        expect(file).toBeDefined();
+        const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).not.toContain("model:");
+        const dropWarning = adapter.warnings.find(
+          (w) => w.includes("hatch3r-kimi-agent.agent.md") && w.includes("Kimi K2.7 Code"),
+        );
+        expect(dropWarning).toBeDefined();
       } finally {
         await rm(tempDir, { recursive: true, force: true });
       }
@@ -930,7 +1084,7 @@ You are a test agent.`,
       }
     });
 
-    it("does not warn for the intended hatch3r tier-word omissions (standard/fast)", async () => {
+    it("does not warn for the hatch3r tier words standard/fast (class-path handling, never a drop)", async () => {
       const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-tierquiet-"));
       try {
         const agentsDir = join(tempDir, "agents");
@@ -946,8 +1100,10 @@ You are a test agent.`,
         expect(
           outputs.filter((o) => /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path)).length,
         ).toBeGreaterThanOrEqual(2);
-        // The tier words are hatch3r-internal placeholders, not user model choices —
-        // no drop warning, or the shipped agent corpus would warn on every sync.
+        // The tier words are hatch3r-internal placeholders, not user model
+        // choices — they route through the class mapping (standard omits,
+        // fast maps to the economy display name) and never fire a drop
+        // warning, or the shipped agent corpus would warn on every sync.
         expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
       } finally {
         await rm(tempDir, { recursive: true, force: true });

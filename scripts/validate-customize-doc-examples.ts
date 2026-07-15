@@ -62,6 +62,7 @@ const ROOT = resolve(__dirname, "..");
  */
 const VALID_CUSTOMIZE_FIELDS = new Set([
   "model",
+  "effort",
   "scope",
   "description",
   "enabled",

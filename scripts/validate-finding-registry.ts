@@ -24,6 +24,34 @@
  * Balance failures print as their own lane (never added to the tolerant drift
  * count) and force exit 1.
  *
+ * S12-F2 invariant lane (EVOLVE run a2a16b59 validator-sync manifest): three
+ * always-on structural invariants over every entry, in their own lane like
+ * CL-row balance (never added to the tolerant drift count; failures force
+ * exit 1). Field vocabularies derived from `src/audit/registry-schema.ts`
+ * (Severity / Disposition / ExecutionStatus unions) + the live corpus
+ * (2026-07-15 profile: dispositions {targeted, excluded, human_only,
+ * phase_5_candidate, rollover}; execution_status {pending, done, partial,
+ * deferred, never_attempted}):
+ *
+ *   (a) severity ∈ {Critical, High, Medium, Low, Info}. The two
+ *       rollover-summary dispositions (`rollover`, `partially_promoted`) may
+ *       instead carry an aggregate `<Sev>+<Sev>` (sanctioned by
+ *       registry-schema.ts's AGGREGATE_SEVERITY_RE) — this lane additionally
+ *       requires every aggregate COMPONENT to be a 5-enum member, which the
+ *       shape-only regex does not check.
+ *   (b) an OPEN finding must carry a non-null, non-empty `cycle`. Open =
+ *       execution_status undefined or "pending" — the open/terminal split
+ *       defined by `src/audit/archive.ts::isLiveEntry`.
+ *   (c) a TERMINAL disposition ⇒ a terminal execution_status. Terminal
+ *       dispositions (routing concluded): {excluded, human_only,
+ *       already_resolved, deferred, deferred_cycle10, multi_cycle_deferred,
+ *       external_blocker, phase_5_candidate}. Active dispositions (exempt):
+ *       {targeted (in-flight work class), rollover, partially_promoted (live
+ *       rollover stubs per archive.ts::isLiveEntry)}. Terminal
+ *       execution_status = everything except undefined/"pending": {done,
+ *       partial, failed, rolled_back, never_attempted, already_resolved,
+ *       deferred}.
+ *
  * Usage: `npm run audit:validate-registry [-- --strict] [-- --post-phase2] [-- --cycle 12]`.
  */
 import { existsSync } from "node:fs";
@@ -71,6 +99,115 @@ function parseFlags(argv: ReadonlyArray<string>): CliFlags {
   return flags;
 }
 
+// ── S12-F2 invariant lane ───────────────────────────────────────────
+// Derived sets — see the header block for the derivation basis.
+
+/** The 5-severity enum (mirrors registry-schema.ts `Severity`). */
+export const SEVERITY_ENUM: ReadonlySet<string> = new Set([
+  "Critical",
+  "High",
+  "Medium",
+  "Low",
+  "Info",
+]);
+
+/**
+ * Dispositions sanctioned to carry an aggregate `<Sev>+<Sev>` severity
+ * (mirrors registry-schema.ts `ROLLOVER_SUMMARY_DISPOSITIONS`).
+ */
+export const ROLLOVER_SUMMARY_DISPOSITIONS: ReadonlySet<string> = new Set([
+  "rollover",
+  "partially_promoted",
+]);
+
+/**
+ * Dispositions that conclude a finding's routing. The complement of the
+ * active set {targeted, rollover, partially_promoted} over the
+ * registry-schema.ts `Disposition` union.
+ */
+export const TERMINAL_DISPOSITIONS: ReadonlySet<string> = new Set([
+  "excluded",
+  "human_only",
+  "already_resolved",
+  "deferred",
+  "deferred_cycle10",
+  "multi_cycle_deferred",
+  "external_blocker",
+  "phase_5_candidate",
+]);
+
+/**
+ * True when the entry is OPEN per `src/audit/archive.ts::isLiveEntry`:
+ * execution_status undefined or "pending". Every other value is terminal.
+ */
+export function isOpenStatus(executionStatus: unknown): boolean {
+  return executionStatus === undefined || executionStatus === "pending";
+}
+
+/**
+ * S12-F2 invariants (a)–(c). Pure over the entry list; returns one
+ * DriftReport per violation with an `S12-F2{a,b,c}` reason prefix.
+ */
+export function checkS12Invariants(
+  entries: ReadonlyArray<Finding>,
+): DriftReport[] {
+  const reports: DriftReport[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const f = entries[i];
+    const id =
+      typeof f.finding_id === "string" && f.finding_id.length > 0
+        ? f.finding_id
+        : `<index ${i}>`;
+
+    // (a) severity ∈ 5-enum; rollover summaries may carry an aggregate whose
+    // every component is a 5-enum member.
+    const sev = f.severity as unknown;
+    if (typeof sev !== "string" || !SEVERITY_ENUM.has(sev)) {
+      const isRolloverSummary =
+        typeof f.disposition === "string" &&
+        ROLLOVER_SUMMARY_DISPOSITIONS.has(f.disposition);
+      const aggregateOk =
+        isRolloverSummary &&
+        typeof sev === "string" &&
+        sev.includes("+") &&
+        sev.split("+").every((part) => SEVERITY_ENUM.has(part));
+      if (!aggregateOk) {
+        reports.push({
+          finding_id: id,
+          reason: "S12-F2a severity outside 5-enum",
+          detail: `got ${JSON.stringify(sev)}; expected Critical|High|Medium|Low|Info${isRolloverSummary ? " or an aggregate of those (rollover summary)" : ""}`,
+        });
+      }
+    }
+
+    // (b) open ⇒ cycle non-null (and non-empty when a string).
+    if (isOpenStatus(f.execution_status)) {
+      const cycle = f.cycle as unknown;
+      if (cycle === undefined || cycle === null || cycle === "") {
+        reports.push({
+          finding_id: id,
+          reason: "S12-F2b open finding without cycle",
+          detail: `execution_status ${JSON.stringify(f.execution_status)} is open, but cycle is ${JSON.stringify(cycle)}`,
+        });
+      }
+    }
+
+    // (c) terminal disposition ⇒ terminal execution_status.
+    if (
+      typeof f.disposition === "string" &&
+      TERMINAL_DISPOSITIONS.has(f.disposition) &&
+      isOpenStatus(f.execution_status)
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "S12-F2c terminal disposition with open status",
+        detail: `disposition "${f.disposition}" concludes routing, but execution_status is ${JSON.stringify(f.execution_status)} (open)`,
+      });
+    }
+  }
+  return reports;
+}
+
 /** Read baseline.json `cycle` as the cycle anchor; null when unavailable. */
 async function readCycleFromBaseline(): Promise<number | null> {
   if (!existsSync(BASELINE_PATH)) return null;
@@ -83,7 +220,7 @@ async function readCycleFromBaseline(): Promise<number | null> {
   } catch (err) {
     // Non-fatal: the caller degrades to "skip the balance check with a
     // notice", but the read failure itself must still be visible.
-    // eslint-disable-next-line no-console
+     
     console.error(
       `[validate-finding-registry] baseline.json unreadable, cycle anchor unknown: ${(err as Error).message}`,
     );
@@ -101,7 +238,7 @@ async function runClBalance(
   cycleFlag: number | null,
 ): Promise<DriftReport[] | null> {
   if (!existsSync(REPORT_PATH)) {
-    // eslint-disable-next-line no-console
+     
     console.error(
       "[validate-finding-registry] governance/AUDIT-REPORT.md absent — skipping CL-row balance check (private file; expected in public clones)",
     );
@@ -109,7 +246,7 @@ async function runClBalance(
   }
   const cycle = cycleFlag ?? (await readCycleFromBaseline());
   if (cycle === null) {
-    // eslint-disable-next-line no-console
+     
     console.error(
       "[validate-finding-registry] cycle anchor unknown (no --cycle flag; baseline.json cycle unreadable) — skipping CL-row balance check",
     );
@@ -119,7 +256,7 @@ async function runClBalance(
   try {
     reportMd = await readFile(REPORT_PATH, "utf-8");
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error(
       `[validate-finding-registry] AUDIT-REPORT.md unreadable — skipping CL-row balance check: ${(err as Error).message}`,
     );
@@ -131,19 +268,19 @@ async function runClBalance(
   };
   const failures = checkClBalance(entries, cycle, counts);
   if (failures.length === 0) {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `validate:finding-registry: CL-row balance ok (cycle ${cycle}: ` +
         `CL-1 ${counts.cl1ReportRows}<->${countClRegistryEntries(entries, cycle, "CL-1")}, ` +
         `CL-3 ${counts.cl3ReportRows}<->${countClRegistryEntries(entries, cycle, "CL-3")})`,
     );
   } else {
-    // eslint-disable-next-line no-console
+     
     console.error(
       `validate:finding-registry: CL-row balance invariant FAILED (cycle ${cycle})`,
     );
     for (const f of failures) {
-      // eslint-disable-next-line no-console
+       
       console.error(`  ${f.reason}: ${f.detail}`);
     }
   }
@@ -157,7 +294,7 @@ async function main(): Promise<void> {
   // clones. With nothing to validate, print a notice and exit 0 rather than
   // fail the gate on the missing read.
   if (!existsSync(REGISTRY_PATH)) {
-    // eslint-disable-next-line no-console
+     
     console.error(
       "[validate-finding-registry] governance/audit/finding-registry.json absent — skipping finding-registry drift check",
     );
@@ -169,7 +306,7 @@ async function main(): Promise<void> {
     const content = await readFile(REGISTRY_PATH, "utf-8");
     raw = JSON.parse(content);
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error(
       `validate:finding-registry: failed to read or parse ${REGISTRY_PATH}: ${(err as Error).message}`,
     );
@@ -182,10 +319,10 @@ async function main(): Promise<void> {
     parsed = parseRegistry(raw);
   } catch (err) {
     if (err instanceof RegistryParseError) {
-      // eslint-disable-next-line no-console
+       
       console.error(`validate:finding-registry: parse error: ${err.message}`);
     } else {
-      // eslint-disable-next-line no-console
+       
       console.error(
         `validate:finding-registry: unexpected error: ${(err as Error).message}`,
       );
@@ -205,7 +342,7 @@ async function main(): Promise<void> {
   ].join(", ");
 
   if (drifts.length === 0) {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `validate:finding-registry: ${entryCount} entries checked (${modeLabel}), 0 drift`,
     );
@@ -218,23 +355,23 @@ async function main(): Promise<void> {
       byReason.set(d.reason, list);
     }
 
-    // eslint-disable-next-line no-console
+     
     console.error(
       `validate:finding-registry: ${drifts.length} drift on ${entryCount} entries (${modeLabel})`,
     );
     for (const [reason, list] of byReason) {
-      // eslint-disable-next-line no-console
+       
       console.error(`  ${reason}: ${list.length}`);
       // Show first 3 examples per reason; collapse the rest.
       const sample = list.slice(0, 3);
       for (const d of sample) {
-        // eslint-disable-next-line no-console
+         
         console.error(
           `    - ${d.finding_id}${d.detail ? `: ${d.detail}` : ""}`,
         );
       }
       if (list.length > sample.length) {
-        // eslint-disable-next-line no-console
+         
         console.error(`    ...and ${list.length - sample.length} more`);
       }
     }
@@ -244,13 +381,51 @@ async function main(): Promise<void> {
   // drift count above; they gate the exit code on their own.
   const balanceFailures = await runClBalance(entries, flags.cycle);
 
-  if (drifts.length > 0 || (balanceFailures !== null && balanceFailures.length > 0)) {
+  // Third lane: S12-F2 invariants (always-on; own lane like CL-row balance).
+  const s12Failures = checkS12Invariants(entries);
+  if (s12Failures.length === 0) {
+     
+    console.log(
+      "validate:finding-registry: S12-F2 invariants ok (severity 5-enum · open⇒cycle · terminal-disposition⇒terminal-status)",
+    );
+  } else {
+     
+    console.error(
+      `validate:finding-registry: S12-F2 invariants FAILED (${s12Failures.length} violation(s))`,
+    );
+    for (const f of s12Failures) {
+       
+      console.error(`  ${f.reason}: ${f.finding_id}: ${f.detail}`);
+    }
+  }
+
+  if (
+    drifts.length > 0 ||
+    (balanceFailures !== null && balanceFailures.length > 0) ||
+    s12Failures.length > 0
+  ) {
     process.exit(1);
   }
 }
 
-main().catch((err: unknown) => {
-  // eslint-disable-next-line no-console
-  console.error("validate:finding-registry failed:", err);
-  process.exit(1);
-});
+// Only auto-run when executed as a script, never when imported by tests
+// (same is-main detector as scripts/validate-severity-vocabulary.ts).
+const isMain = (() => {
+  try {
+    return resolve(process.argv[1] ?? "") === __filename;
+    // The is-main detector defaults to "not main" if argument resolution
+    // throws; that fallback path is the test-import path, so no diagnostic
+    // channel applies (tests intentionally import this module).
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  main().catch((err: unknown) => {
+     
+    console.error("validate:finding-registry failed:", err);
+    process.exit(1);
+  });
+}

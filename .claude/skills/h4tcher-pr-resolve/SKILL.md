@@ -45,7 +45,7 @@ For non-hatch3r repos the canonical `/hatch3r-pr-resolve` command (distributed v
    - Commit format: type(scope): description with DCO sign-off via
      git commit -s.
    ```
-   Fan-out is task-derived (P8 B2): sub-agent count tracks the canonical workflow's Step 6/7 fan-out (implementers per fix slot, reviewer + fixer review loop, final-quality specialists). Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 5 summary).
+   Fan-out is task-derived (P8 B2): sub-agent count tracks the canonical workflow's Step 6/7 fan-out (implementers per fix slot, reviewer + fixer review loop, final-quality specialists). Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output (the `Sub-agents` field of the Step 5 summary; `task_structure: mixed` — parallel implementers per fix slot, serialized on the reviewer ↔ fixer loop).
 
 ## Step 3: Hatch3r Quality Gates
 

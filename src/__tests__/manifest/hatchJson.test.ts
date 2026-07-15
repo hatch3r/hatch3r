@@ -1464,9 +1464,11 @@ describe("hatchJson", () => {
       await expect(readManifest(rootDir)).rejects.toThrow(/models\.commands/);
     });
 
-    // release/2.6.0: models.tiers pins what each model class resolves to;
-    // same persistence-boundary checks so a malformed pin fails closed before
-    // resolveTierModel hands it to an adapter gate.
+    // release/2.6.0 (4-class ladder release/2.7.0): models.tiers pins what
+    // each model class resolves to; same persistence-boundary checks so a
+    // malformed pin fails closed before resolveTierModel hands it to an
+    // adapter gate. Keys are matched by normalization (canonical + legacy);
+    // non-class keys stay ignored (unchanged policy).
     it("rejects a non-string models.tiers.<class> with CONFIG_ERROR and accepts a valid tiers block", async () => {
       const base = {
         version: "3.0.0",
@@ -1482,17 +1484,80 @@ describe("hatchJson", () => {
       };
       // One root; writeManifestJson overwrites .hatch3r/hatch.json between probes.
       const rootDir = await setup();
+      // Legacy key (strongest) — the string-value check still binds it.
       await writeManifestJson(rootDir, { ...base, models: { tiers: { strongest: 42 } } });
       await expect(readManifest(rootDir)).rejects.toThrow(/models\.tiers\.strongest/);
+
+      // Canonical 2.7.0 key — same check, error names the user's literal key.
+      await writeManifestJson(rootDir, { ...base, models: { tiers: { frontier: 42 } } });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.tiers\.frontier/);
 
       await writeManifestJson(rootDir, { ...base, models: { tiers: ["fable"] } });
       await expect(readManifest(rootDir)).rejects.toThrow(/models\.tiers/);
 
-      await writeManifestJson(rootDir, { ...base, models: { tiers: { strongest: "fable", economy: "haiku" } } });
+      // Full 6-key acceptance: the four canonical classes + both 2.6.0
+      // legacy keys parse together (normalization + canonical-wins is the
+      // resolveTierModel read policy, not a persistence rejection).
+      await writeManifestJson(rootDir, {
+        ...base,
+        models: {
+          tiers: {
+            economy: "haiku",
+            standard: "sonnet",
+            advanced: "opus",
+            frontier: "fable",
+            default: "claude-sonnet-4-6",
+            strongest: "claude-opus-4-8",
+          },
+        },
+      });
       const manifest = await readManifest(rootDir);
       expect(manifest).not.toBeNull();
-      expect(manifest!.models?.tiers?.strongest).toBe("fable");
+      expect(manifest!.models?.tiers?.frontier).toBe("fable");
       expect(manifest!.models?.tiers?.economy).toBe("haiku");
+      expect(manifest!.models?.tiers?.strongest).toBe("claude-opus-4-8");
+
+      // Unknown keys stay ignored (unchanged policy) — even with a
+      // non-string value they are not the persistence boundary's concern.
+      await writeManifestJson(rootDir, { ...base, models: { tiers: { turbo: 42 } } });
+      const withUnknown = await readManifest(rootDir);
+      expect(withUnknown).not.toBeNull();
+    });
+
+    // release/2.7.0: models.tierEfforts carries per-class effort pins — same
+    // object-shape + string-value pattern as models.tiers; enum membership
+    // and the canonical-keys-only rule are `hatch3r validate` lints.
+    it("type-checks models.tierEfforts at the persistence boundary", async () => {
+      const base = {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, { ...base, models: { tierEfforts: { frontier: 42 } } });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.tierEfforts\.frontier/);
+
+      await writeManifestJson(rootDir, { ...base, models: { tierEfforts: ["max"] } });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.tierEfforts/);
+
+      await writeManifestJson(rootDir, { ...base, models: { tierEfforts: { frontier: "max", economy: "low" } } });
+      const manifest = await readManifest(rootDir);
+      expect(manifest).not.toBeNull();
+      expect(manifest!.models?.tierEfforts?.frontier).toBe("max");
+      expect(manifest!.models?.tierEfforts?.economy).toBe("low");
+
+      // Non-class keys are ignored here (the validate-command lint owns the
+      // canonical-keys-only ERROR for tierEfforts).
+      await writeManifestJson(rootDir, { ...base, models: { tierEfforts: { turbo: 42 } } });
+      const withUnknown = await readManifest(rootDir);
+      expect(withUnknown).not.toBeNull();
     });
 
     it("rejects an unknown claude.teammateMode with CONFIG_ERROR", async () => {

@@ -40,7 +40,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (Dockerfile + compose + one K8s manifest for one service): spawn one sub-agent per artifact via the Task tool.
 - Tier 3 (multi-service repo, one image set per service): one fresh sub-agent per service; orchestrator integrates the compose/manifest set only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Step 1: Pick a Minimal Base Image and Plan the Build/Runtime Split
 

@@ -1175,8 +1175,10 @@ You are a test agent.`,
       expect(agentFile).toBeDefined();
       expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-8\n[\s\S]*?---/);
       expect(agentFile!.content).toContain("Preferred: `claude-opus-4-8`");
-      // A user-set concrete model NEVER gets an `effort:` line — hatch3r
-      // cannot assume effort semantics for an explicit model choice.
+      // A user-set concrete model gets no class/tier-default `effort:` line —
+      // hatch3r cannot assume effort semantics for an explicit model choice.
+      // Only an EXPLICIT per-agent effort (frontmatter or customize) rides on
+      // a concrete model, and this fixture authors none.
       const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
       expect(fmMatch![1]).not.toMatch(/^effort:/m);
     } finally {
@@ -1184,28 +1186,42 @@ You are a test agent.`,
     }
   });
 
-  // Model classes (release/2.6.0): canonical `model:` frontmatter carries a
-  // capability class (economy|default|strongest) that the Claude adapter maps
-  // via models.tiers pin > CLAUDE_TIER_MODEL_MAP, with a paired `effort:` line
-  // only on the adapter-map path (src/models/tiers.ts).
-  describe("model-class emission (release/2.6.0)", () => {
-    /** Temp canonical root with one agent whose frontmatter model is `model`. */
-    async function setupAgentWithModel(tempDir: string, model: string): Promise<string> {
+  // Model classes (release/2.7.0, 4-class ladder): canonical `model:`
+  // frontmatter carries a capability class (economy|standard|advanced|frontier,
+  // legacy synonyms accepted) that the Claude adapter maps via a models.tiers
+  // pin (alias-expanded) > CLAUDE_TIER_MODEL_MAP. The `effort:` line composes
+  // as explicit per-agent effort (customize > frontmatter) > class default —
+  // where the class default is defaultEffortForClass (tierEfforts pin > built-in
+  // map) on the unpinned path but the tierEfforts pin ONLY on the pinned path
+  // (the built-in default never rides on an operator-chosen model). Emitted
+  // only alongside a native `model:` line and only when the composed value is
+  // one of low|medium|high|xhigh|max (src/models/tiers.ts + claude.ts).
+  describe("model-class emission (release/2.7.0)", () => {
+    /**
+     * Temp canonical root with one agent whose frontmatter `model:` is `model`
+     * and (when given) `effort:` is `effort` — fixture agents only; the live
+     * canonical corpus migrates to the 4-class words in a later wave.
+     */
+    async function setupAgentWithModel(tempDir: string, model: string, effort?: string): Promise<string> {
       const agentsDir = join(tempDir, "agents");
       await mkdir(join(agentsDir, "agents"), { recursive: true });
+      const effortLine = effort === undefined ? "" : `\neffort: ${effort}`;
       await writeFile(
         join(agentsDir, "agents", "test-agent.md"),
-        `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}\n---\n# Test Agent\n\nYou are a test agent.`,
+        `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}${effortLine}\n---\n# Test Agent\n\nYou are a test agent.`,
         "utf-8",
       );
       return agentsDir;
     }
 
-    async function generateFm(model: string, manifestOverrides: Parameters<typeof makeManifest>[0] = {}): Promise<{ fm: string; content: string }> {
+    async function generateFm(
+      model: string,
+      opts: { effort?: string; manifest?: Parameters<typeof makeManifest>[0] } = {},
+    ): Promise<{ fm: string; content: string }> {
       const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-class-"));
       try {
-        const agentsDir = await setupAgentWithModel(tempDir, model);
-        const outputs = await adapter.generate(agentsDir, makeManifest(manifestOverrides));
+        const agentsDir = await setupAgentWithModel(tempDir, model, opts.effort);
+        const outputs = await adapter.generate(agentsDir, makeManifest(opts.manifest ?? {}));
         const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
         expect(agentFile).toBeDefined();
         const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
@@ -1216,52 +1232,172 @@ You are a test agent.`,
       }
     }
 
-    it("strongest → model: opus + effort: high", async () => {
-      const { fm, content } = await generateFm("strongest");
-      expect(fm).toMatch(/^model: opus$/m);
-      expect(fm).toMatch(/^effort: high$/m);
-      expect(content).toContain("Model class: `strongest` (mapped: `opus`)");
-      expect(content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=opus");
+    it("frontier + authored effort: xhigh → model: fable + effort: xhigh (bare fable passes the D9-3 gate)", async () => {
+      const { fm, content } = await generateFm("frontier", { effort: "xhigh" });
+      // `model: fable` emitted natively is the observable proof that
+      // isClaudeRecognizableModel accepts bare `fable` — CLAUDE_TIER_MODEL_MAP
+      // hands the gate the bare alias, not the expanded claude-fable-5 id.
+      expect(fm).toMatch(/^model: fable$/m);
+      expect(fm).toMatch(/^effort: xhigh$/m);
+      // Prose renders the effort rider only because an effort line was emitted;
+      // the Set-via override commands stay model-only (no effort parameter).
+      expect(content).toContain("Model class: `frontier` (mapped: `fable`, effort: `xhigh`)");
+      expect(content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=fable");
     });
 
-    it("economy → model: haiku + effort: medium", async () => {
-      const { fm, content } = await generateFm("economy");
-      expect(fm).toMatch(/^model: haiku$/m);
-      expect(fm).toMatch(/^effort: medium$/m);
-      expect(content).toContain("Model class: `economy` (mapped: `haiku`)");
+    it("frontier + authored effort: max → effort: max (explicit beats the built-in xhigh)", async () => {
+      const { fm } = await generateFm("frontier", { effort: "max" });
+      expect(fm).toMatch(/^model: fable$/m);
+      expect(fm).toMatch(/^effort: max$/m);
     });
 
-    it("default → model: sonnet with NO effort line", async () => {
-      const { fm, content } = await generateFm("default");
+    it("advanced + authored xhigh → opus + xhigh; without authored effort → opus + high (built-in default)", async () => {
+      const authored = await generateFm("advanced", { effort: "xhigh" });
+      expect(authored.fm).toMatch(/^model: opus$/m);
+      expect(authored.fm).toMatch(/^effort: xhigh$/m);
+      const bare = await generateFm("advanced");
+      expect(bare.fm).toMatch(/^model: opus$/m);
+      expect(bare.fm).toMatch(/^effort: high$/m);
+    });
+
+    it("standard → model: sonnet with NO effort line (no built-in row; platform default)", async () => {
+      const { fm, content } = await generateFm("standard");
       expect(fm).toMatch(/^model: sonnet$/m);
       expect(fm).not.toMatch(/^effort:/m);
-      expect(content).toContain("Model class: `default` (mapped: `sonnet`)");
+      // Model-only prose render — no effort rider when no effort was emitted.
+      expect(content).toContain("Model class: `standard` (mapped: `sonnet`)");
+      expect(content).not.toContain(", effort: ");
     });
 
-    it("legacy synonyms fast/standard/reasoning map through the class path", async () => {
+    it("economy → haiku + medium (built-in); authored low wins over the built-in", async () => {
+      const bare = await generateFm("economy");
+      expect(bare.fm).toMatch(/^model: haiku$/m);
+      expect(bare.fm).toMatch(/^effort: medium$/m);
+      const low = await generateFm("economy", { effort: "low" });
+      expect(low.fm).toMatch(/^model: haiku$/m);
+      expect(low.fm).toMatch(/^effort: low$/m);
+    });
+
+    it("legacy words strongest/default/fast/reasoning route to frontier/standard/economy/frontier emissions", async () => {
+      const strongest = await generateFm("strongest");
+      expect(strongest.fm).toMatch(/^model: fable$/m);
+      expect(strongest.fm).toMatch(/^effort: xhigh$/m);
+      // Prose renders the NORMALIZED class, not the authored legacy word.
+      expect(strongest.content).toContain("Model class: `frontier` (mapped: `fable`, effort: `xhigh`)");
+      const dflt = await generateFm("default");
+      expect(dflt.fm).toMatch(/^model: sonnet$/m);
+      expect(dflt.fm).not.toMatch(/^effort:/m);
       const fast = await generateFm("fast");
       expect(fast.fm).toMatch(/^model: haiku$/m);
-      const standard = await generateFm("standard");
-      expect(standard.fm).toMatch(/^model: sonnet$/m);
+      expect(fast.fm).toMatch(/^effort: medium$/m);
       const reasoning = await generateFm("reasoning");
-      expect(reasoning.fm).toMatch(/^model: opus$/m);
-      expect(reasoning.fm).toMatch(/^effort: high$/m);
+      expect(reasoning.fm).toMatch(/^model: fable$/m);
+      expect(reasoning.fm).toMatch(/^effort: xhigh$/m);
     });
 
-    it("models.tiers pin wins over the class map, alias-expands, and suppresses effort", async () => {
-      const { fm } = await generateFm("strongest", { models: { tiers: { strongest: "fable" } } });
-      // Pin `fable` alias-expands to claude-fable-5 and passes the gate.
+    it("models.tiers pin wins, alias-expands, and authored effort still rides (2.7.0 behavior change)", async () => {
+      // release/2.6.0 suppressed effort on EVERY pin — which silently dropped
+      // an authored `effort: max` the moment an operator pinned the class.
+      // 2.7.0 keeps explicit authored effort on recognizable pins.
+      const { fm } = await generateFm("frontier", {
+        effort: "max",
+        manifest: { models: { tiers: { frontier: "fable" } } },
+      });
       expect(fm).toMatch(/^model: claude-fable-5$/m);
-      // Operator-pinned model → no effort assumption.
+      expect(fm).toMatch(/^effort: max$/m);
+    });
+
+    it("pin without authored effort and without tierEfforts → NO effort (built-in default never rides on pins)", async () => {
+      const { fm } = await generateFm("frontier", {
+        manifest: { models: { tiers: { frontier: "fable" } } },
+      });
+      expect(fm).toMatch(/^model: claude-fable-5$/m);
       expect(fm).not.toMatch(/^effort:/m);
     });
 
-    it("an unrecognizable models.tiers pin is omitted from the native field (gate preserved)", async () => {
-      const { fm, content } = await generateFm("economy", { models: { tiers: { economy: "gpt-5.1-codex-mini" } } });
+    it("pin + models.tierEfforts pin → the tierEfforts effort rides (operator vouched for the pairing)", async () => {
+      const { fm } = await generateFm("frontier", {
+        manifest: { models: { tiers: { frontier: "fable" }, tierEfforts: { frontier: "max" } } },
+      });
+      expect(fm).toMatch(/^model: claude-fable-5$/m);
+      expect(fm).toMatch(/^effort: max$/m);
+    });
+
+    it("models.tierEfforts pin beats the built-in default on the UNPINNED class path too", async () => {
+      const economy = await generateFm("economy", {
+        manifest: { models: { tierEfforts: { economy: "high" } } },
+      });
+      expect(economy.fm).toMatch(/^model: haiku$/m);
+      expect(economy.fm).toMatch(/^effort: high$/m);
+      // `standard` has no built-in row, but a tierEfforts pin still applies.
+      const standard = await generateFm("standard", {
+        manifest: { models: { tierEfforts: { standard: "medium" } } },
+      });
+      expect(standard.fm).toMatch(/^model: sonnet$/m);
+      expect(standard.fm).toMatch(/^effort: medium$/m);
+    });
+
+    it("an unrecognizable models.tiers pin omits model AND effort; prose fallback keeps the class", async () => {
+      const { fm, content } = await generateFm("frontier", {
+        effort: "xhigh",
+        manifest: { models: { tiers: { frontier: "gpt-5.6" } } },
+      });
+      expect(fm).not.toMatch(/^model:/m);
+      // No native model line → no effort line, even with authored effort.
+      expect(fm).not.toMatch(/^effort:/m);
+      // Advisory prose still documents the class + pinned value (model-only
+      // render — no effort rider without an emitted effort line).
+      expect(content).toContain("Model class: `frontier` (mapped: `gpt-5.6`)");
+      expect(content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6");
+    });
+
+    it("a models.tiers pin of inherit is the per-class off-switch: no model/effort, prose retains the class", async () => {
+      const { fm, content } = await generateFm("frontier", {
+        effort: "xhigh",
+        manifest: { models: { tiers: { frontier: "inherit" } } },
+      });
       expect(fm).not.toMatch(/^model:/m);
       expect(fm).not.toMatch(/^effort:/m);
-      // Advisory prose still documents the class + mapped value.
-      expect(content).toContain("Model class: `economy` (mapped: `gpt-5.1-codex-mini`)");
+      expect(content).toContain("Model class: `frontier` (pinned `inherit` — session model)");
+      // No Set-via override sentence: `inherit` is not an override value.
+      expect(content).not.toContain("CLAUDE_CODE_SUBAGENT_MODEL=inherit");
+    });
+
+    it("junk frontmatter effort is omitted silently — no substitution by the class default", async () => {
+      // The composed winner is the junk explicit value; it fails the
+      // low|medium|high|xhigh|max gate and is dropped without the built-in
+      // `high` default sneaking in. `hatch3r validate` owns the messaging.
+      const { fm } = await generateFm("advanced", { effort: "turbo" });
+      expect(fm).toMatch(/^model: opus$/m);
+      expect(fm).not.toMatch(/^effort:/m);
+    });
+
+    it("customize effort rides on a concrete customize model (explicit effort, no class in play)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-cust-effort-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "test-agent.md"),
+          `---\nid: test-agent\ntype: agent\ndescription: A test agent\n---\n# Test Agent\n\nYou are a test agent.`,
+          "utf-8",
+        );
+        await mkdir(join(tempDir, ".hatch3r", "agents"), { recursive: true });
+        await writeFile(
+          join(tempDir, ".hatch3r", "agents", "test-agent.customize.yaml"),
+          `agent: test-agent\nmodel: claude-sonnet-5\neffort: high\n`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest(), tempDir);
+        const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+        expect(agentFile).toBeDefined();
+        const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch).not.toBeNull();
+        expect(fmMatch![1]).toMatch(/^model: claude-sonnet-5$/m);
+        expect(fmMatch![1]).toMatch(/^effort: high$/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
   });
 

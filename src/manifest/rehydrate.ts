@@ -60,11 +60,12 @@ const TYPE_KEYS: readonly CustomizableType[] = ["agents", "skills", "rules", "co
 
 /**
  * Subset of {@link Customization} fields that round-trip through the manifest.
- * Mirrors `src/models/customize.ts::Customization` (model, scope, description,
- * enabled). Extra fields on the manifest entry are silently dropped so a
- * future schema addition does not bleed un-validated keys into the YAML file.
+ * Mirrors `src/models/customize.ts::Customization` (model, effort, scope,
+ * description, enabled). Extra fields on the manifest entry are silently
+ * dropped so a future schema addition does not bleed un-validated keys into
+ * the YAML file.
  */
-const ROUND_TRIP_FIELDS = ["model", "scope", "description", "enabled"] as const;
+const ROUND_TRIP_FIELDS = ["model", "effort", "scope", "description", "enabled"] as const;
 
 function pickRoundTripFields(entry: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};

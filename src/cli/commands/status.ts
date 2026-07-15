@@ -10,6 +10,7 @@ import {
   splitAtManagedBlock,
   isHealableManagedPrefix,
 } from "../../merge/managedBlocks.js";
+import { readPrefixFrontmatterField } from "../../merge/safeWrite.js";
 import { filterUserFacing, readCanonicalFiles } from "../../adapters/canonical.js";
 import { applyCustomization } from "../../adapters/customization.js";
 import { resolveUserContentRoot } from "../../content/index.js";
@@ -74,12 +75,28 @@ export interface DriftEntry {
    *     stub) is missing or a stale generated stub on disk. `hatch3r sync`
    *     heals it (safeWrite stub heal); prefixes carrying genuine user content
    *     are never flagged.
+   *   - `frontmatter-stub-edited` (release/2.7.0) — same stub shape, but the
+   *     on-disk prefix's `model:`/`effort:` differs from the value recorded at
+   *     last emit (`.hatch3r/provenance.json` `emittedModel`/`emittedEffort`):
+   *     a hand edit to the hatch3r-owned prefix, which `hatch3r sync`
+   *     overwrites. Durable per-agent overrides live in
+   *     `.hatch3r/<type>/<id>.customize.yaml` (model:/effort:) or `hatch.json`
+   *     `models.*`. Emitted only when the baseline carries the scalars;
+   *     otherwise the entry stays `frontmatter-stub`.
    *   - `markers-missing` — the file exists but has no HATCH3R:BEGIN/END
    *     markers, so the regenerated block cannot be merged; `hatch3r sync`
    *     re-splices the block and preserves the existing content below it.
    * Absent for every other entry.
    */
-  driftDetail?: "frontmatter-stub" | "markers-missing";
+  driftDetail?: "frontmatter-stub" | "frontmatter-stub-edited" | "markers-missing";
+  /**
+   * release/2.7.0: human-readable detail for `frontmatter-stub-edited`
+   * entries — names the edited field(s) with on-disk vs baseline values plus
+   * the durable override channels (same phrasing family as the safeWrite
+   * stub-heal warning). Rendered verbatim by {@link renderDriftLines}; absent
+   * for every other entry.
+   */
+  driftMessage?: string;
 }
 
 /**
@@ -181,24 +198,40 @@ export function installedOlderSkewHint(
 
 /**
  * F2.7-F5 (D2): one entry of the emit-time provenance baseline read from
- * `.hatch3r/provenance.json`. Only `path` + `contentHash` are needed for
- * drift attribution; the writer also stores `adapter` + `sourceFiles`.
+ * `.hatch3r/provenance.json`. `path` + `contentHash` drive hash attribution;
+ * `emittedModel`/`emittedEffort` (release/2.7.0, absent on pre-2.7.0
+ * manifests) drive the stub-edit attribution. The writer also stores
+ * `adapter` + `sourceFiles`, unused here.
  */
 interface ProvenanceBaselineEntry {
   path: string;
   contentHash?: string;
+  emittedModel?: string;
+  emittedEffort?: string;
 }
 
 /**
- * F2.7-F5 (D2): load the emit-time content-hash baseline keyed by output path.
+ * release/2.7.0: the per-path baseline record {@link compareAdapterOutput}
+ * compares against — the emit-time block hash plus the emit-time
+ * `model:`/`effort:` prefix scalars when the manifest recorded them.
+ */
+interface BaselineRecord {
+  contentHash: string;
+  emittedModel?: string;
+  emittedEffort?: string;
+}
+
+/**
+ * F2.7-F5 (D2): load the emit-time baseline keyed by output path (block
+ * sha256 + the release/2.7.0 `emittedModel`/`emittedEffort` prefix scalars).
  * Returns an empty map when the manifest is absent, unreadable, OR written by a
  * `schemaVersion` this hatch3r does not understand (D12-SA12.2-06) so drift
  * attribution degrades to `unknown` rather than throwing or silently mis-parsing
  * a reshaped future schema — status must still render its drift summary without
  * a baseline.
  */
-async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, string>> {
-  const baseline = new Map<string, string>();
+async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, BaselineRecord>> {
+  const baseline = new Map<string, BaselineRecord>();
   try {
     const raw = await readFile(join(rootDir, HATCH3R_DIR, "provenance.json"), "utf-8");
     const parsed = JSON.parse(raw) as {
@@ -223,7 +256,15 @@ async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, stri
     }
     for (const entry of parsed.outputs ?? []) {
       if (typeof entry.path === "string" && typeof entry.contentHash === "string") {
-        baseline.set(entry.path, entry.contentHash);
+        baseline.set(entry.path, {
+          contentHash: entry.contentHash,
+          // release/2.7.0: carry the emit-time model/effort scalars through
+          // (absent on pre-2.7.0 manifests); a non-string value from a
+          // hand-edited manifest degrades to absent, which keeps the entry on
+          // the pre-2.7.0 `frontmatter-stub` attribution path.
+          emittedModel: typeof entry.emittedModel === "string" ? entry.emittedModel : undefined,
+          emittedEffort: typeof entry.emittedEffort === "string" ? entry.emittedEffort : undefined,
+        });
       }
     }
   } catch (err) {
@@ -339,7 +380,7 @@ async function compareAdapterOutput(
   out: AdapterOutput,
   tool: string,
   rootDir: string,
-  baseline: Map<string, string>,
+  baseline: Map<string, BaselineRecord>,
   acc: DriftAccumulator,
 ): Promise<void> {
   acc.seenPaths.add(out.path);
@@ -369,6 +410,7 @@ async function compareAdapterOutput(
     // safeWrite stub heal applies, so the report and the sync-side repair
     // agree byte-for-byte).
     let stubDrift = false;
+    let onDiskStubPrefix: string | null = null;
     if (matches && blocksComparable) {
       const expectedSplit = splitAtManagedBlock(out.content, out.path);
       if (expectedSplit && expectedSplit.prefix.trim() !== "") {
@@ -379,6 +421,9 @@ async function compareAdapterOutput(
           isHealableManagedPrefix(onDiskSplit.prefix)
         ) {
           stubDrift = true;
+          // release/2.7.0: kept for the stub-edit attribution below, which
+          // parses the on-disk prefix's `model:`/`effort:` fields.
+          onDiskStubPrefix = onDiskSplit.prefix;
         }
       }
     }
@@ -386,28 +431,71 @@ async function compareAdapterOutput(
       acc.entries.push({ path: out.path, tool, status: "in-sync" });
       acc.counts.synced++;
     } else if (stubDrift) {
-      // driftKind is `canonical-outdated` by construction: the managed block
-      // matches regeneration byte-for-byte (no user edit inside it) and the
-      // generator's output format moved past the on-disk file — `hatch3r sync`
-      // heals the prefix without touching any user content. The provenance
-      // hash machinery below cannot attribute this case (it hashes only the
-      // extracted block, which is identical on both sides), so the kind is
-      // set directly instead of routed through the baseline comparison.
-      acc.entries.push({
-        path: out.path,
-        tool,
-        status: "modified",
-        driftKind: "canonical-outdated",
-        driftDetail: "frontmatter-stub",
-      });
-      acc.driftKindCounts.canonicalOutdated++;
-      acc.counts.modified++;
+      // release/2.7.0 stub-edit attribution: the provenance baseline records
+      // the emit-time `model:`/`effort:` prefix scalars (`emittedModel`/
+      // `emittedEffort`), so a stub whose ON-DISK fields differ from the
+      // BASELINE's is a hand edit — the pre-2.7.0 blanket `canonical-outdated`
+      // mislabeled it as hatch3r's own format move while the safeWrite stub
+      // heal silently discards the edit on the next sync. The provenance hash
+      // machinery below cannot make this call (it hashes only the extracted
+      // block, which is identical on both sides), so the fields are compared
+      // directly. Same parse as the emit side (readPrefixFrontmatterField),
+      // so writer and reader agree byte-for-byte.
+      const baselineEntry = baseline.get(out.path);
+      const editedFields: string[] = [];
+      if (
+        baselineEntry !== undefined &&
+        onDiskStubPrefix !== null &&
+        (baselineEntry.emittedModel !== undefined || baselineEntry.emittedEffort !== undefined)
+      ) {
+        for (const field of ["model", "effort"] as const) {
+          const onDiskValue = readPrefixFrontmatterField(onDiskStubPrefix, field);
+          const emittedValue =
+            field === "model" ? baselineEntry.emittedModel : baselineEntry.emittedEffort;
+          if (onDiskValue !== emittedValue) {
+            editedFields.push(
+              `${field}: ${onDiskValue ?? "(absent)"} on disk vs ${emittedValue ?? "(absent)"} at last sync`,
+            );
+          }
+        }
+      }
+      if (editedFields.length > 0) {
+        acc.entries.push({
+          path: out.path,
+          tool,
+          status: "modified",
+          driftKind: "user-modified",
+          driftDetail: "frontmatter-stub-edited",
+          driftMessage:
+            `frontmatter edited on disk (${editedFields.join("; ")}) — ` +
+            `\`hatch3r sync\` regenerates this hatch3r-owned prefix; durable per-agent overrides: ` +
+            `\`.hatch3r/<type>/<id>.customize.yaml\` (model:/effort:) or \`hatch.json\` models.*`,
+        });
+        acc.driftKindCounts.userModified++;
+        acc.counts.modified++;
+      } else {
+        // driftKind is `canonical-outdated` by construction: the managed block
+        // matches regeneration byte-for-byte (no user edit inside it) and — as
+        // far as the baseline can tell (absent, pre-2.7.0 without scalars, or
+        // scalars matching the on-disk prefix) — the generator's output format
+        // moved past the on-disk file. `hatch3r sync` heals the prefix without
+        // touching any user content.
+        acc.entries.push({
+          path: out.path,
+          tool,
+          status: "modified",
+          driftKind: "canonical-outdated",
+          driftDetail: "frontmatter-stub",
+        });
+        acc.driftKindCounts.canonicalOutdated++;
+        acc.counts.modified++;
+      }
     } else {
       // F2.7-F5 (D2): attribute drift direction against the emit-time
       // baseline. `onDiskHash` and `regeneratedHash` are both reduced via
       // the same normalization the baseline used, so a clean comparison is
       // possible without retaining full file bodies.
-      const baselineHash = baseline.get(out.path);
+      const baselineHash = baseline.get(out.path)?.contentHash;
       const onDiskHash = hashEmittedContent(existing, undefined, out.path);
       const regeneratedHash = hashEmittedContent(
         out.content,
@@ -658,8 +746,9 @@ export async function computeAdapterDrift(
   const entries: DriftEntry[] = [];
 
   const canonicalContentRoot = resolveBundledContentRoot();
-  // F2.7-F5 (D2): emit-time content-hash baseline (path -> sha256). Used to
-  // attribute the direction of every `modified` entry below.
+  // F2.7-F5 (D2): emit-time baseline (path -> block sha256 + the release/2.7.0
+  // emittedModel/emittedEffort prefix scalars). Used to attribute the
+  // direction of every `modified` entry below.
   const baseline = await loadProvenanceBaseline(rootDir);
   const seenPaths = new Set<string>();
   // D2-SA2.7-04 (D2, P2): single accumulator so root outputs AND monorepo
@@ -820,11 +909,18 @@ export function renderDriftLines(report: DriftReport): string[] {
           const tag =
             entry.driftDetail === "frontmatter-stub"
               ? chalk.cyan(" (frontmatter stub missing/stale — `hatch3r sync` restores it)")
-              : entry.driftDetail === "markers-missing"
+              : entry.driftDetail === "frontmatter-stub-edited"
                 ? chalk.yellow(
-                    " (HATCH3R markers missing on disk — `hatch3r sync` re-splices the block, keeping your content below it)",
+                    ` (${
+                      entry.driftMessage ??
+                      "frontmatter model/effort edited on disk — `hatch3r sync` regenerates this prefix; durable overrides: `.hatch3r/<type>/<id>.customize.yaml` or `hatch.json` models.*"
+                    })`,
                   )
-                : driftKindTag(entry.driftKind);
+                : entry.driftDetail === "markers-missing"
+                  ? chalk.yellow(
+                      " (HATCH3R markers missing on disk — `hatch3r sync` re-splices the block, keeping your content below it)",
+                    )
+                  : driftKindTag(entry.driftKind);
           lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}${tag}`);
           break;
         }

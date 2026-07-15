@@ -6,12 +6,14 @@ import { CLAUDE_SUBAGENT_MEMORY_SCOPES, toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
-import { resolveAgentModel } from "../models/resolve.js";
+import { resolveAgentEffort, resolveAgentModel } from "../models/resolve.js";
 import { resolveModelAlias } from "../models/aliases.js";
 import {
-  CLAUDE_TIER_EFFORT_MAP,
   CLAUDE_TIER_MODEL_MAP,
+  defaultEffortForClass,
+  normalizeEffortLevel,
   normalizeModelClass,
+  resolveTierEffort,
   resolveTierModel,
 } from "../models/tiers.js";
 import {
@@ -560,10 +562,16 @@ function deriveAgentDenyEmission(
 /**
  * D9-3 (Cycle 11, P3 model resolution + P5 silent-failure): the Claude Code
  * subagent `model:` frontmatter field accepts ONLY a Claude-recognizable
- * value — one of the aliases `sonnet | opus | haiku`, a full `claude-` model
- * ID, or `inherit` (code.claude.com/docs/en/sub-agents#choose-a-model,
+ * value — one of the aliases `sonnet | opus | haiku | fable`, a full `claude-`
+ * model ID, or `inherit` (code.claude.com/docs/en/sub-agents#choose-a-model,
  * accessed 2026-06-05: "Model to use: `sonnet`, `opus`, `haiku`, a full model
  * ID (for example, `claude-opus-4-8`), or `inherit`. Defaults to `inherit`").
+ * `fable` is a first-class Claude Code subagent model alias alongside the
+ * other three (code.claude.com/docs/en/sub-agents, accessed 2026-07-14) — and
+ * it is the CLAUDE_TIER_MODEL_MAP target for the `frontier` class, so
+ * omitting it here would silently degrade every frontier-class agent to
+ * prose-only emission (the same silent-failure class this gate exists to
+ * close).
  *
  * Pre-fix the adapter wrote ANY resolved model string into the native field,
  * including cross-provider IDs (`gpt-4`, `gemini-3-flash`, or an alias-expanded
@@ -581,6 +589,7 @@ function isClaudeRecognizableModel(model: string): boolean {
     model === "sonnet" ||
     model === "opus" ||
     model === "haiku" ||
+    model === "fable" ||
     model === "inherit" ||
     /^claude-/.test(model)
   );
@@ -623,10 +632,11 @@ function isClaudeRecognizableModel(model: string): boolean {
  * deferral (per the D9-11 fix's "spawn as a CL-2 candidate" directive) was an
  * unanchored prose note invisible to the next cycle's D9 scan; anchoring the full
  * unused-field set to D9-SA9.1-05 makes it greppable so it surfaces as a CL-2
- * candidate instead of silently re-deferring each wave. The adapter emits 7
+ * candidate instead of silently re-deferring each wave. The adapter emits 8
  * subagent frontmatter fields today (`description`, `tools`, `disallowedTools`,
- * `model`, `permissionMode`, `maxTurns`, `memory`) against a documented surface
- * of ~15 (code.claude.com/docs/en/sub-agents, accessed 2026-07-12). The
+ * `model`, `effort` — the latter joined in the release/2.7.0 model-class
+ * rewrite — `permissionMode`, `maxTurns`, `memory`) against a documented
+ * surface of ~15 (code.claude.com/docs/en/sub-agents, accessed 2026-07-12). The
  * inventory's former top-two candidates SHIPPED in Cycle-12 CL-2 U11:
  * `maxTurns` (default runaway ceiling — {@link CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT})
  * and `memory: project` for `hatch3r-learnings-loader`
@@ -636,7 +646,7 @@ function isClaudeRecognizableModel(model: string): boolean {
  *   1. `mcpServers:` — inline per-server config vs referencing `.mcp.json`. Only
  *      the frontmatter-field half remains; the tool-reachability half is closed
  *      (see the D2-SA2.4-01 note below).
- *   2. `skills:`, `hooks:`, `background`, `isolation`, `effort`, `initialPrompt`,
+ *   2. `skills:`, `hooks:`, `background`, `isolation`, `initialPrompt`,
  *      and the requested `cwd`/`additionalDirectories`
  *      (github.com/anthropics/claude-code/issues/31940, accessed 2026-07-10).
  * Native hook events documented but not mapped by {@link mapToClaudeEvent}:
@@ -1120,11 +1130,15 @@ export class ClaudeAdapter extends BaseAdapter {
         // (code.claude.com/docs/en/sub-agents#choose-a-model, accessed
         // 2026-05-27).
         //
-        // Model classes (release/2.6.0): a resolved class word
-        // (economy|default|strongest, or a legacy synonym) maps through
-        // `models.tiers.<class>` (operator pin, verbatim) else
-        // CLAUDE_TIER_MODEL_MAP (haiku/sonnet/opus). The mapped value then
-        // goes through the SAME recognizable-value gate as any other model.
+        // Model classes (release/2.7.0, 4-class ladder): a resolved class
+        // word (economy|standard|advanced|frontier, or a legacy synonym via
+        // normalizeModelClass) maps through `models.tiers.<class>` (operator
+        // pin, alias-expanded) else CLAUDE_TIER_MODEL_MAP
+        // (haiku/sonnet/opus/fable). The mapped value then goes through the
+        // SAME recognizable-value gate as any other model. A tier pin of
+        // `inherit` is the per-class native-emission off-switch
+        // (src/models/tiers.ts contract): no `model:`/`effort:` lines for
+        // that class; the prose surfaces below keep the class visible.
         //
         // D9-3 (Cycle 11, P3 + P5): gate the native field to a
         // Claude-recognizable value (alias / `claude-*` ID / `inherit`).
@@ -1138,20 +1152,69 @@ export class ClaudeAdapter extends BaseAdapter {
         // result is (a pinned `fable` reaches the gate as `claude-fable-5`).
         const tierPinRaw = modelClass ? resolveTierModel(modelClass, ctx.manifest) : undefined;
         const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
+        const tierPinInherit = tierPin === "inherit";
         const effectiveModel = modelClass ? (tierPin ?? CLAUDE_TIER_MODEL_MAP[modelClass]) : model;
-        const nativeModel = effectiveModel && isClaudeRecognizableModel(effectiveModel) ? effectiveModel : undefined;
-        if (nativeModel) fmLines.push(`model: ${nativeModel}`);
-        // `effort:` rides along ONLY when the emitted model came from the
-        // adapter's own class map (no `models.tiers` pin): the effort values
-        // are calibrated against the mapped aliases (haiku+medium, opus+high),
-        // and hatch3r cannot assume effort semantics for an operator-pinned
-        // model — emitting an unvalidated field would recreate the D9-3
-        // silent-failure class. User-set concrete models never get effort.
-        const classEffort =
-          modelClass && nativeModel && tierPin === undefined
-            ? CLAUDE_TIER_EFFORT_MAP[modelClass]
+        const nativeModel =
+          effectiveModel && !tierPinInherit && isClaudeRecognizableModel(effectiveModel)
+            ? effectiveModel
             : undefined;
-        if (classEffort) fmLines.push(`effort: ${classEffort}`);
+        if (nativeModel) fmLines.push(`model: ${nativeModel}`);
+        // `effort:` (release/2.7.0 effort axis) — explicit per-agent effort
+        // (customize > frontmatter, via resolveAgentEffort) beats the
+        // class-level default, and which class-level default applies depends
+        // on how `model:` was produced:
+        //   - Class via CLAUDE_TIER_MODEL_MAP (no tier pin):
+        //     defaultEffortForClass — the `models.tierEfforts.<class>` pin,
+        //     else the built-in CLASS_DEFAULT_EFFORT_MAP row (`standard` has
+        //     no row: no line, platform default applies).
+        //   - Class via a recognizable `models.tiers` pin: the operator's
+        //     `models.tierEfforts` pin only. The BUILT-IN class default does
+        //     NOT ride on pins — hatch3r does not assume effort semantics for
+        //     an operator-chosen model — but a tierEfforts pin does (the
+        //     operator vouched for that pairing), and explicit authored
+        //     effort always does. BEHAVIOR CHANGE vs release/2.6.0, which
+        //     suppressed effort on every pin: suppress-on-pin would silently
+        //     drop `effort: max` on hatch3r-security the moment an operator
+        //     pins `tiers.frontier: fable` — a per-agent authored floor lost
+        //     to an unrelated class-mapping choice (the D9-3 silent-failure
+        //     class this rewrite exists to avoid).
+        //   - Concrete user model (customize / models.agents /
+        //     models.default — no class): explicit per-agent effort only,
+        //     never a class/tier default (there is no class to default from).
+        // Emission is double-gated: only alongside a native `model:` line,
+        // and only when the composed value passes normalizeEffortLevel — a
+        // junk value is omitted silently here; `hatch3r validate` (canonical
+        // frontmatter) and the customize enum gate own the user-facing
+        // messaging.
+        const explicitEffort = resolveAgentEffort(agent.id, agent, overrides);
+        let effortCandidate: string | undefined;
+        if (nativeModel !== undefined && modelClass) {
+          const classDefault =
+            tierPin === undefined
+              ? defaultEffortForClass(modelClass, ctx.manifest)
+              : resolveTierEffort(modelClass, ctx.manifest);
+          effortCandidate = explicitEffort ?? classDefault;
+        } else if (nativeModel !== undefined) {
+          effortCandidate = explicitEffort;
+        }
+        const nativeEffort =
+          effortCandidate === undefined
+            ? undefined
+            : (normalizeEffortLevel(effortCandidate) ?? undefined);
+        if (nativeEffort) fmLines.push(`effort: ${nativeEffort}`);
+        // Prose render of the class mapping, shared by the minimal-mode note
+        // and the `## Recommended Model` block. The effort rider appears only
+        // when an `effort:` line was actually emitted, so prose never
+        // advertises a level the frontmatter does not carry; an `inherit`
+        // tier pin renders as its own form so class intent stays visible even
+        // though no native fields were emitted.
+        const classDetail = modelClass
+          ? tierPinInherit
+            ? `Model class: \`${modelClass}\` (pinned \`inherit\` — session model)`
+            : nativeEffort
+              ? `Model class: \`${modelClass}\` (mapped: \`${effectiveModel}\`, effort: \`${nativeEffort}\`)`
+              : `Model class: \`${modelClass}\` (mapped: \`${effectiveModel}\`)`
+          : undefined;
         const fm = `---\n${fmLines.join("\n")}\n---`;
         // C9-M47 (P7): cache-breakpoint sentinels wrap every agent body so the
         // emitted managed block fingerprints stably across syncs.
@@ -1159,11 +1222,12 @@ export class ClaudeAdapter extends BaseAdapter {
         if (minimal) {
           // Minimal mode keeps body lean: the model note and tool-restriction
           // block ride along so the deny envelope is not lost at low verbosity.
-          // Class values render the class->mapped form so the note never ships
-          // a bare class word Claude cannot act on.
+          // Class values render the shared classDetail form (class -> mapped
+          // model, plus the emitted effort when present) so the note never
+          // ships a bare class word Claude cannot act on.
           const modelNote = model
-            ? modelClass
-              ? `\nModel class: \`${modelClass}\` (mapped: \`${effectiveModel}\`)`
+            ? classDetail
+              ? `\n${classDetail}`
               : `\nModel: \`${model}\``
             : "";
           const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}${restrictionsSuffix}`);
@@ -1174,11 +1238,16 @@ export class ClaudeAdapter extends BaseAdapter {
           // model (Claude or not) so the env-var/`/model` override path stays
           // documented — for a non-Claude model it is the ONLY surface, since
           // the native `model:` field above is gated to Claude values. Class
-          // values render `Model class: <class> (mapped: <value>)` so the
-          // override path documents the actionable mapped value.
+          // values render the shared classDetail form; the Set-via commands
+          // stay model-only (CLAUDE_CODE_SUBAGENT_MODEL and `/model` carry no
+          // effort parameter), and an `inherit` tier pin gets no Set-via
+          // sentence at all — `inherit` means "use the session model", so
+          // there is no override value to document.
           const modelGuidance = model
-            ? modelClass
-              ? `\n\n## Recommended Model\n\nModel class: \`${modelClass}\` (mapped: \`${effectiveModel}\`). Set via \`/model ${effectiveModel}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${effectiveModel}\`.`
+            ? classDetail
+              ? tierPinInherit
+                ? `\n\n## Recommended Model\n\n${classDetail}.`
+                : `\n\n## Recommended Model\n\n${classDetail}. Set via \`/model ${effectiveModel}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${effectiveModel}\`.`
               : `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
             : "";
           const body = withCacheBreakpoints(`${content}${modelGuidance}${restrictionsSuffix}`);

@@ -241,6 +241,45 @@ describe("buildCustomizationSummary — classifyOutcome branches", () => {
     expect(summary.entries.length).toBe(1);
   });
 
+  it("classifies a no-op effort override on a rule as failed (release/2.7.0 agents-only field)", async () => {
+    // `effort:` is consumed only on agents (TYPES_WITHOUT_EFFORT); on a rule
+    // it is dropped with an "Effort override on rule …" warning — the same
+    // dropped-override family as the model-on-rule case above, so it must
+    // classify `failed`, not fall through to `none` (D2-SA2.3-09 sync rule).
+    const root = await setup();
+    await writeFixture(root, RULES, "hatch3r-api-design.customize.yaml", "effort: high");
+
+    const summary = await buildCustomizationSummary(root);
+    const e = entry(summary, "hatch3r-api-design");
+    expect(e.outcome).toBe("failed");
+    expect(e.reason).toContain("Effort override on rule");
+    expect(e.reason).toContain("has no effect");
+    expect(e.appliedOverrides.effort).toBeUndefined();
+    // hasYaml is inferred from the effort-shaped warning (yamlWarningPattern
+    // includes "Effort override").
+    expect(e.hasYaml).toBe(true);
+    expect(summary.counts).toEqual({ active: 0, skipped: 0, failed: 1, inert: 0 });
+  });
+
+  it("classifies a blocked non-enum effort on an agent as failed and a valid effort as active", async () => {
+    const root = await setup();
+    await writeFixture(root, AGENTS, "hatch3r-architect.customize.yaml", "effort: turbo");
+
+    const blocked = await buildCustomizationSummary(root);
+    const b = entry(blocked, "hatch3r-architect");
+    expect(b.outcome).toBe("failed");
+    expect(b.reason).toContain("Blocked: YAML effort");
+    expect(b.appliedOverrides.effort).toBeUndefined();
+
+    // Overwrite with a valid level: the override survives and surfaces on
+    // appliedOverrides in normalized form.
+    await writeFixture(root, AGENTS, "hatch3r-architect.customize.yaml", 'effort: " XHIGH "');
+    const applied = await buildCustomizationSummary(root);
+    const a = entry(applied, "hatch3r-architect");
+    expect(a.outcome).toBe("active");
+    expect(a.appliedOverrides.effort).toBe("xhigh");
+  });
+
   it("classifies an oversized customize.yaml as failed (YAML read-failure branch)", async () => {
     // D2-SA2.3-09: a `.customize.yaml` over the 10240-byte cap is dropped by
     // readCustomizationWithWarnings with "Customization YAML for … exceeds …

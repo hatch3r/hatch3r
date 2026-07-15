@@ -27,11 +27,27 @@ The two are complements, not substitutes — neither replaces the other.
 
 ## N-default (authoritative)
 
-`N = 5` consecutive clean PASS verdicts for general diffs; `N = 1` for safety-class diffs (auth / security / migration — see the high-risk fast path in Trigger). These are the single source of truth for the defaults; `agents/hatch3r-reviewer.md` and the across-cycle calibration protocol cite these values rather than redeclaring them. The lowered safety-class default fires the second pass on the first clean PASS so an auth, security, or migration change never merges on a single self-trusted verdict (D23-2).
+`N = 5` consecutive clean PASS verdicts for general diffs; `N = 1` for safety-class diffs (auth / security / migration — see the high-risk fast path in Trigger). These are the single source of truth for the defaults; `agents/hatch3r-reviewer.md` and the across-cycle calibration protocol cite these values rather than redeclaring them. The lowered safety-class default fires the second pass on the first clean PASS so an auth, security, or migration change never merges on a single self-trusted verdict (D23-2). The intermediate contract/churn tier and the authorship weighting that select a per-diff `N` between these two bounds live in Change-risk inputs (N selection) below.
 
 - **Counter owner — the orchestrator, NOT the reviewer.** The reviewer sub-agent is spawned stateless per iteration and the review loop exits on the first clean verdict, so a reviewer-owned counter can never exceed 1 and the second pass would never fire. The orchestrator owns `consecutive_clean_pass_count` and reads/writes it; the reviewer only reports its per-verdict outcome.
 - **Counter scope — across top-level runs, persisted.** Count consecutive clean PASS verdicts across top-level pipeline runs, not within one loop and not per-iteration (the loop exits on the first clean verdict, so within a single loop the count advances by at most 1). The orchestrator persists the running count to project-local `.hatch3r/calibration-state.json` (`{ "consecutive_clean_pass_count": <int>, "updated_at": "<ISO-8601>" }`), written atomically via `src/merge/safeWrite.ts`. On each top-level run the orchestrator reads the prior count, increments on a would-be-clean exit, and resets to 0 on any REQUEST CHANGES or DESIGN_OBJECTION verdict. A missing/unparseable file is treated as count 0.
 - **Project override:** a project may set a different cadence via its own config; the override widens or narrows the cadence but never disables the second pass while a second pass remains available (see Unavailability below).
+
+## Change-risk inputs (N selection)
+
+`N` is selected per diff from three named risk inputs — safety class, contract/churn class, and authorship — not from a single global default. A diff takes its highest matching row (safety > contract/churn > general) and reads `N` from its authorship column; `N = 1` is the floor.
+
+| Change class (highest matching row wins) | Human-authored | Agent-authored |
+|---|---|---|
+| Safety class (auth / security / migration — Trigger → high-risk fast path) | 1 | 1 |
+| Contract/churn class — shared contract (exported symbol, persisted/wire field, public API surface) or higher-churn file | 3 | 1 |
+| General diff | 5 | 3 |
+
+- **Safety class** — the Trigger high-risk fast path; `N = 1` regardless of authorship.
+- **Contract/churn class** — the risk-weighted intermediate tier that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration cites; the `N = 3` value lives here (that section cites this table rather than redeclaring a default).
+- **Authorship** — an agent-authored diff (Task-tool sub-agent output, or an AI-assisted bulk change such as a codemod or model-generated sweep) drops one tier toward the safety-class floor relative to a human-authored diff of the same class. Grounding: hyperscale review automation ranks authorship/source classification as the FIRST stage of its risk pipeline, ahead of eligibility gates and the learned diff-risk score (RADAR, arxiv:2605.30208), and AI-heavy delivery periods measure +98% PRs, +154% PR size, +91% review time, and +9% bugs per developer (Faros AI telemetry) — both accessed 2026-07-09, see References. Agent authorship raises both the defect rate and the human-oversight deficit the second pass exists to close.
+
+The Project override in N-default applies per tier — it widens or narrows a tier's cadence but never disables the second pass while one remains available.
 
 ## Trigger
 
@@ -70,6 +86,16 @@ Append exactly one record per second pass to `.hatch3r/calibration-log.jsonl` (p
 
 Skip the second pass ONLY when no second model class is available AND the orchestrator has disabled same-model re-roll. In that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent — a silent skip is a Silent-Failure-Contract violation. A skip does NOT reset the consecutive-clean-PASS counter; the next eligible exit re-attempts the second pass.
 
+## AI-reviewer qualification gate
+
+Adopting ANY AI reviewer — a commercial review bot, a bespoke LLM judge, or this rule's own second-pass loop — is a component-qualification decision, not a commodity gate swap. Measured heterogeneity (see References): a July-2025 benchmark of five commercial AI reviewers on 50 real bug-fix PRs found catch rates spanning 6%–82%, with the top tool catching 100% of high-severity but only 58% of critical bugs; a 2025–2026 competing-vendor analysis reports false-positive rates from ~3% to >50% and 29–45% hallucinated findings in poorly grounded configurations. Both sources are vendor-authored with conflicts noted; the heterogeneity claim holds across both, each conceding weak spots against interest. Qualification is a floor — three steps before any AI verdict gates a merge:
+
+1. **Measure catch rate on repo-representative seeded bugs BEFORE trusting verdicts.** Reintroduce regressions from the project's own fix history (or inject defects in the classes the reviewer is expected to gate) and record catch rate per severity. No baseline, no gate.
+2. **Declare an explicit false-positive budget.** Set an FP ceiling as project config (example default: ≤10% of findings dismissed as non-actionable per review cycle) and measure against it — ≥30% FP noise produces triage waste and missed real findings, converting the gate into fatigue.
+3. **Human triage until qualification passes.** Until steps 1–2 both pass, every AI finding routes through human triage; the AI verdict is advisory, never merge-blocking.
+
+Unqualified "add an AI reviewer" guidance — an AI review gate adopted with no measured catch rate and no declared FP budget — is a currency defect in any artifact that emits it, not a style preference.
+
 ## Pillar Service
 
 - **P2 Scientific & Practical Quality (primary).** Adds an adversarial out-of-band check to a self-assigned confidence value; over-claimed clean verdicts become detectable at runtime, not just at cycle close.
@@ -83,3 +109,7 @@ Skip the second pass ONLY when no second model class is available AND the orches
 - Tian, Z. et al. "Overconfidence in LLM-as-a-Judge: Diagnosis and Confidence-Driven Solution" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-06-09, peer-reviewed-methodology). Evidence that an LLM judge's predicted confidence significantly overstates realized correctness (the Overconfidence Phenomenon), so a self-reported clean PASS is structurally over-trusted — motivating the out-of-band second pass.
 - Huang, J. et al. "Large Language Models Cannot Self-Correct Reasoning Yet." ICLR 2024 (arxiv:2310.01798). `https://arxiv.org/abs/2310.01798` (accessed 2026-06-06, peer-reviewed-methodology). Evidence that same-model self-critique shares the generator's blind spot, motivating the different-model-class setup recommendation in Action and the lowered safety-class `N=1` second-pass cadence (D23-2).
 - `rules/hatch3r-ai-evals.md` §Eval Metrics — the sibling LLM-as-judge surface (the AI-feature eval judge). It shares this rule's judge-bias vocabulary (self-preference / different-model-class) and adds position-bias order-randomization for its pairwise adoption gate (accessed 2026-07-11, trust tier: canonical).
+- RADAR — risk-calibrated code-review automation at hyperscale (Meta engineering research, arXiv preprint). `https://arxiv.org/abs/2605.30208` (accessed 2026-07-09, vendor-note). Grounds the authorship risk input: authorship/source classification is the first stage of the production risk pipeline (classification → eligibility gates → learned diff-risk score → AI review → deterministic validation), landing ~62% of reviewed diffs without human review at 1/3 the revert rate of manual review.
+- Faros AI engineering telemetry (10,000+ developers). `https://www.faros.ai/blog/ai-software-engineering` (accessed 2026-07-09, independent-analysis). Source of the AI-heavy-period deltas behind the authorship weighting: +98% PRs, +154% PR size, +91% review time, +9% bugs per developer.
+- Greptile AI code-review benchmark (vendor-authored, self-interested — conflict noted). `https://www.greptile.com/benchmarks` (accessed 2026-07-09, vendor-note). July-2025 benchmark of five commercial AI reviewers on 50 real bug-fix PRs: catch rates 6%–82%; top tool 100% on high-severity but 58% on critical bugs — grounds qualification step 1.
+- CodeAnt AI review-accuracy analysis (competing vendor — conflict noted). `https://www.codeant.ai/blogs/ai-code-review-accuracy` (accessed 2026-07-09, vendor-note). 2025–2026 analysis: false-positive rates ~3% to >50%, hallucinated findings 29–45% in poorly grounded configurations — grounds qualification step 2's FP budget.

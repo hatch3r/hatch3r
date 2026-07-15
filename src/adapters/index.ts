@@ -85,6 +85,17 @@ export interface AdapterCapability {
   /** Whether the adapter supports model override configuration. */
   modelOverride: boolean;
   /**
+   * Whether the adapter expresses per-agent reasoning effort natively
+   * (release/2.7.0 effort axis): claude — `effort:` frontmatter key; cursor —
+   * bracket suffix on the emitted model pin, clamped to the documented
+   * bracket value (`[effort=high]`, cursor.com/docs/subagents.md accessed
+   * 2026-07-14); copilot — no surface (the custom-agents frontmatter
+   * reference documents no effort key), so `false`. Pinned to each adapter's
+   * doGenerate invoking `resolveAgentEffort` by the capabilityMatrixDrift
+   * code-probe, mirroring the `modelOverride` column's probe.
+   */
+  effortOverride: boolean;
+  /**
    * Whether the adapter exposes a documented native user-question / triage
    * tool. When true, the adapter MUST have a non-null entry in
    * `ASK_USER_TOOLS` in `src/pipeline/adapterToolTranslator.ts`; when false
@@ -119,6 +130,11 @@ export interface AdapterCapability {
 // facts about every adapter's `doGenerate` calling `applyCustomization` /
 // `resolveAgentModel` (agent loop) unconditionally, so they are `true` for all
 // 3 adapters and pinned to that behavioural source by the same drift test.
+// release/2.7.0: `effortOverride` joins them on the same probe pattern —
+// `true` exactly where doGenerate invokes `resolveAgentEffort` (claude's
+// `effort:` frontmatter key, cursor's clamped bracket suffix on the model
+// pin); copilot has no native effort surface, so its source must NOT invoke
+// the resolver and its column is `false`.
 // release/2.2.0 note: `modelOverride` is pinned to the AGENT-loop
 // `resolveAgentModel` call only. Skill/command model emission is a separate
 // per-adapter opt-in — the `emitModel` predicate passed to
@@ -135,8 +151,8 @@ export interface AdapterCapability {
 // adapter author must reproduce that derived gate; do not assume these columns
 // enumerate every emitted artifact class.
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
-  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  effortOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  effortOverride: true,  nativeQuestionTool: true,  cliTools: true  },
   // D9-H-5 (Cycle 10 D9, Pillar P4): `prompts: false`. hatch3r ships no
   // canonical `prompts/` content, so the Copilot adapter emits no
   // `.github/prompts/*.prompt.md` from a prompts source — the prior
@@ -159,7 +175,7 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // it pinned to the no-hook-file output. Sources (accessed 2026-06-09):
   // https://code.visualstudio.com/docs/agent-customization/hooks
   // https://code.visualstudio.com/docs/agent-customization/custom-agents
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  effortOverride: false, nativeQuestionTool: false, cliTools: true  },
 };
 
 // D2-SA2.5-07 (Cycle 12 Wave 4): value-level projection of the AdapterCapability

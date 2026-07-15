@@ -9,6 +9,13 @@ const MAX_CUSTOMIZE_YAML_BYTES = 10_240;
 
 export interface Customization {
   model?: string;
+  /**
+   * Reasoning-effort override (release/2.7.0 effort axis). Read exactly like
+   * {@link model} (non-empty string); enum gating against the five effort
+   * levels happens at apply time (src/adapters/customization.ts) and in
+   * `hatch3r validate`, not at read time.
+   */
+  effort?: string;
   scope?: string;
   description?: string;
   enabled?: boolean;
@@ -70,6 +77,10 @@ export async function readCustomizationWithWarnings(
 
     if (typeof parsed.model === "string" && parsed.model.length > 0) {
       result.model = parsed.model;
+      hasValue = true;
+    }
+    if (typeof parsed.effort === "string" && parsed.effort.length > 0) {
+      result.effort = parsed.effort;
       hasValue = true;
     }
     if (typeof parsed.scope === "string" && parsed.scope.length > 0) {

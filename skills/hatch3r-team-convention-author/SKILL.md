@@ -36,7 +36,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (both a code-rule set AND a working-agreement doc, or conventions spanning ≥2 stacks): spawn one sub-agent per disjoint artifact via the Task tool; each drafts its own file.
 - Tier 3 (full team-handbook codification across many domains — frontend, backend, infra, review process): one fresh sub-agent per domain; orchestrator integrates the index only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Step 1: Elicit the Team's Conventions and Working Agreements
 

@@ -2,7 +2,8 @@
 id: hatch3r-ux
 type: agent
 description: UX quality specialist — reviews generated UX flows for error-recovery clarity, first-run success, decisions-per-flow discipline, focus management, and screen-reader announcement. Use when UX flows are authored or modified.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [review, ux, accessibility, floor:content-quality]
 pillars:
   governance: [P1, P2]

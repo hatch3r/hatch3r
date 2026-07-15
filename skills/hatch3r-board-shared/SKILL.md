@@ -72,9 +72,11 @@ All board commands read project-specific configuration from `.hatch3r/hatch.json
     "areas": []
   },
   "models": {
-    "default": "opus",
+    "tiers": {
+      "frontier": "fable"
+    },
     "agents": {
-      "hatch3r-lint-fixer": "sonnet"
+      "hatch3r-lint-fixer": "economy"
     }
   }
 }
@@ -84,7 +86,7 @@ All board commands read project-specific configuration from `.hatch3r/hatch.json
 
 If any field is `null` or missing, the corresponding feature is disabled (e.g., null `projectNumber` → skip Projects v2 sync).
 
-**`models`** — Optional. Preferred AI models for agents. `models.default` applies to all agents; `models.agents` overrides per agent. Use aliases (`opus`, `sonnet`, `codex`, `gemini-pro`) or full model IDs. Resolution order: `.hatch3r/agents/{id}.customize.yaml` > manifest per-agent > agent frontmatter > manifest default. See [Model Selection](https://docs.hatch3r.com/docs/guides/model-selection) and [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix#agent-model-customization).
+**`models`** — Optional. Preferred AI models for agents. `models.tiers.{class}` pins the concrete model each class resolves to; `models.agents` overrides per agent. The four class words (`economy`, `standard`, `advanced`, `frontier`) are the primary vocabulary; concrete aliases (`opus`, `sonnet`, `codex`, `gemini-pro`) or full model IDs remain the escape hatch. Resolution order: `.hatch3r/agents/{id}.customize.yaml` > manifest per-agent > agent frontmatter > manifest tiers. See [Model Selection](https://docs.hatch3r.com/docs/guides/model-selection) and [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix#agent-model-customization).
 
 ---
 

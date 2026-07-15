@@ -2,7 +2,8 @@
 id: hatch3r-scalability
 type: agent
 description: Scalability quality specialist — reviews generated services for stateless handlers, back-pressure patterns, idempotency-key adoption, queue-based offloading, and connection-pool sizing. Use when service code or scaling-relevant config is authored or modified.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [review, scalability, floor:content-quality]
 pillars:
   governance: [P2]

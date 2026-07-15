@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runValidator } from "../validate-efficiency-invariants.js";
+import { runValidator, TOP_FLOOR_IDS } from "../validate-efficiency-invariants.js";
 
 // ── Fixture helpers ────────────────────────────────────────────────
 
@@ -1154,19 +1154,47 @@ tags: [implementation]`,
     expect(errorCount).toBe(0);
   });
 
-  // ── Mode J: model-class (release/2.6.0) ─────────────────────────
+  // ── Mode J: model-class + effort (release/2.7.0) ─────────────────
   const MODEL_CLASS_FLAGS = {
     triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, modelClass: true,
   } as const;
 
-  it("Mode J: ERRORs (MODEL-CLASS-VOCAB) on an agent with a non-class model value", async () => {
+  it("Mode J: TOP_FLOOR_IDS resolves to exactly the 16 pinned verdict-class ids", () => {
+    // Union contract: always-mode SPECIALIST_TRIGGER_TABLE ∪ CQ roster ∪
+    // TOP_FLOOR_EXTRA_IDS. A trigger-table mode flip, CQ roster edit, or
+    // extras change that widens/narrows the frontier floor fails here
+    // instead of drifting silently.
+    expect([...TOP_FLOOR_IDS].sort()).toEqual([
+      "hatch3r-architect",
+      "hatch3r-brownfield-spec",
+      "hatch3r-edge-case-analyst",
+      "hatch3r-enhancability",
+      "hatch3r-greenfield-spec",
+      "hatch3r-incident-responder",
+      "hatch3r-maintainability",
+      "hatch3r-performance",
+      "hatch3r-product-spec",
+      "hatch3r-reliability",
+      "hatch3r-reviewer",
+      "hatch3r-scalability",
+      "hatch3r-security",
+      "hatch3r-testability",
+      "hatch3r-ui",
+      "hatch3r-ux",
+    ]);
+  });
+
+  it("Mode J: ERRORs (MODEL-CLASS-VOCAB) on an agent with a legacy (non-canonical) model value", async () => {
+    // `strongest` was the 2.6.0 top-class word; on the 4-class ladder it is a
+    // user-override-only legacy synonym, so a corpus agent authoring it is a
+    // regression.
     await writeArtifact(
       join(fx.agentsDir, "hatch3r-worker.md"),
       `id: hatch3r-worker
 type: agent
 description: Worker agent
 tags: [implementation]
-model: standard`,
+model: strongest`,
       "# Worker\n\nBody.\n",
     );
 
@@ -1179,7 +1207,7 @@ model: standard`,
     const viol = findings.filter((f) => f.code === "MODEL-CLASS-VOCAB");
     expect(viol).toHaveLength(1);
     expect(viol[0].file).toBe("agents/hatch3r-worker.md");
-    expect(viol[0].message).toContain("economy|default|strongest");
+    expect(viol[0].message).toContain("economy|standard|advanced|frontier");
     expect(errorCount).toBe(1);
   });
 
@@ -1204,8 +1232,8 @@ tags: [implementation]`,
     expect(viol[0].message).toContain("missing");
   });
 
-  it("Mode J: PASSes agents declaring each of the three class words", async () => {
-    for (const [slug, cls] of [["hatch3r-a", "economy"], ["hatch3r-b", "default"], ["hatch3r-c", "strongest"]]) {
+  it("Mode J: PASSes agents declaring each of the four class words", async () => {
+    for (const [slug, cls] of [["hatch3r-a", "economy"], ["hatch3r-b", "standard"], ["hatch3r-c", "advanced"], ["hatch3r-d", "frontier"]]) {
       await writeArtifact(
         join(fx.agentsDir, `${slug}.md`),
         `id: ${slug}
@@ -1227,17 +1255,19 @@ model: ${cls}`,
     expect(errorCount).toBe(0);
   });
 
-  it("Mode J: ERRORs (MODEL-CLASS-FLOOR) when an always-mode specialist is not strongest", async () => {
+  it("Mode J: ERRORs (MODEL-CLASS-FLOOR) when an always-mode specialist is not frontier", async () => {
     // hatch3r-security is an always-mode SPECIALIST_TRIGGER_TABLE entry AND a
-    // CQ specialist — `model: default` (a VALID class word) must still fail
-    // the strongest floor.
+    // CQ specialist — `model: standard` (a VALID class word) must still fail
+    // the frontier floor. effort: xhigh isolates the floor finding from the
+    // EFFORT-FLOOR check.
     await writeArtifact(
       join(fx.agentsDir, "hatch3r-security.md"),
       `id: hatch3r-security
 type: agent
 description: Security specialist
 tags: [review]
-model: default`,
+model: standard
+effort: xhigh`,
       "# Security\n\nBody.\n",
     );
 
@@ -1250,13 +1280,13 @@ model: default`,
     const floor = findings.filter((f) => f.code === "MODEL-CLASS-FLOOR");
     expect(floor).toHaveLength(1);
     expect(floor[0].file).toBe("agents/hatch3r-security.md");
-    expect(floor[0].message).toContain("model: strongest");
+    expect(floor[0].message).toContain("model: frontier");
     // The class word itself is valid vocabulary — only the floor fires.
     expect(findings.filter((f) => f.code === "MODEL-CLASS-VOCAB")).toHaveLength(0);
     expect(errorCount).toBe(1);
   });
 
-  it("Mode J: ERRORs (MODEL-CLASS-FLOOR) when a CQ-roster specialist is not strongest", async () => {
+  it("Mode J: ERRORs (MODEL-CLASS-FLOOR) when a CQ-roster specialist is not frontier", async () => {
     // hatch3r-product-spec (CQ10) is on the CQ roster but NOT an always-mode
     // trigger-table entry — the floor must still bind it.
     await writeArtifact(
@@ -1265,7 +1295,8 @@ model: default`,
 type: agent
 description: Product-spec specialist
 tags: [review]
-model: economy`,
+model: economy
+effort: xhigh`,
       "# Product Spec\n\nBody.\n",
     );
 
@@ -1278,14 +1309,40 @@ model: economy`,
     expect(findings.filter((f) => f.code === "MODEL-CLASS-FLOOR")).toHaveLength(1);
   });
 
-  it("Mode J: PASSes a floor specialist declaring model: strongest", async () => {
+  it("Mode J: ERRORs (MODEL-CLASS-FLOOR) on a TOP_FLOOR_EXTRA_IDS member (roster supplement wired)", async () => {
+    // hatch3r-reviewer is neither always-mode nor CQ-roster — it holds the
+    // floor via the pinned TOP_FLOOR_EXTRA_IDS supplement.
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-reviewer.md"),
+      `id: hatch3r-reviewer
+type: agent
+description: Reviewer
+tags: [review]
+model: standard
+effort: xhigh`,
+      "# Reviewer\n\nBody.\n",
+    );
+
+    const { findings } = await runValidator({
+      flags: MODEL_CLASS_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const floor = findings.filter((f) => f.code === "MODEL-CLASS-FLOOR");
+    expect(floor).toHaveLength(1);
+    expect(floor[0].file).toBe("agents/hatch3r-reviewer.md");
+  });
+
+  it("Mode J: PASSes a floor specialist declaring model: frontier + effort: xhigh", async () => {
     await writeArtifact(
       join(fx.agentsDir, "hatch3r-testability.md"),
       `id: hatch3r-testability
 type: agent
 description: Testability specialist
 tags: [review]
-model: strongest`,
+model: frontier
+effort: xhigh`,
       "# Testability\n\nBody.\n",
     );
 
@@ -1295,11 +1352,107 @@ model: strongest`,
       agentsDir: fx.agentsDir,
     });
 
-    expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS"))).toHaveLength(0);
+    expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS") || f.code.startsWith("EFFORT"))).toHaveLength(0);
     expect(errorCount).toBe(0);
   });
 
-  it("Mode J: a non-floor agent may declare any class word (no floor finding)", async () => {
+  it("Mode J: ERRORs (EFFORT-VOCAB) when an authored effort is outside the 5-level enum", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-worker.md"),
+      `id: hatch3r-worker
+type: agent
+description: Worker agent
+tags: [implementation]
+model: economy
+effort: turbo`,
+      "# Worker\n\nBody.\n",
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: MODEL_CLASS_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "EFFORT-VOCAB");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].file).toBe("agents/hatch3r-worker.md");
+    expect(viol[0].message).toContain("low|medium|high|xhigh|max");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode J: ERRORs (EFFORT-FLOOR) when a top-floor agent authors effort below xhigh", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-ui.md"),
+      `id: hatch3r-ui
+type: agent
+description: UI specialist
+tags: [review]
+model: frontier
+effort: high`,
+      "# UI\n\nBody.\n",
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: MODEL_CLASS_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "EFFORT-FLOOR");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].file).toBe("agents/hatch3r-ui.md");
+    expect(viol[0].message).toContain("xhigh or above");
+    // `high` is valid vocabulary — only the floor fires.
+    expect(findings.filter((f) => f.code === "EFFORT-VOCAB")).toHaveLength(0);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode J: ERRORs (EFFORT-FLOOR) when a top-floor agent authors NO effort field", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-ux.md"),
+      `id: hatch3r-ux
+type: agent
+description: UX specialist
+tags: [review]
+model: frontier`,
+      "# UX\n\nBody.\n",
+    );
+
+    const { findings } = await runValidator({
+      flags: MODEL_CLASS_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "EFFORT-FLOOR");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].message).toContain("no effort field");
+  });
+
+  it("Mode J: PASSes a top-floor agent at effort: max (rank above xhigh)", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-security.md"),
+      `id: hatch3r-security
+type: agent
+description: Security specialist
+tags: [review]
+model: frontier
+effort: max`,
+      "# Security\n\nBody.\n",
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: MODEL_CLASS_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS") || f.code.startsWith("EFFORT"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode J: a non-floor agent may declare any class word and omit effort (no findings)", async () => {
     await writeArtifact(
       join(fx.agentsDir, "hatch3r-lint-fixer.md"),
       `id: hatch3r-lint-fixer
@@ -1316,7 +1469,7 @@ model: economy`,
       agentsDir: fx.agentsDir,
     });
 
-    expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS"))).toHaveLength(0);
+    expect(findings.filter((f) => f.code.startsWith("MODEL-CLASS") || f.code.startsWith("EFFORT"))).toHaveLength(0);
     expect(errorCount).toBe(0);
   });
 

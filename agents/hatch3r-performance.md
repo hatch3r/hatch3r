@@ -2,7 +2,8 @@
 id: hatch3r-performance
 type: agent
 description: Performance quality specialist — reviews generated code for Core Web Vitals budgets (LCP/INP/CLS), backend p95/p99 latency, bundle size, and N+1 query elimination. Use when performance-sensitive code is authored or modified.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [review, performance, floor:content-quality]
 pillars:
   governance: [P2, P7]

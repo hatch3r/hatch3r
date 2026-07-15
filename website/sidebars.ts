@@ -47,6 +47,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'reference/configuration',
+        'reference/quick-start-reference',
         'reference/agents',
         'reference/skills',
         'reference/rules',

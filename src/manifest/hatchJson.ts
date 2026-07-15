@@ -33,6 +33,7 @@ import {
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { normalizeModelClass } from "../models/tiers.js";
 
 /**
  * Validate a git branch name against the rules from `git check-ref-format`.
@@ -744,11 +745,12 @@ export function collectManifestErrors(data: unknown): string[] {
   }
 
   // models (optional ModelConfig: { default?: string; agents?/skills?/
-  // commands?: Record<string,string>; tiers?: { economy?/default?/strongest?:
-  // string } } — per-artifact maps extended to skills and commands in
-  // release/2.2.0; model-class tier pins added in release/2.6.0). Mirrors
-  // `validateModels` in src/cli/commands/validate.ts so the value resolved by
-  // `resolveAgentModel` / `resolveArtifactModel` / `resolveTierModel` is a
+  // commands?: Record<string,string>; tiers?/tierEfforts?: per-class string
+  // maps } — per-artifact maps extended to skills and commands in
+  // release/2.2.0; model-class tier pins added in release/2.6.0; 4-class
+  // ladder + tierEfforts in release/2.7.0). Mirrors `validateModels` in
+  // src/cli/commands/validate.ts so the value resolved by `resolveAgentModel`
+  // / `resolveArtifactModel` / `resolveTierModel` / `resolveTierEffort` is a
   // string at every adapter call site.
   if (obj.models !== undefined) {
     if (typeof obj.models !== "object" || obj.models === null || Array.isArray(obj.models)) {
@@ -771,16 +773,40 @@ export function collectManifestErrors(data: unknown): string[] {
           }
         }
       }
-      // models.tiers (release/2.6.0): per-class model pins consumed verbatim
-      // by `resolveTierModel` (src/models/tiers.ts) at adapter emission time.
+      // models.tiers (release/2.6.0; 4-class ladder release/2.7.0): per-class
+      // model pins consumed verbatim by `resolveTierModel`
+      // (src/models/tiers.ts) at adapter emission time. Keys are matched by
+      // normalization — canonical class words AND the legacy synonyms
+      // (default/strongest/fast/reasoning) all get the string-value check
+      // (the error names the user's literal key); keys that normalize to no
+      // class stay ignored (unchanged policy — the rename lint lives in
+      // `hatch3r validate`, not the persistence boundary).
       if (models.tiers !== undefined) {
         if (typeof models.tiers !== "object" || models.tiers === null || Array.isArray(models.tiers)) {
           errors.push("`models.tiers` is not an object");
         } else {
-          for (const cls of ["economy", "default", "strongest"] as const) {
-            const pin = (models.tiers as Record<string, unknown>)[cls];
+          for (const [key, pin] of Object.entries(models.tiers as Record<string, unknown>)) {
+            if (normalizeModelClass(key) === null) continue;
             if (pin !== undefined && typeof pin !== "string") {
-              errors.push(`\`models.tiers.${cls}\` is not a string`);
+              errors.push(`\`models.tiers.${key}\` is not a string`);
+            }
+          }
+        }
+      }
+      // models.tierEfforts (release/2.7.0): per-class reasoning-effort pins
+      // read by `resolveTierEffort` (src/models/tiers.ts). Same pattern as
+      // models.tiers — object shape + string values on class-normalizing
+      // keys; enum membership (low|medium|high|xhigh|max) and the
+      // canonical-keys-only rule are `hatch3r validate` lints, not
+      // persistence-boundary errors.
+      if (models.tierEfforts !== undefined) {
+        if (typeof models.tierEfforts !== "object" || models.tierEfforts === null || Array.isArray(models.tierEfforts)) {
+          errors.push("`models.tierEfforts` is not an object");
+        } else {
+          for (const [key, pin] of Object.entries(models.tierEfforts as Record<string, unknown>)) {
+            if (normalizeModelClass(key) === null) continue;
+            if (pin !== undefined && typeof pin !== "string") {
+              errors.push(`\`models.tierEfforts.${key}\` is not a string`);
             }
           }
         }

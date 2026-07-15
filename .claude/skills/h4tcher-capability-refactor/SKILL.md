@@ -63,7 +63,7 @@ Spawn 3 parallel `Task` sub-agents. Each updates references on its disjoint surf
 
 Each sub-agent prompt MUST include: the slot's bucket from Step 2, the h4tcher-development context block (pillar test, lean thresholds, anti-slop wordlist ref, commit format) modeled on `.claude/skills/h4tcher-pr-resolve/SKILL.md`, confidence-with-basis per the rigor contract, the workspace target path, and an explicit "no branches, no commits, no PRs" guardrail.
 
-Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 3 on T2/T3 across the disjoint reference-surface slices above. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 3 on T2/T3 across the disjoint reference-surface slices above. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output (the `Sub-agents` field of the Step 7 summary; `task_structure: parallelizable` — the reference-surface slices are disjoint).
 
 ## Step 5: Cross-Skill Delegation
 

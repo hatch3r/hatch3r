@@ -2,7 +2,8 @@
 id: hatch3r-greenfield-spec
 type: agent
 description: Greenfield spec agent — produces market research, competitive analysis, user personas, tech-stack picks, PRD, acceptance criteria, risk inventory, and test plan for new projects. Use at project inception.
-model: strongest
+model: frontier
+effort: xhigh
 tags: [spec, planning, greenfield, floor:content-quality]
 pillars:
   governance: [P2, P1]

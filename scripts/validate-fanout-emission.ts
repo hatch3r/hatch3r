@@ -25,7 +25,7 @@
  *      task-derived (Tier 1 inline / Tier 2 per-concern / Tier 3
  *      per-module), so a static frontmatter integer would misstate it;
  *      the skill instead instructs its runtime sub-agent to emit the
- *      field, matching the 34 skills that already carry the directive:
+ *      field, matching the skill corpus that already carries the directive:
  *
  *        Emit `sub_agents_spawned: { count, rationale, task_structure }`
  *        in your output.
@@ -68,10 +68,11 @@
  *   > mixed`) as its required companion.
  *
  * The `task_structure` companion (2026-07-09 CONSTITUTION §2 P8 amendment,
- * run a2a16b59) is enforced as a WARNING during the corpus-backfill window
- * — a missing/invalid companion flags the author without reding the gate,
- * matching the D7-30 soft-heuristic pattern and the D7-SA7.6 "keep as
- * warnings first" remediation; promote to ERROR once the corpus carries it.
+ * run a2a16b59) is enforced as an ERROR since 2026-07-15: the corpus-backfill
+ * window closed with the release/2.7.0 backfill (every orchestrator command
+ * frontmatter block and every delegating skill directive carries the 3-key
+ * form), so the D7-SA7.6 "keep as warnings first" rollout completed its
+ * promote-once-backfilled step.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -83,6 +84,12 @@
  *   P8-FANOUT-COUNT       command `count` is not a positive integer
  *   P8-FANOUT-RATIO       command `rationale` is missing or not a
  *                         non-empty string
+ *   P8-FANOUT-TASKSTRUCT-MISS    command `sub_agents_spawned` omits the
+ *                                `task_structure` companion (P8 B2 2026-07-09
+ *                                amendment; ERROR since the 2026-07-15
+ *                                corpus backfill)
+ *   P8-FANOUT-TASKSTRUCT-INVALID command `task_structure` is present but not
+ *                                one of `parallelizable | sequential | mixed`
  *   P8-FANOUT-SKILL-MISS  a delegating, non-exempt skill body omits the
  *                         runtime-emission directive (covers both the
  *                         canonical `skills/hatch3r-*` class and the
@@ -115,16 +122,10 @@
  *                         decomposition basis ... so a reviewer can check
  *                         the count against the task without re-deriving
  *                         it"). Single-agent pipelines are exempt.
- *   P8-FANOUT-TASKSTRUCT-MISS    command `sub_agents_spawned` omits the
- *                                `task_structure` companion (P8 B2 2026-07-09
- *                                amendment) — WARNING during corpus backfill
- *   P8-FANOUT-TASKSTRUCT-INVALID command `task_structure` is present but not
- *                                one of `parallelizable | sequential | mixed`
  *
  * The consistency heuristics are WARNINGS, not errors: they flag likely drift for
  * human review without failing the CI gate, matching the finding's "keep
- * as warnings first" remediation. The live command corpus (Cycle 11)
- * raises zero of either warning.
+ * as warnings first" remediation.
  *
  * The audit-cycle prompts (`commands/hatch3r-audit-cycle*.md`) are hard
  * exempt — they run framework-owner dialogs whose fan-out is described
@@ -167,10 +168,10 @@ const CANONICAL_RULE_PATH = join(ROOT, "rules", "hatch3r-fan-out-discipline.md")
 // fields it enforces. The meta-invariant (`checkContractScopeParity`) fails
 // when this hand-enumerated set diverges from the field set the canonical rule
 // declares — the "does this verifier still cover what it claims to verify?"
-// check. Enforcement SEVERITY still differs per field by rollout policy (count
-// + rationale are hard errors; task_structure is a corpus-backfill WARNING),
-// but every field the contract mandates must appear here or the gate is
-// silently narrower than the contract it certifies.
+// check. All three fields are hard errors since the 2026-07-15 corpus
+// backfill (task_structure's warning-first rollout window closed); every
+// field the contract mandates must appear here or the gate is silently
+// narrower than the contract it certifies.
 const P8_REQUIRED_OUTPUT_FIELDS: readonly string[] = [
   "count",
   "rationale",
@@ -286,7 +287,9 @@ async function listOrchestratorCandidates(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
-  } catch {
+    // reason: an absent commands dir contributes no orchestrator candidates —
+    // nothing to check, so there is no error to channel (P5).
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
     return [];
   }
   return entries
@@ -301,7 +304,9 @@ async function listSkillCandidates(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir, { withFileTypes: true } as never);
-  } catch {
+    // reason: an absent skills dir contributes no delegating-skill candidates —
+    // nothing to check, so there is no error to channel (P5).
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
     return [];
   }
   return (entries as unknown as { name: string; isDirectory(): boolean }[])
@@ -318,7 +323,9 @@ async function listMaintainerSkillCandidates(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir, { withFileTypes: true } as never);
-  } catch {
+    // reason: the private .claude/skills overlay is absent in public clones —
+    // zero maintainer presets is that checkout's correct state, not a fault (P5).
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
     return [];
   }
   return (entries as unknown as { name: string; isDirectory(): boolean }[])
@@ -465,13 +472,12 @@ function checkFanoutEmission(file: ParsedFile): Finding[] {
   }
 
   // P8 B2 task-structure companion (CONSTITUTION §2 P8, 2026-07-09 amendment).
-  // WARNING (not error) during the corpus-backfill window: a missing/invalid
-  // companion flags the author without reding the gate, matching the D7-30
-  // soft-heuristic pattern and the D7-SA7.6 "keep as warnings first"
-  // remediation. Promote to error once the command corpus is fully backfilled.
+  // ERROR since 2026-07-15: the corpus backfill completed on release/2.7.0, so
+  // the D7-SA7.6 warning-first rollout reached its promote-once-backfilled
+  // step — a missing/invalid companion now fails the gate like count/rationale.
   if (!shape.hasTaskStructure) {
     out.push({
-      level: "warning",
+      level: "error",
       code: "P8-FANOUT-TASKSTRUCT-MISS",
       file: file.relPath,
       message:
@@ -484,7 +490,7 @@ function checkFanoutEmission(file: ParsedFile): Finding[] {
     !VALID_TASK_STRUCTURES.has(shape.taskStructure)
   ) {
     out.push({
-      level: "warning",
+      level: "error",
       code: "P8-FANOUT-TASKSTRUCT-INVALID",
       file: file.relPath,
       message:
@@ -575,12 +581,13 @@ const SKILL_TIER1_EXEMPTION = /Tier 1 reference card/i;
 // Required directive when triggered and not exempt: the canonical
 // runtime-emission instruction. `count`/`rationale` may sit on one line
 // or be wrapped, so the keys are matched independently of layout. The
-// `task_structure` companion (P8 B2, 2026-07-09 amendment) is accepted as
-// an OPTIONAL trailing key during the corpus-backfill window, so a skill
-// that adopts the constitution-current 3-key form is NOT hard-blocked —
-// the self-lock the 2-key-only regex created (D5-SA5.8-01 / D7-SA7.6-01).
+// `task_structure` companion (P8 B2, 2026-07-09 amendment) is REQUIRED
+// since 2026-07-15: the corpus backfill migrated every delegating skill
+// directive to the 3-key form, so the optional-trailing-key backfill
+// window (D5-SA5.8-01 / D7-SA7.6-01) is closed and a 2-key directive is
+// a P8-FANOUT-SKILL-MISS error.
 const SKILL_EMISSION_DIRECTIVE =
-  /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale(?:,\s*task_structure)?\s*\}`/i;
+  /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale,\s*task_structure\s*\}`/i;
 
 function checkSkillEmission(file: ParsedFile): Finding[] {
   if (SKILL_TIER1_EXEMPTION.test(file.body)) return [];
@@ -705,7 +712,7 @@ async function readContractFieldSet(rulePath: string): Promise<string[] | null> 
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `validate-fanout-emission: could not read ${rulePath} for contract-scope ` +
           `parity (${(err as Error).message}); skipping the meta-invariant check.`,
@@ -793,7 +800,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       // A skill directory without a readable SKILL.md carries no fan-out
       // obligation; skipping it is the intended behavior, not a swallowed
       // fault (discovery-time best-effort, same as `listSkillCandidates`).
-      // eslint-disable-next-line silent-failure/no-silent-catch
+       
       continue;
     }
     if (!isDelegatingSkill(f)) continue;
@@ -815,7 +822,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       // A preset directory without a readable SKILL.md carries no fan-out
       // obligation; skipping it is the intended discovery-time best-effort,
       // not a swallowed fault (same contract as the skill pass above).
-      // eslint-disable-next-line silent-failure/no-silent-catch
+       
       continue;
     }
     if (!isDelegatingMaintainerSkill(f)) continue;
@@ -873,16 +880,16 @@ async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
   const result = await runValidator();
   if (flags.json) {
-    // eslint-disable-next-line no-console
+     
     console.log(JSON.stringify(result, null, 2));
   } else {
     for (const f of result.findings) {
       const line = formatFinding(f);
-      // eslint-disable-next-line no-console
+       
       if (f.level === "error") console.error(line);
       else console.warn(line);
     }
-    // eslint-disable-next-line no-console
+     
     console.log(
       `validate-fanout-emission: ${result.checkedFiles} orchestrator command(s) + ` +
         `${result.checkedSkills} delegating skill(s) + ` +
@@ -897,14 +904,15 @@ async function main(): Promise<void> {
 const isMain = (() => {
   try {
     return resolve(process.argv[1] ?? "") === __filename;
-  } catch {
+    // reason: process.argv[1] unresolvable (some test runners) — treating as
+    // imported (return false) is the safe default; no error to channel (P5).
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
     return false;
   }
 })();
 
 if (isMain) {
   main().catch((err) => {
-    // eslint-disable-next-line no-console
     console.error("validate-fanout-emission failed:", err);
     process.exit(1);
   });

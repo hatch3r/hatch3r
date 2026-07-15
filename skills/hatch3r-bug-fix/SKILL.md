@@ -126,7 +126,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (multi-file or multi-concern fix): spawn parallel sub-agents per concern (researcher, implementer, reviewer, hatch3r-testability) via the Task tool.
 - Tier 3 (multi-module / high-risk fix): one fresh sub-agent per independent module or gate; orchestrator integrates only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Required Agent Delegation
 

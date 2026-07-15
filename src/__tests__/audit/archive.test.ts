@@ -6,6 +6,7 @@ import {
   archiveCycle,
   ArchiveError,
   assertHistoryCurrent,
+  classifyArchiveArtifact,
   isLiveEntry,
   enumerateAuditArchives,
   rotateAnchorLog,
@@ -866,5 +867,223 @@ describe("assertHistoryCurrent — cycle-close currency gate", () => {
     const r = await assertHistoryCurrent(insightsPath(), 11);
     expect(r.current).toBe(true);
     expect(r.lastCycle).toBe(10);
+  });
+});
+
+// ── S12-F9: artifact_type enrollment + index round-trip passthrough ──────
+
+describe("classifyArchiveArtifact (S12-F9 vocabulary)", () => {
+  it("classifies every archive filename class from the on-disk corpus", () => {
+    expect(classifyArchiveArtifact("cycle-12-finding-registry.json")).toBe(
+      "finding-registry",
+    );
+    expect(classifyArchiveArtifact("cycle-7.5-finding-registry.json")).toBe(
+      "finding-registry",
+    );
+    expect(classifyArchiveArtifact("anchor-log-cycle-9.jsonl")).toBe("anchor-log");
+    expect(classifyArchiveArtifact("anchor-log-cycle-5-7.jsonl")).toBe("anchor-log");
+    expect(classifyArchiveArtifact("cycle-5-8.json.gz")).toBe("cold-pack");
+    expect(classifyArchiveArtifact("AUDIT-REPORT-cycle11-backup.md")).toBe("report");
+    expect(classifyArchiveArtifact("EVOLVE-REPORT.md")).toBe("report");
+    expect(classifyArchiveArtifact("execution-history.md")).toBe("report");
+    expect(classifyArchiveArtifact("run-ledger.jsonl")).toBe("ledger");
+    expect(classifyArchiveArtifact("verdict-ledger.jsonl")).toBe("ledger");
+    expect(classifyArchiveArtifact("evolve-runs.log")).toBe("ledger");
+    expect(classifyArchiveArtifact("evolve-b911d8f5")).toBe("evolve-run");
+    expect(classifyArchiveArtifact("CL3-edge-case-coverage-cq4-cq5.md")).toBe(
+      "proposal",
+    );
+    expect(classifyArchiveArtifact(".audit-workspace")).toBe("workspace");
+    expect(classifyArchiveArtifact("wave-2")).toBe("workspace");
+  });
+
+  it("classifies a path by its basename", () => {
+    expect(
+      classifyArchiveArtifact(
+        "governance/audit/archive/cycle-11-finding-registry.json",
+      ),
+    ).toBe("finding-registry");
+  });
+
+  it("falls back to \"other\" for unrecognized names (never invents a class)", () => {
+    expect(classifyArchiveArtifact("notes.txt")).toBe("other");
+    expect(classifyArchiveArtifact("index.json")).toBe("other");
+  });
+});
+
+describe("archiveCycle — index artifact_type enrollment + passthrough", () => {
+  let fx: Fixture;
+
+  beforeEach(async () => {
+    fx = await makeFixture();
+  });
+
+  afterEach(async () => {
+    await cleanupFixture(fx);
+  });
+
+  it("stamps artifact_type on every NEW index entry (S12-F9)", async () => {
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    await archiveCycle({ paths: fx.paths, cycle: 8, generatedAt: FIXED_DATE });
+
+    const index = JSON.parse(await readFile(fx.paths.archiveIndex, "utf-8"));
+    expect(index.archives).toHaveLength(1);
+    expect(index.archives[0].artifact_type).toBe("finding-registry");
+    expect(index.archives[0].file).toBe("cycle-8-finding-registry.json");
+  });
+
+  it("preserves legacy UNTYPED entries verbatim while typing the new entry", async () => {
+    // Pre-enrollment manifest: an entry without artifact_type (the on-disk
+    // shape before S12-F9). The append must not rewrite or backfill it.
+    const legacyEntry = {
+      cycle: 7,
+      file: "cycle-7-finding-registry.json",
+      entry_count: 42,
+      sha256: "f".repeat(64),
+      archived_at: "2026-05-01T00:00:00.000Z",
+    };
+    await writeFile(
+      fx.paths.archiveIndex,
+      JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          generated_at: "2026-05-01T00:00:00.000Z",
+          archives: [legacyEntry],
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    await archiveCycle({ paths: fx.paths, cycle: 8, generatedAt: FIXED_DATE });
+
+    const index = JSON.parse(await readFile(fx.paths.archiveIndex, "utf-8"));
+    expect(index.archives).toHaveLength(2);
+    expect(index.archives[0]).toEqual(legacyEntry);
+    expect("artifact_type" in index.archives[0]).toBe(false);
+    expect(index.archives[1].artifact_type).toBe("finding-registry");
+  });
+
+  it("round-trips unknown top-level index keys (maintainer_relocations) through a cycle close", async () => {
+    // Out-of-band maintainer tooling appends top-level keys this module does
+    // not model; the cycle-close read→write must not drop them.
+    const relocations = [
+      { file: "CL3-2026-07-14-model-ladder-effort.md", moved_to: "proposals/" },
+    ];
+    await writeFile(
+      fx.paths.archiveIndex,
+      JSON.stringify(
+        {
+          schema_version: "1.0.0",
+          generated_at: "2026-05-01T00:00:00.000Z",
+          archives: [],
+          maintainer_relocations: relocations,
+          future_unknown_key: { keep: true },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    await archiveCycle({ paths: fx.paths, cycle: 8, generatedAt: FIXED_DATE });
+
+    const index = JSON.parse(await readFile(fx.paths.archiveIndex, "utf-8"));
+    expect(index.maintainer_relocations).toEqual(relocations);
+    expect(index.future_unknown_key).toEqual({ keep: true });
+    expect(index.archives).toHaveLength(1);
+    expect(index.schema_version).toBe("1.0.0");
+    expect(index.generated_at).toBe(FIXED_DATE);
+  });
+});
+
+// ── S12-F1: strict-accumulator close gate regressions ────────────────────
+
+describe("archiveCycle — strict-accumulator positive path (S12-F1)", () => {
+  let fx: Fixture;
+
+  beforeEach(async () => {
+    fx = await makeFixture();
+  });
+
+  afterEach(async () => {
+    await cleanupFixture(fx);
+  });
+
+  it("completes a strict close when the accumulator IS present (promotion runs)", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    await writeFile(
+      currentInsightsFile,
+      JSON.stringify({
+        cycle_number: 8,
+        cycle_date: FIXED_DATE,
+        fix_success_rate: { overall: { rate: 0.9 } },
+      }),
+    );
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    const result = await archiveCycle({
+      paths: { ...fx.paths, insightsFile, currentInsightsFile },
+      cycle: 8,
+      strictAccumulator: true,
+      generatedAt: FIXED_DATE,
+    });
+
+    expect(result.insightsPromoted).toBe(true);
+    expect(
+      await fileExists(join(fx.paths.archiveDir, "cycle-8-finding-registry.json")),
+    ).toBe(true);
+  });
+
+  it("names the --allow-missing-accumulator escape hatch in the strict-gate error", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    // Accumulator deliberately absent.
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    await expect(
+      archiveCycle({
+        paths: { ...fx.paths, insightsFile, currentInsightsFile },
+        cycle: 8,
+        strictAccumulator: true,
+        generatedAt: FIXED_DATE,
+      }),
+    ).rejects.toThrow(/--allow-missing-accumulator/);
   });
 });

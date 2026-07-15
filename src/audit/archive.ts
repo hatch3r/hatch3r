@@ -95,9 +95,52 @@ export interface ArchiveCycleOptions {
   strictAccumulator?: boolean;
 }
 
+/**
+ * Classification vocabulary for archived artifacts (S12-F9, EVOLVE run
+ * a2a16b59 validator-sync manifest). Derived from the filename classes this
+ * module writes plus the classes present in the on-disk
+ * `governance/audit/archive/` tree:
+ *
+ *   - "finding-registry" — `cycle-<N>-finding-registry.json` (written by
+ *     `archiveCycle`).
+ *   - "anchor-log"       — `anchor-log-cycle-*.jsonl` rotations (written by
+ *     `rotateAnchorLog`).
+ *   - "cold-pack"        — `cold/cycle-<L>-<H>.json.gz` bundles (written by
+ *     `coldPackAuditArchives`).
+ *   - "report"           — report backups + histories (`AUDIT-REPORT-*.md`,
+ *     `EVOLVE-REPORT*.md` pre-overwrite copies, `execution-history.md`).
+ *   - "ledger"           — run/verdict ledgers and logs (`run-ledger.jsonl`,
+ *     `evolve-runs.log`).
+ *   - "evolve-run"       — `evolve-<run_id>/` workspace archives (EVOLVE
+ *     §8.3 durable-archive step).
+ *   - "proposal"         — `CL<N>-*.md` closed-loop proposal records.
+ *   - "workspace"        — archived audit/evolve workspace snapshots
+ *     (reserved; no current writer indexes them).
+ *   - "other"            — unrecognized (explicit fallback, never invented).
+ */
+export type ArchiveArtifactType =
+  | "finding-registry"
+  | "anchor-log"
+  | "cold-pack"
+  | "report"
+  | "ledger"
+  | "evolve-run"
+  | "proposal"
+  | "workspace"
+  | "other";
+
 export interface ArchiveIndexEntry {
   cycle: number;
   file: string;
+  /**
+   * Artifact classification (S12-F9). Optional on READ — pre-enrollment
+   * manifest entries on disk lack the field and must keep parsing; a
+   * backfill would map each existing entry via
+   * `classifyArchiveArtifact(entry.file)` (not performed by this module:
+   * `governance/audit/archive/index.json` is overlay data and the manifest
+   * is an append-only log). ALWAYS set on entries this module writes.
+   */
+  artifact_type?: ArchiveArtifactType;
   entry_count: number;
   sha256: string;
   archived_at: string;
@@ -211,6 +254,13 @@ interface ArchiveIndexFile {
   schema_version: string;
   generated_at: string;
   archives: ArchiveIndexEntry[];
+  /**
+   * Unknown top-level keys pass through the read→write round-trip verbatim
+   * (e.g. `maintainer_relocations`, appended out-of-band by maintainer
+   * tooling). Without this passthrough, the cycle-close write-back in
+   * `archiveCycle` would silently drop any key this module does not model.
+   */
+  [extra: string]: unknown;
 }
 
 const INDEX_SCHEMA_VERSION = "1.0.0";
@@ -225,6 +275,9 @@ async function readIndex(path: string): Promise<ArchiveIndexFile> {
       );
     }
     return {
+      // Spread first so unknown top-level keys survive the round-trip; the
+      // three modeled keys below then normalize/override in place.
+      ...parsed,
       schema_version: parsed.schema_version ?? INDEX_SCHEMA_VERSION,
       generated_at: parsed.generated_at ?? "",
       archives: parsed.archives,
@@ -452,6 +505,10 @@ export async function archiveCycle(
   const newEntry: ArchiveIndexEntry = {
     cycle,
     file: archiveFileName,
+    // S12-F9 enrollment: every NEW index entry carries its artifact class.
+    // Pre-enrollment entries already in the manifest are preserved verbatim
+    // (append-only log; see ArchiveIndexEntry.artifact_type).
+    artifact_type: classifyArchiveArtifact(archiveFileName),
     entry_count: archivedEntries.length,
     sha256: archiveSha,
     archived_at: generatedAt,
@@ -512,6 +569,33 @@ export async function archiveCycle(
 
 /** Matches a cycle archive file name: `cycle-<N>-finding-registry.json`. */
 const CYCLE_ARCHIVE_NAME_RE = /^cycle-\d+(?:\.\d+)?-finding-registry\.json$/;
+
+/**
+ * Classify an archive artifact by file (or directory) name into the
+ * `ArchiveArtifactType` vocabulary (S12-F9). Accepts a bare name or a path
+ * (only the basename is classified). Order matters: the more specific
+ * patterns run first (e.g. `CL3-*.md` is a proposal, not a report;
+ * `evolve-runs.log` is a ledger, not an evolve-run directory).
+ */
+export function classifyArchiveArtifact(fileName: string): ArchiveArtifactType {
+  const name = basename(fileName);
+  if (CYCLE_ARCHIVE_NAME_RE.test(name)) return "finding-registry";
+  if (/^anchor-log-.*\.jsonl$/.test(name)) return "anchor-log";
+  if (/\.json\.gz$/.test(name)) return "cold-pack";
+  if (/^evolve-[0-9a-f]{6,}$/i.test(name)) return "evolve-run";
+  if (/^CL\d+-.*\.md$/i.test(name)) return "proposal";
+  if (/report/i.test(name) && /\.md$/.test(name)) return "report";
+  if (name === "execution-history.md") return "report";
+  if (/ledger.*\.jsonl$/i.test(name) || /\.log$/.test(name)) return "ledger";
+  if (
+    name === ".audit-workspace" ||
+    name === ".evolve-workspace" ||
+    /^wave-\d+$/.test(name)
+  ) {
+    return "workspace";
+  }
+  return "other";
+}
 
 /** Extract the cycle number from a `cycle-<N>-...` file name; NaN when absent. */
 function cycleNumberOf(fileName: string): number {

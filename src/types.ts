@@ -65,6 +65,40 @@ export type ConfidenceFloor = (typeof CONFIDENCE_FLOORS)[number];
 export const VALID_CONFIDENCE_FLOORS = new Set<string>(CONFIDENCE_FLOORS);
 export const DEFAULT_CONFIDENCE_FLOOR: ConfidenceFloor = "any";
 
+/**
+ * Model-class ladder (release/2.7.0): four capability classes authored on
+ * canonical agents' `model:` frontmatter, ordered weakest -> strongest as
+ * economy < standard < advanced < frontier. The CLASS_* constants are
+ * swappable naming constants — every consumer (per-adapter maps, validators,
+ * floor rosters) keys off the constant, not the literal, so renaming the
+ * ladder is a 4-line diff here. Class semantics, legacy-synonym
+ * normalization, and the per-adapter maps live in src/models/tiers.ts, which
+ * re-exports these symbols for its importers.
+ */
+export const CLASS_TOP = "frontier" as const;
+export const CLASS_HIGH = "advanced" as const;
+export const CLASS_MID = "standard" as const;
+export const CLASS_LOW = "economy" as const;
+
+/** All valid model-class words, weakest -> strongest, for validators and pickers. */
+export const MODEL_CLASSES = [CLASS_LOW, CLASS_MID, CLASS_HIGH, CLASS_TOP] as const;
+
+/** One of the four model capability classes (release/2.7.0 4-class ladder). */
+export type ModelClass = (typeof MODEL_CLASSES)[number];
+
+/**
+ * Reasoning-effort axis (release/2.7.0): the five platform effort levels,
+ * weakest -> strongest (platform.claude.com/docs/en/build-with-claude/effort.md,
+ * accessed 2026-07-14). Authored on agents as `effort:` frontmatter, pinned
+ * per class via {@link ModelConfig.tierEfforts}, overridden per agent via
+ * `.customize.yaml`. Ordering lives in src/models/tiers.ts::EFFORT_RANK;
+ * normalization in src/models/tiers.ts::normalizeEffortLevel.
+ */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** One of the five reasoning-effort levels (release/2.7.0 effort axis). */
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 export interface ModelConfig {
   /**
    * Fallback model for AGENTS ONLY. `default` deliberately does NOT feed
@@ -93,17 +127,30 @@ export interface ModelConfig {
    */
   commands?: Record<string, string>;
   /**
-   * Model-class pins (release/2.6.0): what each capability class
-   * (`economy | default | strongest`) authored on canonical agents' `model:`
-   * frontmatter resolves to in THIS repo. A set value is used verbatim and
-   * wins over every adapter's built-in class map
+   * Model-class pins (release/2.6.0; 4-class ladder release/2.7.0): what each
+   * capability class (`economy | standard | advanced | frontier`) authored on
+   * canonical agents' `model:` frontmatter resolves to in THIS repo. A set
+   * value is used verbatim and wins over every adapter's built-in class map
    * (`src/models/tiers.ts::resolveTierModel`); an unset class falls back to
-   * the adapter map (Claude: haiku/sonnet/opus; Cursor: fast/omit/advisory).
-   * Example: `{ "tiers": { "strongest": "fable" } }` pins the strongest class
-   * to a specific top model. Values may be aliases or concrete ids; each
-   * adapter's recognizable-value gate still governs native emission.
+   * the adapter map. The 2.6.0 legacy keys `default`/`strongest` remain
+   * accepted and are normalized on read (`default` -> standard, `strongest`
+   * -> frontier); on conflict the CANONICAL key wins (resolveTierModel
+   * exact-matches the canonical key before scanning legacy synonyms).
+   * Example: `{ "tiers": { "frontier": "fable" } }`. Values may be aliases or
+   * concrete ids; `"inherit"` is the per-class native-emission off-switch
+   * consumed by adapters; each adapter's recognizable-value gate still
+   * governs native emission.
    */
-  tiers?: { economy?: string; default?: string; strongest?: string };
+  tiers?: Partial<Record<ModelClass | "default" | "strongest", string>>;
+  /**
+   * Per-class reasoning-effort pins (release/2.7.0), CANONICAL class keys
+   * only — no legacy-key normalization (the field postdates the 4-class
+   * ladder). A set value wins over the built-in class-default effort map
+   * (`src/models/tiers.ts::CLASS_DEFAULT_EFFORT_MAP`) via
+   * `defaultEffortForClass`. Per-agent effort overrides live in
+   * `.customize.yaml` (`effort:`), not here.
+   */
+  tierEfforts?: Partial<Record<ModelClass, string>>;
 }
 
 /**
@@ -210,6 +257,31 @@ export interface CopilotMcpSandboxConfig {
 export interface CopilotConfig {
   /** See {@link CopilotMcpSandboxConfig}. Absent = no sandbox emission. */
   mcpSandbox?: CopilotMcpSandboxConfig;
+  /**
+   * Model-class emission posture for generated Copilot agents
+   * (release/2.7.0). `"native"` (default when absent) emits per-class model
+   * pins from `COPILOT_TIER_MODEL_MAP` (src/models/tiers.ts);
+   * `"conservative"` restores the pre-2.7.0 advisory/omit posture (no native
+   * model field derived from a class word). Consumed by the copilot adapter
+   * at emission time.
+   */
+  agentModelPins?: "native" | "conservative";
+}
+
+/**
+ * Cursor-adapter-specific configuration (release/2.7.0). Additive optional
+ * manifest field; absence == all-default posture.
+ */
+export interface CursorConfig {
+  /**
+   * Model-class emission posture for generated Cursor agents
+   * (release/2.7.0). `"native"` (default when absent) emits per-class model
+   * pins — `economy` via Cursor's `fast` keyword, `advanced`/`frontier` via
+   * alias expansion to a concrete id plus the bracket-effort clamp;
+   * `"conservative"` restores the pre-2.7.0 advisory/omit posture. Consumed
+   * by the cursor adapter at emission time.
+   */
+  agentModelPins?: "native" | "conservative";
 }
 
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
@@ -314,6 +386,11 @@ export interface HatchManifest {
    * Additive optional field; absence == no Copilot-specific hardening emission.
    */
   copilot?: CopilotConfig;
+  /**
+   * release/2.7.0: Cursor-adapter-specific configuration. Additive optional
+   * field; absence == all-default posture. See {@link CursorConfig}.
+   */
+  cursor?: CursorConfig;
   /** Token usage and cost tracking configuration. */
   costTracking?: CostTrackingConfig;
   /**
@@ -694,6 +771,14 @@ export interface CanonicalFile {
    */
   globs?: string;
   model?: string;
+  /**
+   * Reasoning-effort level authored in `effort:` frontmatter (release/2.7.0
+   * effort axis; expected members per {@link EFFORT_LEVELS}). Carried
+   * verbatim — normalization (`normalizeEffortLevel`) happens in
+   * `src/models/resolve.ts::resolveAgentEffort` and drop-with-warning gating
+   * is the adapter layer's job, mirroring {@link model}.
+   */
+  effort?: string;
   protected?: boolean;
   /** Agent runs with restricted write permissions (Cursor v2.5+ subagents). */
   readonly?: boolean;
@@ -802,6 +887,8 @@ export interface CanonicalMetadata {
   name?: string;
   scope?: string;
   model?: string;
+  /** Reasoning-effort level (release/2.7.0). Mirrors {@link CanonicalFile.effort}. */
+  effort?: string;
   agent?: string;
   event?: string;
   globs?: string;

@@ -1,4 +1,4 @@
-// Last updated: 2026-06-06 (P3 platform-currency anchor; cursor.com/docs/agent/hooks
+// Last updated: 2026-07-14 (P3 platform-currency anchor; cursor.com/docs/agent/hooks
 // + cursor.com/docs/agent/subagents access dates inside this file remain
 // authoritative for individual claims. D9-M1 Cycle 10 Wave-3 re-verified the
 // `readonly: true` subagent frontmatter primitive against the current
@@ -6,7 +6,11 @@
 // lifecycle against cursor.com/docs/agent/hooks accessed 2026-06-06: the
 // `subagentStart` event carries `subagent_type` and returns
 // `{permission: "deny"}` to block an over-privileged agent at spawn — wired
-// to `.cursor/hooks/subagent-guard.mjs` as the hard runtime ASI02 block.).
+// to `.cursor/hooks/subagent-guard.mjs` as the hard runtime ASI02 block.
+// release/2.7.0 re-verified the subagent `model:` field against
+// cursor.com/docs/subagents.md accessed 2026-07-14: concrete ids plus
+// per-model bracket options — verbatim example `claude-opus-4-8[effort=high]`
+// — drive the class-mapped agent emission below.).
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -21,9 +25,19 @@ import {
 } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
-import { resolveAgentModel } from "../models/resolve.js";
+import { resolveAgentEffort, resolveAgentModel } from "../models/resolve.js";
 import { resolveModelAlias } from "../models/aliases.js";
-import { CURSOR_TIER_MODEL_MAP, normalizeModelClass, resolveTierModel } from "../models/tiers.js";
+import {
+  CLASS_HIGH,
+  CLASS_LOW,
+  CLASS_TOP,
+  CURSOR_TIER_MODEL_MAP,
+  EFFORT_RANK,
+  defaultEffortForClass,
+  normalizeEffortLevel,
+  normalizeModelClass,
+  resolveTierModel,
+} from "../models/tiers.js";
 import { applyCustomization } from "./customization.js";
 import { stripPrivateMcpFields, transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
@@ -486,6 +500,11 @@ export class CursorAdapter extends BaseAdapter {
 
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      // release/2.7.0: class-word emission posture. `"native"` (default when
+      // absent) pins the advanced/frontier classes to concrete ids at
+      // emission time; `"conservative"` restores the pre-2.7.0 advisory/omit
+      // posture. Pins in `models.tiers` are honored identically under both.
+      const agentModelPins = ctx.manifest.cursor?.agentModelPins ?? "native";
       for (const agent of agents) {
         // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -496,20 +515,49 @@ export class CursorAdapter extends BaseAdapter {
         const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const prefixedId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
+        // release/2.7.0 effort axis: EXPLICIT per-agent effort only
+        // (customize > frontmatter — the same override plumbing
+        // resolveAgentModel applies above). The class-default fallback
+        // (defaultEffortForClass) composes below, and only when the emitted
+        // model came from a class mapping — hatch3r cannot assume effort
+        // semantics for a user-set concrete model.
+        const explicitEffort = resolveAgentEffort(agent.id, agent, overrides);
         const desc = overrides.description ?? agent.description;
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
-        // Model classes (release/2.6.0, dead-value fix): Cursor natively
-        // understands only `fast`, `inherit`, or a concrete model id (mirrored
-        // in the emitted bridge doc below), so the class words map per class
-        // instead of shipping verbatim (the prior unconditional emission put a
-        // dead `model: standard` field on 23 agents):
-        //   - `models.tiers.<class>` pin set -> emit the pin verbatim;
-        //   - economy -> `model: fast` (CURSOR_TIER_MODEL_MAP);
-        //   - default -> OMIT the field (inherit-by-omission);
-        //   - strongest -> omit the native field and prepend one advisory body
-        //     line, since Cursor has no "top model" keyword to emit.
-        // Non-class values (concrete ids, `inherit`, a user-configured `fast`)
-        // emit verbatim as before.
+        // Model classes (release/2.7.0, 4-class ladder): Cursor's native
+        // frontmatter vocabulary is `fast`, `inherit`, or a concrete model id,
+        // optionally with per-model bracket options — the documented example
+        // is `claude-opus-4-8[effort=high]` (cursor.com/docs/subagents.md,
+        // accessed 2026-07-14). Class words map per class instead of shipping
+        // verbatim (a verbatim class word is a dead field Cursor cannot
+        // resolve). Under the default `cursor.agentModelPins: "native"`:
+        //   - `models.tiers.<class>` pin set -> the operator owns the string:
+        //     emit it verbatim after alias expansion, NEVER append or modify
+        //     bracket options (an operator who wants brackets pins the
+        //     bracketed form — a bracketed string is not a MODEL_ALIASES key,
+        //     so alias expansion passes it through untouched). A pin of
+        //     `inherit` omits the field and prepends one advisory body line
+        //     naming the class, so the authored class intent stays visible
+        //     (Silent Failure Contract, CONSTITUTION §2 P5).
+        //   - economy -> `model: fast` (CURSOR_TIER_MODEL_MAP), never
+        //     bracketed: the docs show bracket options on concrete model ids
+        //     only, and a keyword+bracket combination is undocumented.
+        //   - standard -> OMIT the field (inherit-by-omission).
+        //   - advanced/frontier -> pin a concrete id via alias expansion
+        //     (`opus`/`fable`; cursor.com/docs/models lists Claude Fable 5,
+        //     accessed 2026-07-14), appending `[effort=high]` iff the
+        //     resolved effort (explicit per-agent effort, else
+        //     defaultEffortForClass) ranks >= xhigh. Clamp (R2): `high` is
+        //     the only bracket effort value cursor.com/docs/subagents.md
+        //     documents, so xhigh/max write that documented ceiling; a
+        //     plain-`high` resolution gets NO bracket — `high` is the
+        //     near-default for these pins, and bracketing it would erase the
+        //     >=xhigh distinction the bracket encodes.
+        // `agentModelPins: "conservative"` restores the pre-2.7.0 posture:
+        // economy -> `fast`, standard -> omit, advanced/frontier -> no native
+        // field + one advisory body line naming the class and the Cursor
+        // picker. Non-class values (concrete ids, `inherit`, a
+        // user-configured `fast`) emit verbatim as before.
         let modelBodyNote = "";
         const modelClass = model ? normalizeModelClass(model) : null;
         if (modelClass) {
@@ -519,14 +567,35 @@ export class CursorAdapter extends BaseAdapter {
           const tierPinRaw = resolveTierModel(modelClass, ctx.manifest);
           const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
           if (tierPin !== undefined) {
-            lines.push(`model: ${tierPin}`);
-          } else if (modelClass === "economy") {
-            lines.push(`model: ${CURSOR_TIER_MODEL_MAP.economy}`);
-          } else if (modelClass === "strongest") {
-            modelBodyNote =
-              "Model class: strongest — pin this agent to the highest-capability model in the Cursor model picker.";
+            if (tierPin === "inherit") {
+              modelBodyNote =
+                `Model class: ${modelClass} — \`models.tiers.${modelClass}\` is pinned to \`inherit\`, ` +
+                `so no native model field is emitted and this agent inherits the conversation model.`;
+            } else {
+              lines.push(`model: ${tierPin}`);
+            }
+          } else if (modelClass === CLASS_LOW) {
+            // economy: Cursor's native cost keyword — identical under both
+            // emission postures, never bracketed (see contract above).
+            lines.push(`model: ${CURSOR_TIER_MODEL_MAP[CLASS_LOW]}`);
+          } else if (modelClass === CLASS_HIGH || modelClass === CLASS_TOP) {
+            if (agentModelPins === "conservative") {
+              modelBodyNote =
+                `Model class: ${modelClass} — agentModelPins is "conservative", so no native model ` +
+                `pin is emitted; select a ${modelClass}-class model for this agent in the Cursor model picker.`;
+            } else {
+              const pinAlias = modelClass === CLASS_TOP ? "fable" : "opus";
+              const resolvedEffort = explicitEffort ?? defaultEffortForClass(modelClass, ctx.manifest);
+              const effortLevel = resolvedEffort === undefined ? null : normalizeEffortLevel(resolvedEffort);
+              const bracket =
+                effortLevel !== null && EFFORT_RANK[effortLevel] >= EFFORT_RANK.xhigh
+                  ? "[effort=high]"
+                  : "";
+              lines.push(`model: ${resolveModelAlias(pinAlias)}${bracket}`);
+            }
           }
-          // `default` (no pin): no model line — the agent inherits.
+          // standard (CLASS_MID), both postures: no model line — the agent
+          // inherits by omission.
         } else if (model) {
           lines.push(`model: ${model}`);
         }
@@ -769,7 +838,7 @@ ${bridgeOrchestration}
 ## Cursor Subagent Configuration (v2.5+)
 
 Cursor runs many subagents in parallel (across git worktrees, cloud, and remote environments — Cursor 3.0), with no fixed cap. Custom subagents in \`.cursor/agents/\` support these frontmatter fields:
-- \`model\`: \`fast\`, \`inherit\`, or a specific model ID
+- \`model\`: \`fast\`, \`inherit\`, or a specific model ID, optionally with per-model bracket options, e.g. \`claude-opus-4-8[effort=high]\` (cursor.com/docs/subagents.md, accessed 2026-07-14)
 - \`readonly\`: \`true\` to restrict write permissions (verification/audit agents)
 - \`is_background\`: \`true\` to run without blocking the parent agent
 

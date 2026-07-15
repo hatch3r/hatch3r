@@ -1,6 +1,7 @@
 import type { CanonicalFile, HatchManifest } from "../types.js";
 import type { AgentCustomization } from "./customize.js";
 import { resolveModelAlias } from "./aliases.js";
+import { normalizeEffortLevel } from "./tiers.js";
 
 /**
  * Artifact classes that support per-id model configuration in
@@ -24,8 +25,12 @@ export type ModelArtifactClass = "agents" | "skills" | "commands";
  *    whole conversation model. See the {@link ModelConfig.default} JSDoc.
  *
  * The resolved value is passed through alias expansion (e.g. "opus" ->
- * "claude-opus-4-8"); `inherit` and unknown values pass through verbatim —
- * emission gating (recognizable-value predicates, `inherit` omission) is the
+ * "claude-opus-4-8"); `inherit`, the four model-class words
+ * (`economy`/`standard`/`advanced`/`frontier`), the five legacy class
+ * synonyms (`fast`, the pre-2.6.0 middle-tier `standard`, `default`,
+ * `reasoning`, `strongest` — none are `MODEL_ALIASES` keys), and unknown
+ * values pass through verbatim — class mapping (src/models/tiers.ts) and
+ * emission gating (recognizable-value predicates, `inherit` omission) are the
  * adapter layer's job, not resolution's.
  */
 export function resolveArtifactModel(
@@ -65,6 +70,39 @@ export function resolveAgentModel(
   customize?: AgentCustomization,
 ): string | undefined {
   return resolveArtifactModel("agents", agentId, agent.model, manifest, customize);
+}
+
+/**
+ * Resolve the EXPLICIT reasoning-effort level for an agent (release/2.7.0
+ * effort axis).
+ *
+ * Priority (highest to lowest):
+ * 1. Per-agent customization (.customize.yaml `effort`)
+ * 2. Canonical frontmatter `effort:` field
+ *
+ * EXPLICIT effort only: the class-default fallback lives in
+ * `defaultEffortForClass` (./tiers.ts — `models.tierEfforts` pin, else
+ * `CLASS_DEFAULT_EFFORT_MAP`) and is composed by adapters, because it applies
+ * only when the emitted model came from a class mapping — a fact known at
+ * emission time, not at resolution time.
+ *
+ * A winning value that normalizes via `normalizeEffortLevel` is returned in
+ * normalized form (" XHIGH " -> "xhigh"); any other value returns verbatim —
+ * the adapter gates own the drop-with-warning, mirroring
+ * {@link resolveArtifactModel}'s pass-through doctrine.
+ *
+ * `agentId` mirrors {@link resolveAgentModel}'s parameter shape for call-site
+ * symmetry in the adapter agent loops; no manifest per-agent effort map exists
+ * (class-wide pins go through `models.tierEfforts`), so it is not read today.
+ */
+export function resolveAgentEffort(
+  agentId: string,
+  agent: CanonicalFile,
+  customize?: AgentCustomization,
+): string | undefined {
+  const raw = customize?.effort ?? agent.effort;
+  if (raw === undefined) return undefined;
+  return normalizeEffortLevel(raw) ?? raw;
 }
 
 const PROVIDER_PREFIXES: [RegExp, string][] = [

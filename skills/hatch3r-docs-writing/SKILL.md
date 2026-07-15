@@ -38,7 +38,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Tier 2 (multi-doc set, e.g. README + API reference + runbook for one feature): spawn one sub-agent per document via the Task tool; each authors to its own Diátaxis mode.
 - Tier 3 (full docs-site restructure across many modes): one fresh sub-agent per top-level section; orchestrator integrates the index only.
 
-Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.
 
 ## Step 1: Classify by Diátaxis Mode and Name the Audience
 

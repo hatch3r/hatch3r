@@ -37,6 +37,8 @@ import {
   validateSkillDescriptionVoice,
   toThirdPersonSingular,
   validateEnvMcpGitignore,
+  validateModels,
+  validateCustomizeYaml,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
 import type { spawnSync } from "node:child_process";
@@ -1545,5 +1547,132 @@ describe("clarification-default-block.md trigger single-source-of-truth (D5-23)"
     // table — so a reader knows where the authoritative triggers live.
     expect(body).toContain("single source of truth");
     expect(body).toMatch(/no parallel per-agent table/i);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: validateModels — models.tiers lints + models.tierEfforts errors
+// (release/2.7.0 4-class ladder + effort axis)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("validateModels (release/2.7.0 tiers lints + tierEfforts)", () => {
+  function makeManifest(models: HatchManifest["models"]): HatchManifest {
+    return {
+      version: "3.0.0",
+      hatch3rVersion: "2.0.0",
+      owner: "acme",
+      repo: "app",
+      namespace: "acme",
+      project: "app",
+      tools: ["cursor"],
+      features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true, handoffs: true },
+      mcp: { servers: [] },
+      managedFiles: [],
+      models,
+    } as HatchManifest;
+  }
+
+  it("accepts a canonical 4-class tiers block with no findings", async () => {
+    const r = makeResult();
+    await validateModels(
+      makeManifest({ tiers: { economy: "haiku", standard: "sonnet", advanced: "opus", frontier: "fable" } }),
+      r,
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("warns on a legacy tiers key with the rename target (strongest -> frontier, default -> standard)", async () => {
+    const r = makeResult();
+    await validateModels(makeManifest({ tiers: { strongest: "fable", default: "claude-sonnet-4-6" } }), r);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.some((w) => w.includes("models.tiers.strongest") && w.includes("legacy key") && w.includes("rename to frontier") && w.includes("still honored"))).toBe(true);
+    expect(r.warnings.some((w) => w.includes("models.tiers.default") && w.includes("rename to standard"))).toBe(true);
+  });
+
+  it("warns when two keys normalize to one class (canonical key wins)", async () => {
+    const r = makeResult();
+    await validateModels(makeManifest({ tiers: { frontier: "fable", strongest: "claude-opus-4-8" } }), r);
+    expect(r.warnings.some((w) => w.includes('"frontier"') && w.includes('"strongest"') && w.includes("canonical key wins"))).toBe(true);
+  });
+
+  it("warns on an unknown tiers key (no effect)", async () => {
+    const r = makeResult();
+    const models = { tiers: { turbo: "fable" } } as unknown as HatchManifest["models"];
+    await validateModels(makeManifest(models), r);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.some((w) => w.includes("models.tiers.turbo") && w.includes("not a model class") && w.includes("no effect"))).toBe(true);
+  });
+
+  it("warns on a circular pin — a tier value that itself normalizes to a class word", async () => {
+    const r = makeResult();
+    await validateModels(makeManifest({ tiers: { frontier: "strongest" } }), r);
+    expect(r.warnings.some((w) => w.includes("models.tiers.frontier") && w.includes("never emits natively"))).toBe(true);
+  });
+
+  it("errors on a legacy/unknown tierEfforts key, naming the 4 canonical keys", async () => {
+    const r = makeResult();
+    const models = { tierEfforts: { strongest: "xhigh" } } as unknown as HatchManifest["models"];
+    await validateModels(makeManifest(models), r);
+    expect(r.errors.some((e) => e.includes("models.tierEfforts.strongest") && e.includes("economy, standard, advanced, frontier"))).toBe(true);
+  });
+
+  it("errors on a tierEfforts value outside the 5-level enum, naming the levels", async () => {
+    const r = makeResult();
+    await validateModels(makeManifest({ tierEfforts: { frontier: "turbo" } }), r);
+    expect(r.errors.some((e) => e.includes("models.tierEfforts.frontier") && e.includes("low|medium|high|xhigh|max"))).toBe(true);
+  });
+
+  it("accepts canonical tierEfforts pins with valid levels", async () => {
+    const r = makeResult();
+    await validateModels(makeManifest({ tierEfforts: { frontier: "max", economy: "low", standard: "high" } }), r);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual([]);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: validateCustomizeYaml — `effort` field lint (release/2.7.0)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("validateCustomizeYaml effort lint (release/2.7.0)", () => {
+  let tempDir: string | undefined;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+      tempDir = undefined;
+    }
+  });
+
+  async function writeCustomize(content: string): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-validate-effort-"));
+    const dir = join(tempDir, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "hatch3r-reviewer.customize.yaml"), content, "utf-8");
+    return tempDir;
+  }
+
+  it("accepts `effort` as a known string field with a valid level", async () => {
+    const root = await writeCustomize("effort: xhigh\n");
+    const r = makeResult();
+    await validateCustomizeYaml(root, r);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.filter((w) => w.includes('unknown field "effort"'))).toEqual([]);
+    expect(r.warnings.filter((w) => w.includes('field "effort"'))).toEqual([]);
+  });
+
+  it("warns when effort fails normalizeEffortLevel, naming the 5 levels", async () => {
+    const root = await writeCustomize("effort: turbo\n");
+    const r = makeResult();
+    await validateCustomizeYaml(root, r);
+    expect(r.warnings.some((w) => w.includes('field "effort"') && w.includes("low|medium|high|xhigh|max"))).toBe(true);
+  });
+
+  it("type-checks effort as a string", async () => {
+    const root = await writeCustomize("effort: 3\n");
+    const r = makeResult();
+    await validateCustomizeYaml(root, r);
+    expect(r.warnings.some((w) => w.includes('field "effort" should be string'))).toBe(true);
   });
 });

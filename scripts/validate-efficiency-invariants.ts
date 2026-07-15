@@ -68,16 +68,31 @@
  *                     fenced structured-result block (structured outputs over
  *                     prose). The remaining 2 SA6.5 items (lazy-loading,
  *                     dispatch-gating) are prose-reviewed with no CI gate.
- *   --model-class     Model-class vocabulary + floor pinning (release/2.6.0):
- *                     (a) every `agents/hatch3r-*.md` declares `model:` as one
- *                     of economy|default|strongest (MODEL-CLASS-VOCAB — legacy
- *                     fast/standard are accepted only on USER overrides, never
- *                     on the canonical corpus); (b) every always-mode
- *                     SPECIALIST_TRIGGER_TABLE specialist (SSOT import from
- *                     src/pipeline/pipelineContext.ts) and every CQ-roster
- *                     specialist carries `model: strongest`
- *                     (MODEL-CLASS-FLOOR) — verdict-class agents must never
- *                     drift onto a cheaper class.
+ *   --model-class     Model-class vocabulary + floor pinning (release/2.7.0
+ *                     4-class ladder + effort axis): (a) every
+ *                     `agents/hatch3r-*.md` declares `model:` as one of
+ *                     economy|standard|advanced|frontier (MODEL-CLASS-VOCAB —
+ *                     legacy fast/standard(default-era)/default/strongest/
+ *                     reasoning are accepted only on USER overrides, never on
+ *                     the canonical corpus); (b) every TOP_FLOOR_IDS roster
+ *                     agent (always-mode SPECIALIST_TRIGGER_TABLE — SSOT
+ *                     import from src/pipeline/pipelineContext.ts — ∪ CQ
+ *                     roster ∪ pinned TOP_FLOOR_EXTRA_IDS) carries
+ *                     `model: frontier` (MODEL-CLASS-FLOOR) — verdict-class
+ *                     agents must never drift onto a cheaper class; (c) any
+ *                     agent authoring `effort:` uses one of
+ *                     low|medium|high|xhigh|max (EFFORT-VOCAB); (d) every
+ *                     TOP_FLOOR_IDS agent AUTHORS `effort:` at xhigh or above
+ *                     (EFFORT-FLOOR) — the frontier floor binds reasoning
+ *                     depth as well as model class.
+ *   --quick-start-cap The website quick-start fast path
+ *                     (website/docs/getting-started/quick-start.md) stays
+ *                     within 200 raw lines (EVOLVE run a2a16b59 split remedy /
+ *                     S2-F4 — the page sat at 304 lines pre-split; deep
+ *                     reference material lives in
+ *                     website/docs/reference/quick-start-reference.md).
+ *                     Error-level on breach; an absent file is skipped so
+ *                     clones without website/ stay green.
  *   --plan-handoff    Plan-execution handoff contract (release/2.6.0):
  *                     (a) every `commands/hatch3r-*.md` with
  *                     `plan_handoff: true` carries the `## Execute This Plan`
@@ -90,7 +105,7 @@
  *                     the `## Plan-Execution Handoff` section and the literal
  *                     `--plan-file=` template line.
  *
- * No flags → all eleven modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all twelve modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/EVOLVE.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -108,6 +123,8 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { SPECIALIST_TRIGGER_TABLE } from "../src/pipeline/pipelineContext.js";
+import { CLASS_TOP, EFFORT_LEVELS, EFFORT_RANK, MODEL_CLASSES } from "../src/models/tiers.js";
+import type { EffortLevel } from "../src/models/tiers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -186,10 +203,12 @@ interface ModeFlags {
   ruleLineCap?: boolean;
   /** Mode I — cheaply-checkable SA6.5 runtime-efficiency gates (D6-11). */
   runtimeEfficiency?: boolean;
-  /** Mode J — model-class vocabulary + strongest-floor pinning (release/2.6.0). */
+  /** Mode J — model-class vocabulary + frontier-floor + effort pinning (release/2.7.0). */
   modelClass?: boolean;
   /** Mode K — plan-execution handoff contract on plan-producing commands (release/2.6.0). */
   planHandoff?: boolean;
+  /** Mode L — website quick-start fast-path line cap (EVOLVE a2a16b59 / S2-F4). */
+  quickStartCap?: boolean;
 }
 
 interface RunOptions {
@@ -208,6 +227,8 @@ interface RunOptions {
    * silently skipped so tests don't need to seed them.
    */
   extraOrchestratorFiles?: string[];
+  /** Quick-start page for Mode L (defaults to QUICK_START_REL under ROOT); test fixtures inject a tmpdir path. */
+  quickStartFile?: string;
 }
 
 interface RunResult {
@@ -223,7 +244,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
     "--rule-narrative", "--orch-contract", "--efficiency-tier",
     "--rule-line-cap", "--runtime-efficiency", "--model-class",
-    "--plan-handoff",
+    "--plan-handoff", "--quick-start-cap",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
@@ -231,7 +252,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
       ruleNarrative: true, orchContract: true, efficiencyTier: true,
       ruleLineCap: true, runtimeEfficiency: true, modelClass: true,
-      planHandoff: true,
+      planHandoff: true, quickStartCap: true,
     };
   }
   return {
@@ -246,6 +267,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     runtimeEfficiency: requested.has("--runtime-efficiency"),
     modelClass: requested.has("--model-class"),
     planHandoff: requested.has("--plan-handoff"),
+    quickStartCap: requested.has("--quick-start-cap"),
   };
 }
 
@@ -822,25 +844,29 @@ function checkStructuredResult(file: ParsedFile): Finding[] {
   }];
 }
 
-// ── Mode J: model-class (release/2.6.0) ─────────────────────────────
+// ── Mode J: model-class + effort (release/2.7.0) ────────────────────
 //
-// Canonical agents declare a model CLASS (economy|default|strongest) in
-// `model:` frontmatter — see src/models/tiers.ts. Two error-level checks:
+// Canonical agents declare a model CLASS (economy|standard|advanced|frontier)
+// in `model:` frontmatter, and optionally a reasoning-effort level in
+// `effort:` — see src/models/tiers.ts. Four error-level checks:
 //
 //   (a) MODEL-CLASS-VOCAB — every `agents/hatch3r-*.md` carries `model:` with
-//       one of the three class words. The legacy tier words (`fast`/
-//       `standard`) and the third legacy authoring word (`reasoning`) remain
-//       accepted at RUNTIME on user overrides via `normalizeModelClass`, but
-//       the canonical corpus is fully migrated, so any non-class value here —
-//       including a legacy word or a concrete model id — is a regression.
-//   (b) MODEL-CLASS-FLOOR — every always-mode SPECIALIST_TRIGGER_TABLE
-//       specialist (imported from the SSOT, src/pipeline/pipelineContext.ts —
-//       the validate-specialist-roster.ts import pattern) and every CQ-roster
-//       specialist must carry `model: strongest`. These are verdict-class
-//       agents: an always-mode floor or CQ quality gate evaluated on a
-//       cheaper class silently weakens every Phase 4 verdict.
-
-const MODEL_CLASS_VALUES: ReadonlySet<string> = new Set(["economy", "default", "strongest"]);
+//       one of the four class words. The legacy words (`fast`, the
+//       default-era `standard` sense, `default`, `strongest`, `reasoning`)
+//       remain accepted at RUNTIME on user overrides via
+//       `normalizeModelClass`, but the canonical corpus is fully migrated, so
+//       any non-class value here — including a legacy word or a concrete
+//       model id — is a regression.
+//   (b) MODEL-CLASS-FLOOR — every TOP_FLOOR_IDS roster agent must carry
+//       `model: frontier` (CLASS_TOP). These are verdict-class agents: a
+//       floor or CQ quality gate evaluated on a cheaper class silently
+//       weakens every Phase 4 verdict.
+//   (c) EFFORT-VOCAB — any agent authoring `effort:` uses a member of
+//       EFFORT_LEVELS, exact corpus form (the trim/lowercase leniency of
+//       `normalizeEffortLevel` is user-override-only).
+//   (d) EFFORT-FLOOR — every TOP_FLOOR_IDS agent must AUTHOR `effort:` at
+//       EFFORT_RANK >= xhigh, so the top-class floor binds reasoning depth,
+//       not just the model.
 
 /**
  * The 10 CQ quality-vector specialists (CONSTITUTION §2B CQ1-CQ10). Enumerated
@@ -861,34 +887,81 @@ const CQ_SPECIALIST_IDS: readonly string[] = [
   "hatch3r-product-spec",
 ];
 
-const STRONGEST_FLOOR_IDS: ReadonlySet<string> = new Set([
+/**
+ * Pinned top-floor supplement (release/2.7.0): verdict-class agents that are
+ * neither always-mode trigger-table entries nor CQ-roster members but still
+ * hold the frontier floor — the spec/architecture/review/incident verdict
+ * surfaces. Union contract: TOP_FLOOR_IDS = always-mode ∪ CQ roster ∪ this
+ * list = exactly 16 ids (the Mode J test pins the enumeration).
+ */
+const TOP_FLOOR_EXTRA_IDS: readonly string[] = [
+  "hatch3r-architect",
+  "hatch3r-brownfield-spec",
+  "hatch3r-edge-case-analyst",
+  "hatch3r-greenfield-spec",
+  "hatch3r-incident-responder",
+  "hatch3r-reviewer",
+];
+
+// Exported so the Mode J test suite pins the resolved 16-id enumeration —
+// a trigger-table/CQ/extras drift then fails the roster test, not silently
+// widens or narrows the floor.
+export const TOP_FLOOR_IDS: ReadonlySet<string> = new Set([
   ...SPECIALIST_TRIGGER_TABLE.filter((t) => t.mode === "always").map((t) => t.specialist),
   ...CQ_SPECIALIST_IDS,
+  ...TOP_FLOOR_EXTRA_IDS,
 ]);
+
+const XHIGH_RANK = EFFORT_RANK.xhigh;
 
 function checkModelClass(file: ParsedFile): Finding[] {
   if (!file.relPath.startsWith("agents/hatch3r-")) return [];
   const out: Finding[] = [];
   const model = file.frontmatter.model;
-  const isClassWord = typeof model === "string" && MODEL_CLASS_VALUES.has(model);
+  const isClassWord =
+    typeof model === "string" && (MODEL_CLASSES as readonly string[]).includes(model);
   if (!isClassWord) {
     out.push({
       level: "error", code: "MODEL-CLASS-VOCAB", file: file.relPath,
       message:
         `\`model:\` is ${model === undefined ? "missing" : JSON.stringify(model)}; canonical agents ` +
-        `declare a model class — one of economy|default|strongest (src/models/tiers.ts; ` +
-        `legacy fast/standard are user-override-only, never corpus values)`,
+        `declare a model class — one of ${MODEL_CLASSES.join("|")} (src/models/tiers.ts; legacy ` +
+        `fast/standard(default-era)/default/strongest/reasoning are user-override-only, never corpus values)`,
     });
   }
-  // Floor check: id = basename without .md (relPath is `agents/<id>.md`).
+  // Floor checks: id = basename without .md (relPath is `agents/<id>.md`).
   const id = file.relPath.slice("agents/".length, -".md".length);
-  if (STRONGEST_FLOOR_IDS.has(id) && model !== "strongest") {
+  const isTopFloor = TOP_FLOOR_IDS.has(id);
+  if (isTopFloor && model !== CLASS_TOP) {
     out.push({
       level: "error", code: "MODEL-CLASS-FLOOR", file: file.relPath,
       message:
-        `\`${id}\` is a strongest-floor specialist (always-mode SPECIALIST_TRIGGER_TABLE entry ` +
-        `or CQ roster) and must declare \`model: strongest\` — found ${JSON.stringify(model)} ` +
-        `(a verdict agent on a cheaper class silently weakens Phase 4 gates)`,
+        `\`${id}\` is a top-floor specialist (always-mode SPECIALIST_TRIGGER_TABLE entry, ` +
+        `CQ roster, or TOP_FLOOR_EXTRA_IDS) and must declare \`model: ${CLASS_TOP}\` — found ` +
+        `${JSON.stringify(model)} (a verdict agent on a cheaper class silently weakens Phase 4 gates)`,
+    });
+  }
+  // (c) EFFORT-VOCAB: an authored effort must be a member of the 5-level enum.
+  const effort = file.frontmatter.effort;
+  const effortValid =
+    typeof effort === "string" && (EFFORT_LEVELS as readonly string[]).includes(effort);
+  if (effort !== undefined && !effortValid) {
+    out.push({
+      level: "error", code: "EFFORT-VOCAB", file: file.relPath,
+      message:
+        `\`effort:\` is ${JSON.stringify(effort)}; when authored it must be one of ` +
+        `${EFFORT_LEVELS.join("|")} (src/models/tiers.ts EFFORT_LEVELS — exact corpus form; ` +
+        `normalizeEffortLevel's trim/lowercase leniency is user-override-only)`,
+    });
+  }
+  // (d) EFFORT-FLOOR: top-floor agents must AUTHOR effort at xhigh or above.
+  if (isTopFloor && !(effortValid && EFFORT_RANK[effort as EffortLevel] >= XHIGH_RANK)) {
+    out.push({
+      level: "error", code: "EFFORT-FLOOR", file: file.relPath,
+      message:
+        `\`${id}\` is a top-floor specialist and must AUTHOR \`effort:\` at xhigh or above — ` +
+        `found ${effort === undefined ? "no effort field" : JSON.stringify(effort)} ` +
+        `(the ${CLASS_TOP} floor binds reasoning depth as well as model class)`,
     });
   }
   return out;
@@ -1010,6 +1083,33 @@ async function checkPlanHandoffFrame(frameAbs: string): Promise<Finding[]> {
     });
   }
   return out;
+}
+
+// ── Mode L: quick-start line cap (S2-F4) ────────────────────────────
+//
+// EVOLVE run a2a16b59 split the website quick-start into a ≤200-line fast
+// path plus a deep-reference page (website/docs/reference/
+// quick-start-reference.md). S2-F4 is the enforcement half of that pair:
+// without a gate the fast path regrows past the cap silently (it sat at 304
+// lines pre-split). Raw-line semantics match Mode H (`wc -l` newline count
+// via countNewlines). An absent file is skipped — partial clones and test
+// fixtures may not carry `website/` — mirroring the AUDIT-EXECUTE tolerance.
+
+const QUICK_START_REL = "website/docs/getting-started/quick-start.md";
+const QUICK_START_LINE_CAP = 200;
+
+async function checkQuickStartCap(absPath: string): Promise<Finding[]> {
+  if (!existsSync(absPath)) return [];
+  const raw = await readFile(absPath, "utf-8");
+  const lineCount = countNewlines(raw);
+  if (lineCount <= QUICK_START_LINE_CAP) return [];
+  return [{
+    level: "error", code: "QUICK-START-CAP", file: QUICK_START_REL,
+    message:
+      `${lineCount} lines exceeds the ${QUICK_START_LINE_CAP}-line fast-path cap ` +
+      `(EVOLVE a2a16b59 split remedy / S2-F4 — move deep-reference material to ` +
+      `website/docs/reference/quick-start-reference.md and keep the fast path lean)`,
+  }];
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────
@@ -1168,6 +1268,9 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
     for (const f of commandFiles) findings.push(...checkPlanHandoffBlock(f));
     findings.push(...checkPlanHandoffRoster(commandFiles));
     findings.push(...(await checkPlanHandoffFrame(join(cmdDir, "shared", "orchestration-frame.md"))));
+  }
+  if (opts.flags.quickStartCap) {
+    findings.push(...(await checkQuickStartCap(opts.quickStartFile ?? join(ROOT, QUICK_START_REL))));
   }
 
   let errorCount = 0, warningCount = 0;

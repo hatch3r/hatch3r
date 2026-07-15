@@ -53,6 +53,7 @@ import {
   MODEL_RATES,
 } from "../../pipeline/costEstimator.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
+import { MODEL_CLASSES } from "../../models/tiers.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { findPackageRoot } from "../shared/paths.js";
 // D1-SA1.7-05: shared artifact resolution — same index show/deps use, so
@@ -640,12 +641,14 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   if (opts?.model) {
     const resolved = resolveModelRate(opts.model);
     if (!resolved) {
-      const known = ["opus", "sonnet", "haiku", ...Object.keys(MODEL_RATES)].join(", ");
+      // release/2.7.0: class words price through the class → alias → rate
+      // chain in resolveModelRate, so the suggestion list leads with them.
+      const known = [...MODEL_CLASSES, "opus", "sonnet", "haiku", "fable", ...Object.keys(MODEL_RATES)].join(", ");
       throw new HatchError(
         `Unknown --model: ${opts.model}. Valid selectors: ${known}.`,
         2,
         "VALIDATION_ERROR",
-        `Pass a tier alias (opus, sonnet, haiku) or an exact model id (e.g. claude-opus-4-8) to --model.`,
+        `Pass a model class (${MODEL_CLASSES.join(", ")}), a tier alias (opus, sonnet, haiku, fable), or an exact model id (e.g. claude-opus-4-8) to --model.`,
       );
     }
     baseInputRate = resolved.inputCostPer1M;
