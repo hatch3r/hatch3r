@@ -35,7 +35,14 @@ For headless / CI use, pass `--yes` with optional flags:
 npx hatch3r init --yes --preset standard --tools claude --project-type brownfield --team-size team
 ```
 
-Migrating from Cursor, Copilot, Windsurf, a legacy `.cursorrules`, or a root `AGENTS.md`? Add `--import <format>` (or `--import auto`) to the same run — converted rules land under `.hatch3r/overrides/rules/` and survive later syncs. Formats and conflict semantics: [migrating from another tool](../reference/quick-start-reference#migrating-from-another-tool).
+### Migrating from another tool
+
+Carry existing rules across on the same `init` run — converted rules land under `.hatch3r/overrides/rules/` and survive later syncs. Conversion and conflict semantics: [reference](../reference/quick-start-reference#migrating-from-another-tool).
+
+```bash
+npx hatch3r init --import cursor   # formats: cursor | copilot | windsurf | cursorrules | agents
+npx hatch3r init --import auto     # one pass over every detected format
+```
 
 ### What gets created
 
@@ -62,8 +69,7 @@ BRAVE_API_KEY=BSA_xxxxxxxx
 Per-server obtain links, required scopes, and fine-grained PAT tables: [MCP Setup guide](../guides/mcp-setup#required-environment-variables). VS Code / Copilot auto-load these vars from the generated config; Cursor and Claude Code expect them in the process that launches the editor — Windows (PowerShell) loading and token persistence: [MCP credentials](../reference/quick-start-reference#mcp-credentials).
 
 ```bash
-# macOS / Linux (zsh, bash)
-set -a && source .env.mcp && set +a && cursor .          # or: claude .
+set -a && source .env.mcp && set +a && cursor .   # macOS / Linux; or: claude .
 ```
 
 ---
@@ -75,8 +81,6 @@ MCP configs are read on editor launch — close and reopen so the new `.cursor/m
 ---
 
 ## Step 4 — Define scope
-
-Pick the path that matches the work in front of you.
 
 ### Full project — greenfield or brownfield
 
@@ -124,7 +128,6 @@ Write a `todo.md` at the project root with one line per work item:
 ```markdown
 - Add OIDC login support for the customer portal
 - Migrate analytics events to the new schema
-- Replace Stripe webhook polling with idempotent event ingestion
 ```
 
 Then run:
@@ -178,10 +181,8 @@ If your working directory is a non-git folder containing multiple git subdirecto
 
 ```bash
 npx hatch3r init --workspace
-npx hatch3r sync                          # cascade to all repos
-npx hatch3r sync --repos frontend         # sync only frontend/
+npx hatch3r sync                          # cascade to all repos (--repos <name> to target one)
 npx hatch3r sync --dry-run                # preview without writing
-npx hatch3r config                        # add or remove repos, change sync strategy
 ```
 
 The shared `.hatch3r/` lives at the workspace root; each sub-repo gets independent adapter outputs (not symlinks), with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
