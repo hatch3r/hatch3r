@@ -235,7 +235,7 @@ Status decision rules:
 
 slo-scaffold fans out one implementer per service, so checkpoint at the per-service boundary — an interrupted multi-service run re-enters at the first un-scaffolded service rather than regenerating the SLO/alert file sets it already wrote.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.slo-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-service index in Step 3/4; snapshot/rollback paths every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.slo-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-service index in Step 3/4; snapshot/rollback paths every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate (Tier >= 2: the plan-gate artifact path + approval persist with it), after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
 
 ## References
 

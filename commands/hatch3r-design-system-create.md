@@ -252,7 +252,7 @@ Status decision rules:
 
 design-system-create serializes on the research → generate → gate edges, so checkpoint at the stage boundary — an interrupted run re-enters at the first incomplete stage rather than regenerating the token file it already wrote.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.design-system-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the researcher-batch index in Step 3, then the regeneration-pass index in Step 5; snapshot/rollback paths the token-source file, `docs/design.md`, and every emission-target file the Step 4 implementer touches. Write points: after the Step 1 inventory read, after the Step 2 accept gate, after each Step 3 researcher return, after the Step 4 implementer return, and after each Step 5 gate verdict.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.design-system-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the researcher-batch index in Step 3, then the regeneration-pass index in Step 5; snapshot/rollback paths the token-source file, `docs/design.md`, and every emission-target file the Step 4 implementer touches. Write points: after the Step 1 inventory read, after the Step 2 accept gate, after each Step 3 researcher return, after Step 3.5 plan-gate artifact write + approval, after the Step 4 implementer return, and after each Step 5 gate verdict.
 
 ## References
 

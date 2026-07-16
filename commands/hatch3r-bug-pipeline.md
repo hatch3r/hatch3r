@@ -185,7 +185,7 @@ Commit message format: `fix: {short root-cause-oriented description}`. For pushe
 
 bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1), one or more implementers authoring regression test + fix (Step 2), and a reviewer ↔ fixer loop (Step 3). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher or re-implementing a fix that already landed.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-pipeline-workspace/`; step range the Step 0 → Step 4 progression; `wave` = review-loop iteration index in Step 3; snapshot/rollback paths the working-tree state. Write points: after Step 1 researcher returns and the root-cause ASK is confirmed, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-pipeline-workspace/`; step range the Step 0 → Step 4 progression; `wave` = review-loop iteration index in Step 3; snapshot/rollback paths the working-tree state. Write points: after Step 1 researcher returns and the root-cause ASK is confirmed, after Step 1.5 plan-gate artifact write + approval, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
 
 ---
 

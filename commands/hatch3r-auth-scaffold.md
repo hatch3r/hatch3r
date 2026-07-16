@@ -237,7 +237,7 @@ Status decision rules:
 
 auth-scaffold fans out one implementer per auth mode, so checkpoint at the per-mode boundary — an interrupted run re-enters at the first un-generated mode rather than regenerating completed OAuth/OIDC/PAT modules.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.auth-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-mode index in Step 3/4; snapshot/rollback paths every `src/auth/**` file a Step 3 implementer or a Step 4 regeneration touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per mode), and after each Step 4 security gate.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.auth-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-mode index in Step 3/4; snapshot/rollback paths every `src/auth/**` file a Step 3 implementer or a Step 4 regeneration touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate (Tier >= 2: the plan-gate artifact path + approval persist with it), after each Step 3 implementer return (per mode), and after each Step 4 security gate.
 
 ## References
 

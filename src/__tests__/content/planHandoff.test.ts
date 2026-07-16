@@ -204,11 +204,14 @@ describe("plan gate content contract (2.7.1)", () => {
     expect(raw).toContain("execute now");
   });
 
-  it.each(PLAN_GATE_ROSTER)("(b) %s declares plan_gate: true and cites the In-Session Plan Gate frame section", (name) => {
+  it.each(PLAN_GATE_ROSTER)("(b) %s declares plan_gate: true and cites the In-Session Plan Gate frame section by literal + frame path", (name) => {
     const raw = readRepoFile(`commands/${name}`);
     const { frontmatter, body } = splitFrontmatter(raw);
     expect(frontmatter.plan_gate).toBe(true);
+    // Mode M co-occurrence (PLAN-GATE-POINTER-MISS): the section literal alone
+    // is not a frame citation — the body must also carry the frame path.
     expect(body).toContain("In-Session Plan Gate");
+    expect(body).toContain("commands/shared/orchestration-frame.md");
   });
 
   it.each(EXECUTE_OR_DEFER_PRODUCERS)("(c) %s carries an Execute or Defer heading and the execute-now ASK literal", (name) => {

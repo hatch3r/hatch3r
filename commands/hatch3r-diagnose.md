@@ -230,7 +230,7 @@ Status decision rules:
 
 diagnose is checkpoint-light — Step 1 state capture and Step 3 root-cause analysis are read-only, so an interrupted run re-captures cheaply; the only mutation point is Step 5 (fixer apply), so checkpoint there to avoid re-applying a fix already landed.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.diagnose-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the per-finding fix index in Step 5; snapshot/rollback paths every file a Step 5 fixer touches. Write points: after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision, and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.diagnose-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the per-finding fix index in Step 5; snapshot/rollback paths every file a Step 5 fixer touches. Write points: after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision (Tier >= 2: the plan-gate artifact path + approval persist with it, so a resume re-enters after the gate, not before it), and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
 
 ## References
 
