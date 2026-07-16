@@ -2,6 +2,36 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.7.1] - 2026-07-16
+
+### Headline
+
+Plan-first becomes the default for code-mutating orchestration. The 9 code-mutating orchestrator commands (`board-pickup`, `bug-pipeline`, `debug`, `diagnose`, `design-system-create`, `pr-resolve`, `release`, `auth-scaffold`, `slo-scaffold`) gain frontmatter `plan_gate: true`: at effective Tier >= 2 they persist a plan artifact to `docs/plans/{YYYY-MM-DD}-{slug}.md` (the workflow plan-file seven-field format) and ask `execute now (default) / revise / stop` before dispatching implementation — unattended and board-auto-advance runs persist the plan and continue without pausing. The 7 executable-plan producers (the `hatch3r-plan` router, feature/bug/migration/refactor/test-plan, rework) gain the mirror-image ending: an `Execute or Defer` ASK whose execute-now path runs the just-written plan in the same session with `--plan-file` semantics, keeping the fresh-session copy-paste block as the deferral path. Run endings stop hiding scope: the recap `Not done:` line is now always emitted (`Not done: none — full scope completed` on a complete run), and a `## Remaining Work` terminal block closes any run with open items. Also fixed: `.hatch3r/provenance.json.bak` litter in end-user repos. No breaking changes; manifest schema unchanged (generation 3); the new `plan_gate` frontmatter key is additive and needs no config migration.
+
+### Content
+
+- **`plan_gate: true` on the 9 code-mutating orchestrator commands** — `board-pickup`, `bug-pipeline`, `debug`, `diagnose`, `design-system-create`, `pr-resolve`, `release`, `auth-scaffold`, `slo-scaffold`. At effective Tier >= 2 the command persists a plan artifact to `docs/plans/{YYYY-MM-DD}-{slug}.md` in the workflow plan-file seven-field format (scope, acceptance criteria, files, order, dependencies, constraints, out-of-scope — the same shape `/hatch3r-workflow --plan-file` parses), then asks `execute now (default) / revise / stop` before the first implementer/fixer dispatch; Tier 1 runs keep the existing ASK cadence, and unattended runs (`--auto` / CI / board auto-advance) persist the artifact and continue without pausing. Exempt by design: `hatch3r-workflow` (the direct-execution entry point), `hatch3r-quick-change` (the Tier-1 carve-out), `hatch3r-incident-response` (urgency), and `healthcheck`/`security-audit`/`board-fill` (their board output IS the plan).
+- **Same-session execute for the 7 executable-plan producers** — the `hatch3r-plan` router, `feature-plan`, `bug-plan`, `migration-plan`, `refactor-plan`, `test-plan`, and `rework` now end with an `Execute or Defer` ASK: execute now (default) continues in this session, executing the emitted `hatch3r-workflow` command file with `--plan-file` semantics against the just-written artifact; stop keeps the previous behavior — the fresh-session `Execute This Plan` copy-paste block remains as the deferral path. Doc planners (`roadmap`, `project-spec`, `api-spec`, `spec`) are unchanged; rework's `--auto`/`--review-only` never auto-execute.
+- **Honest run endings** — the recap contract's `Not done:` line (`rules/hatch3r-iteration-summary.md`) is now always emitted: `Not done: none — full scope completed` on a complete run is a positive assertion, not silence. When items remain, a `## Remaining Work` terminal block renders as the run's very last output (after the `Execute This Plan` block when both fire).
+
+### Validators
+
+- **New `--plan-gate` mode in `scripts/validate-efficiency-invariants.ts`** — locks the 9-command `PLAN_GATE_COMMANDS` roster in both directions (`PLAN-GATE-ROSTER-MISS` on silent key removal, `PLAN-GATE-KEY-MISS` on an unreviewed `plan_gate: true` outside the roster), requires the `In-Session Plan Gate` frame citation in each gated body (`PLAN-GATE-POINTER-MISS`), and checks the orchestration frame carries the `## In-Session Plan Gate (plan_gate: true)` + `## Execute-Now Continuation (executable-plan producers)` sections with the `execute now` ASK literal (`PLAN-GATE-FRAME-MISS`). Runs in the `validate:efficiency` umbrella as its thirteenth mode.
+
+### Fixed
+
+- **`.hatch3r/provenance.json.bak` litter in end-user repos** — hatch3r no longer writes a `.bak` backup for its own regenerable provenance manifest, deletes a stale pre-2.7.1 one on the next `init`/`sync`/`update`/`config` (every `writeProvenance` caller), and `.gitignore` management gains a `.hatch3r/provenance.json.bak*` entry.
+
+### Chore
+
+- **PreToolUse allowlist hook: sync-merge seam exercised under real Node** — new tests drive the generated `.claude/hooks/pretooluse-allowlist.mjs` through the sync merge path and execute the result with Node instead of asserting on strings; `docs/troubleshooting.md` gains an entry for the pre-2.6.0 sync corruption that duplicated the script body (plain re-sync does not heal it — delete the file, then `npx hatch3r sync`).
+
+### Upgrade notes
+
+- **`plan_gate` is additive** — no config migration; manifest schema unchanged (generation 3), and existing manifests, overrides, and `.customize.yaml` files keep resolving unchanged.
+- **Two-step plan flows keep working** — choose `stop` at the ASK to keep the pre-2.7.1 plan-then-fresh-session flow; the `Execute This Plan` copy-paste block still renders as the deferral path.
+- **`hatch3r-quick-change` admits Tier 2 batches yet stays gate-exempt by design** (Tier 3 it hard-blocks and routes to `/hatch3r-workflow`) — route larger batches through a gated command or `/hatch3r-workflow` when you want the plan artifact + approval step.
+
 ## [2.7.0] - 2026-07-15
 
 ### Headline

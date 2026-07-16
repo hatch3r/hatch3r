@@ -92,14 +92,14 @@ Run `/hatch3r-board-pickup` to auto-select the next `status:ready` issue by depe
 Board-pickup:
 - Performs collision detection against in-progress work and open PRs
 - Creates a feature branch
-- Runs the four-phase agent pipeline: research → implement → review loop (reviewer + fixer, max 3 iterations) → final quality gates (test-writer + security-auditor)
+- Runs the four-phase agent pipeline: research → plan gate (a Tier >= 2 pickup persists a plan to `docs/plans/` and asks execute / revise / stop before implementing; auto-advance persists and continues) → implement → review loop (reviewer + fixer, max 3 iterations) → final quality gates (test-writer + security-auditor)
 - Opens a pull request with full board status sync when the loop converges clean
 
 Repeat this step until the board drains. The reviewer + fixer loop is automatic — there is no separate `review` command.
 
 ## 6. Review cycle
 
-The reviewer, test-writer, and security-auditor agents review the work inside the pickup pipeline. When you need to address feedback by hand, push fixes and re-request review. For a standalone feature (no board), run `/hatch3r-workflow` (Quick Mode) after `/hatch3r-feature-plan` to walk the implement → review → test pipeline directly.
+The reviewer, test-writer, and security-auditor agents review the work inside the pickup pipeline. When you need to address feedback by hand, push fixes and re-request review. For a standalone feature (no board), `/hatch3r-feature-plan` now ends with an execute-now choice (default) that walks the implement → review → test pipeline in the same session against the just-written plan; choose defer and the copy-paste `/hatch3r-workflow --plan-file=<path>` prompt runs it in a fresh session instead.
 
 ## 7. Release
 

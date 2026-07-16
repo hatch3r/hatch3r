@@ -84,7 +84,7 @@ flowchart TB
 
     groom["hatch3r-board-groom\nRefine the backlog\n- Surface stale items\n- Re-prioritize\n- Decompose oversized issues\n- Merge duplicates\n- Refresh dependencies"]
 
-    pickup["hatch3r-board-pickup\nPick up next issue\n- Auto-select by priority\n- Collision detection\n- Create branch\n- Deep context analysis\n- Delegate to implementer\n- Create PR"]:::accent
+    pickup["hatch3r-board-pickup\nPick up next issue\n- Auto-select by priority\n- Collision detection\n- Create branch\n- Deep context analysis\n- Persist plan & approve\n(Tier >= 2, docs/plans/)\n- Delegate to implementer\n- Create PR"]:::accent
 
     refresh["hatch3r-board-refresh\nUpdate dashboard\n- Compute health metrics\n- Update board overview\n- Recommend models"]
 

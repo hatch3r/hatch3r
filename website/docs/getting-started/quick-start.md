@@ -146,7 +146,7 @@ Then run:
 /hatch3r-board-pickup
 ```
 
-`board-pickup` selects the next `status:ready` issue by dependency order and priority, creates a feature branch, and runs the four-phase agent pipeline: research → implement → review loop (reviewer + fixer, max 3 iterations — automatic, there is no separate `review` command) → final quality gates (test-writer + security-auditor). When the loop converges clean, it opens a PR.
+`board-pickup` selects the next `status:ready` issue by dependency order and priority, creates a feature branch, and runs the four-phase agent pipeline: research → plan gate (Tier >= 2 persists a plan to `docs/plans/` and asks before implementing) → implement → review loop (reviewer + fixer, max 3 iterations — automatic, there is no separate `review` command) → final quality gates (test-writer + security-auditor). When the loop converges clean, it opens a PR.
 
 Repeat this step until the board drains.
 

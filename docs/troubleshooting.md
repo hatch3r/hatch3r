@@ -260,6 +260,16 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Solution:** Run `npx hatch3r status` to see synced, drifted, or missing files. Run `npx hatch3r sync` to fix drift.
 
+### PreToolUse hook error on every tool call (pretooluse-allowlist.mjs)
+
+**Symptom:** Claude Code prints `PreToolUse:… hook error / Failed with non-blocking status code: …pretooluse-allowlist.mjs:<line>` on every tool call — Bash, Read, all of them. Opening `.claude/hooks/pretooluse-allowlist.mjs` shows the script body twice; the duplicated ESM `import` bindings are a Node `SyntaxError` at load.
+
+**Cause:** A pre-2.6.0 `hatch3r sync` spliced managed-block markers above the old raw script instead of replacing it. Current releases replace recognized legacy scripts wholesale, but a file corrupted before that fix stays corrupted: sync preserves content below the `// HATCH3R:END` marker as user content, so re-running sync does not heal it — and `hatch3r status`/`verify` report the file as in-sync.
+
+**Solution:**
+1. Delete the corrupted file: `rm .claude/hooks/pretooluse-allowlist.mjs` (it then shows as `missing` in `hatch3r status`)
+2. Run `npx hatch3r sync` to regenerate it
+
 ### Tool-specific behavior
 
 **Solution:** See [adapter-capability-matrix.md](adapter-capability-matrix.md) for per-tool output paths, capabilities, and limitations (e.g. Claude Code uses `${VAR}` env-var syntax in `.mcp.json` while Cursor uses `${env:VAR}` in `.cursor/mcp.json`; Copilot writes instructions only and does not consume an MCP config). See [model-selection.md](model-selection.md) for per-agent model configuration.
