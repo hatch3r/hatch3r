@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -11,6 +11,8 @@ import {
 } from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { maxIterationsForClass } from "../../pipeline/reviewLoop.js";
+import { buildClaudePreToolUseHookScript } from "../../pipeline/agentToolAllowlist.js";
+import { isLegacyGeneratedNoMarkerFile, safeWriteFile } from "../../merge/safeWrite.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -2024,7 +2026,7 @@ Low priority rule body.
         const policyPath = path.join(dir, "agent-tool-policies.json");
         await writeFile(hookPath, hookScript!.content);
         await writeFile(policyPath, policies!.content);
-        return { dir, hookPath };
+        return { dir, hookPath, hookScript: hookScript! };
       };
 
       const runHook = async (hookPath: string, payload: unknown) => {
@@ -2034,7 +2036,9 @@ Low priority rule body.
           stdout: string;
           stderr: string;
         }>((resolve, reject) => {
-          const proc = spawn("node", [hookPath], { stdio: "pipe" });
+          // process.execPath (the running Node binary) instead of a PATH
+          // lookup of "node" — PATH-independent and win32-safe.
+          const proc = spawn(process.execPath, [hookPath], { stdio: "pipe" });
           let stdout = "";
           let stderr = "";
           proc.stdout.on("data", (b) => (stdout += b.toString()));
@@ -2169,6 +2173,89 @@ Low priority rule body.
         });
         expect(result.code).toBe(0);
         expect(result.stdout).toBe("");
+      });
+
+      // release/2.7.1: the sync merge path over a PRE-2.6.0 raw hook file —
+      // hatch3r ≤2.5.x emitted `buildClaudePreToolUseHookScript()` verbatim,
+      // with no HATCH3R:BEGIN/END markers (the shape recognized by
+      // isLegacyGeneratedNoMarkerFile / LEGACY_GENERATED_NO_MARKER_SIGNATURES
+      // in src/merge/safeWrite.ts). safeWrite.test.ts pins the merge-level
+      // adoption branch on a synthetic fixture; these two tests close the
+      // untested seam end-to-end with the REAL builder output, the REAL
+      // adapter emission, and the EXACT options shape the live sync
+      // adapter-apply loop passes for a managed-content output
+      // (src/cli/commands/sync.ts:1095-1105: managedContent +
+      // appendIfNoBlock: true) — then assert the ON-DISK result is a
+      // Node-loadable hook, not a prepend-spliced duplicate-import
+      // SyntaxError.
+      it("pre-2.6.0 raw hook heals to a Node-loadable file on sync (legacy no-marker adoption)", async () => {
+        const { hookPath, hookScript } = await setupHookDir();
+        expect(hookScript.managedContent).toBeDefined();
+        // Simulate the pre-2.6.0 on-disk state: the raw builder output, no
+        // markers. Fixture guard: it must match the recognized legacy shape,
+        // otherwise this test would exercise the prepend branch instead.
+        const legacyRaw = buildClaudePreToolUseHookScript();
+        expect(isLegacyGeneratedNoMarkerFile(legacyRaw)).toBe(true);
+        await writeFile(hookPath, legacyRaw);
+
+        // The exact write the live sync loop performs for this managed file.
+        const result = await safeWriteFile(hookPath, hookScript.content, {
+          managedContent: hookScript.managedContent,
+          appendIfNoBlock: true,
+        });
+        expect(result.action).toBe("updated");
+
+        // Exactly ONE copy of the ESM import binding — a prepend-splice would
+        // have kept the stale raw body below the block and duplicated it.
+        const healed = await readFile(hookPath, "utf-8");
+        expect(healed.match(/import \{ readFileSync \}/g)).toHaveLength(1);
+
+        // The on-disk file is loadable: `node --check` accepts it…
+        const { spawnSync } = await import("node:child_process");
+        const check = spawnSync(process.execPath, ["--check", hookPath], {
+          encoding: "utf-8",
+        });
+        expect(check.stderr).toBe("");
+        expect(check.status).toBe(0);
+
+        // …and it executes: a main-thread pass-through payload exits 0 with
+        // empty (allow) stdout.
+        const run = await runHook(hookPath, {
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          permission_mode: "default",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        });
+        expect(run.code).toBe(0);
+        expect(run.stdout).toBe("");
+      });
+
+      it("second sync over the healed file is a no-op and stays Node-loadable", async () => {
+        const { hookPath, hookScript } = await setupHookDir();
+        await writeFile(hookPath, buildClaudePreToolUseHookScript());
+        const syncWriteOptions = {
+          managedContent: hookScript.managedContent,
+          appendIfNoBlock: true,
+        };
+        const first = await safeWriteFile(hookPath, hookScript.content, syncWriteOptions);
+        expect(first.action).toBe("updated");
+
+        // The healed file now carries markers, so the second sync takes the
+        // marker-merge path — and must land byte-identical (no per-sync drift).
+        const second = await safeWriteFile(hookPath, hookScript.content, syncWriteOptions);
+        expect(second.action).toBe("unchanged");
+
+        const healed = await readFile(hookPath, "utf-8");
+        expect(healed.match(/import \{ readFileSync \}/g)).toHaveLength(1);
+        const { spawnSync } = await import("node:child_process");
+        const check = spawnSync(process.execPath, ["--check", hookPath], {
+          encoding: "utf-8",
+        });
+        expect(check.stderr).toBe("");
+        expect(check.status).toBe(0);
       });
     });
 
