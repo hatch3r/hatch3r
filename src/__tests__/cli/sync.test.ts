@@ -280,17 +280,25 @@ describe("sync command", () => {
     expect(mcpJson).toBeNull();
   });
 
-  it("should report 'skipped' for unchanged non-managed files on re-sync", async () => {
+  // Silent-writes sweep (release/2.7.1): byte-identical non-managed files
+  // (raw JSON outputs like .cursor/environment.json) report "unchanged" on
+  // re-sync — previously they reported "skipped" plus a spurious "managed
+  // block markers missing" warning on every run after a fresh init/sync.
+  it("should report 'unchanged' (not 'skipped') for byte-identical non-managed files on re-sync", async () => {
     await createTestProject(tempDir);
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
     await syncCommand();
 
     consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
     await syncCommand();
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(output).toContain("skipped");
+    expect(output).toContain("unchanged");
+    // No spurious marker warning for hatch3r's own marker-less JSON outputs.
+    const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderr).not.toContain("managed block markers");
   });
 
   it("should report 'skipped' when a non-managed file has changed on disk", async () => {
@@ -303,10 +311,17 @@ describe("sync command", () => {
     await writeFile(envJsonPath, '{"changed": true}');
 
     consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
     await syncCommand();
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("skipped");
+    // Silent-writes sweep (release/2.7.1): the skip warning names the real
+    // condition + recovery, not the impossible marker-restoration guidance
+    // (JSON outputs carry no HATCH3R:BEGIN/END markers by design).
+    const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderr).toContain("hatch3r sync --force");
+    expect(stderr).not.toContain("restore the markers");
   });
 
   it("should exit with error when adapter generation fails (invalid tool)", async () => {
@@ -417,6 +432,84 @@ describe("sync command", () => {
       // The whole point: 1, not 2. A regression to the double-count makes both 2.
       expect(cursorBreaker?.consecutiveFailures).toBe(1);
       expect(cursorBreaker?.totalFailures).toBe(1);
+    });
+
+    // Silent-writes sweep (release/2.7.1): `.breaker-state.jsonl` is not a
+    // hatch3r-managed filename, so once the file existed the un-forced
+    // safeWriteFile silently skipped every later persist — the second run's
+    // state never reached disk and a recurring transient failure was never
+    // recognised as already-counted. The persist now passes
+    // `{ force: true, backup: false }`.
+    it("persists breaker state across a second failing sync (file reflects run 2, not run 1)", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      const adapterTimeoutMod = await import("../../pipeline/adapterTimeout.js");
+      const spy = vi.spyOn(adapterTimeoutMod, "generateWithTimeout").mockResolvedValue({
+        tool: "cursor",
+        completed: false,
+        elapsedMs: 10,
+        error: 'Adapter "cursor" timed out after 180s and was skipped.',
+        warnings: [],
+      });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      // Run 1 creates `.breaker-state.jsonl` (totalFailures 1). Run 2 hydrates
+      // it, records a second failure, and must OVERWRITE the existing file.
+      await expect(syncCommand()).rejects.toBeInstanceOf(HatchError);
+      await expect(syncCommand()).rejects.toBeInstanceOf(HatchError);
+      spy.mockRestore();
+
+      const { hydrateBreakersFromLog, BREAKER_STATE_FILE } = await import(
+        "../../pipeline/circuitBreaker.js"
+      );
+      const breakerRaw = await readFile(join(tempDir, HATCH3R_DIR, BREAKER_STATE_FILE), "utf-8");
+      const breakers = hydrateBreakersFromLog(breakerRaw);
+      const cursorBreaker = breakers.get("adapter:cursor");
+      expect(cursorBreaker).toBeDefined();
+      // Pre-fix the file still carried run 1's state (totalFailures 1).
+      expect(cursorBreaker?.totalFailures).toBe(2);
+      expect(cursorBreaker?.consecutiveFailures).toBe(2);
+      // No `.bak` litter next to machine-local regenerable state.
+      const bakExists = await readFile(
+        join(tempDir, HATCH3R_DIR, `${BREAKER_STATE_FILE}.bak`),
+        "utf-8",
+      ).then(() => true).catch(() => false);
+      expect(bakExists).toBe(false);
+    });
+  });
+
+  // Silent-writes sweep (release/2.7.1): the claude adapter emits raw JSON
+  // outputs without managed blocks by design (JSON has no comment syntax) —
+  // .claude/settings.json, .claude/hooks/agent-tool-policies.json,
+  // .claude/hooks/hatch3r-hooks.json. A fresh sync creates them; the next
+  // sync regenerates byte-identical content and previously reported
+  // "Skipped …: managed block markers missing" for each — misleading marker
+  // guidance for files that can never carry markers. They now report
+  // "unchanged" with no warning.
+  describe("claude raw-JSON outputs: sync round-trip produces no skip warning", () => {
+    it("second sync reports the JSON outputs unchanged and emits no marker warning", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      // Sanity: the first sync created the raw JSON outputs.
+      const settings = await readFile(join(tempDir, ".claude", "settings.json"), "utf-8");
+      expect(settings).not.toContain("HATCH3R:BEGIN");
+
+      consoleSpy.mockClear();
+      consoleErrorSpy.mockClear();
+      await syncCommand();
+
+      // Note: safeWriteFile receives the absolute path, so the pre-fix warning
+      // read "Skipped <abs>/.claude/settings.json: managed block markers
+      // missing" — match on the path tail, not the literal prefix.
+      const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stderr).not.toMatch(/Skipped .*settings\.json/);
+      expect(stderr).not.toMatch(/Skipped .*agent-tool-policies\.json/);
+      expect(stderr).not.toContain("managed block markers");
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("unchanged");
     });
   });
 

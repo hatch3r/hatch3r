@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -189,6 +189,48 @@ describe("failureLog", () => {
       const rotated = rotateLog(content);
       const parsed = parseFailureLog(rotated);
       expect(parsed).toHaveLength(3);
+    });
+  });
+
+  // Silent-writes sweep (release/2.7.1): the rotation branch of
+  // writeFailureLog targets an EXISTING file whose basename
+  // (`.failure-log.jsonl`) is not hatch3r-managed, so the un-forced
+  // safeWriteFile silently skipped the write — the log never rotated, the
+  // new entry was dropped, and `written: true` was still reported. The fix
+  // passes `{ force: true, backup: false }`.
+  describe("rotation write persists to disk (silent-writes sweep)", () => {
+    let dir: string;
+
+    afterEach(async () => {
+      delete process.env[FAILURE_LOG_MAX_BYTES_ENV];
+      if (dir) await rm(dir, { recursive: true, force: true });
+    });
+
+    it("rotates the on-disk log and appends the new entry when over budget", async () => {
+      dir = await mkdtemp(join(tmpdir(), "hatch3r-faillog-rotate-"));
+      // 12 seed entries (~76 bytes/line ≈ 900+ bytes) over a 600-byte budget
+      // force the rotation branch. Floor (MIN_RETAINED_ENTRIES=10) beats the
+      // half-split (6), so rotation keeps seed-2..seed-11.
+      process.env[FAILURE_LOG_MAX_BYTES_ENV] = "600";
+      const seed = Array.from({ length: 12 }, (_, i) =>
+        formatLogEntry(createFailureLogEntry(`seed-${i}`, new Error(`e-${i}`))),
+      ).join("\n") + "\n";
+      const logPath = join(dir, FAILURE_LOG_FILE);
+      await writeFile(logPath, seed, "utf-8");
+
+      const result = await writeFailureLog(dir, "rotation-probe", new Error("newest failure"));
+
+      expect(result.written).toBe(true);
+      const parsed = parseFailureLog(await readFile(logPath, "utf-8"));
+      // Rotated (10 retained) + the new entry: pre-fix the file kept all 12
+      // seeds and the new entry never reached disk.
+      expect(parsed).toHaveLength(MIN_RETAINED_ENTRIES + 1);
+      expect(parsed[0].phase).toBe("seed-2");
+      expect(parsed[parsed.length - 1].phase).toBe("rotation-probe");
+      expect(parsed[parsed.length - 1].error).toBe("newest failure");
+      // No `.bak` litter next to machine-local regenerable state.
+      const bakExists = await readFile(logPath + ".bak", "utf-8").then(() => true).catch(() => false);
+      expect(bakExists).toBe(false);
     });
   });
 

@@ -2,6 +2,13 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Silent no-op writes on existing machine-local state (safeWriteFile skip-branch sweep)** — `safeWriteFile` on an existing target that is neither hatch3r-named nor written with `force` skips non-destructively; four callers that own the target relied on it anyway and silently stopped writing once the file existed. Swept and fixed: (1) failure-log rotation (`.hatch3r/.failure-log.jsonl`) never rotated and dropped the new entry while reporting it written; (2) circuit-breaker state (`.hatch3r/.breaker-state.jsonl`) never persisted past the first `sync`/`update` — and even the hydrated state was dead on arrival because the on-disk map is keyed by serviceId (`adapter:<tool>`) while the adapter loop looks up bare tool names, so failures re-counted from zero on every run; both writes now pass `{ force: true, backup: false }` (hatch3r-owned, gitignored, regenerable state; no `.bak` litter) and hydration re-keys into the loop's tool vocabulary; (3) `init --per-package` `.gitignore` registration silently skipped any repo with a pre-existing `.gitignore` (generated per-package copies then got committed by `git add .`) — now appended via the crash-safe atomic writer, matching `ensureGitignoreEntry`; (4) the worktree-include writes in `update` (reconciliation + the worktree-config-init migration checkpoint) and `config` missed `appendIfNoBlock`/`managedContent`, so a `.worktreeinclude` with stripped or absent markers was skipped forever — all three now splice the managed block back in, matching sync's D11-H-3 contract.
+- **Spurious "managed block markers missing" warning on every re-sync of raw JSON outputs** — the claude adapter emits `.claude/settings.json`, `.claude/hooks/agent-tool-policies.json`, `.claude/hooks/hatch3r-hooks.json`, and `.mcp.json` without managed blocks by design (JSON has no comment syntax), so a fresh `init` → `sync` round-trip warned "Skipped …: managed block markers (HATCH3R:BEGIN/END) missing" for byte-identical files. The unmanaged skip branch now applies the same skip-if-unchanged guard as every sibling branch (identical bytes report `unchanged`, no warning; `sync --dry-run` predicts the same), and the residual genuine-difference warning names the real condition and recovery (`hatch3r sync --force` with a `.bak` backup, or delete + re-run) instead of impossible marker restoration. Overwrite-on-sync stays off for these files — they are user-editable (permissions, MCP servers), and force-overwriting would destroy those edits.
+
 ## [2.7.1] - 2026-07-16
 
 ### Headline

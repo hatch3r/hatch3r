@@ -599,6 +599,30 @@ describe("update command", () => {
       ].join("\n");
       expect(output).toContain("would be generated");
     });
+
+    // Silent-writes sweep (release/2.7.1): the checkpoint's live write passed
+    // `appendIfNoBlock` WITHOUT `managedContent`, so the option was dead —
+    // over an existing user `.worktreeinclude` the write silently returned
+    // "skipped" and the managed block was never spliced in. The write now
+    // passes the managed body, so the user file gains the block with the
+    // user's content preserved below it.
+    it("splices the managed block into an existing marker-less .worktreeinclude on the live checkpoint path", async () => {
+      await createTestProject(tempDir, { worktree: undefined });
+      const manifestPath = join(tempDir, HATCH3R_DIR, "hatch.json");
+      const raw = JSON.parse(await readFile(manifestPath, "utf-8"));
+      delete raw.worktree;
+      await writeFile(manifestPath, JSON.stringify(raw, null, 2));
+      // A user-authored include file with no HATCH3R markers.
+      await writeFile(join(tempDir, ".worktreeinclude"), "my-own-pattern/**\n", "utf-8");
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({});
+
+      const wt = await readFile(join(tempDir, ".worktreeinclude"), "utf-8");
+      // Pre-fix: no markers ever appeared (action "skipped" on every run).
+      expect(wt).toContain("HATCH3R:BEGIN");
+      expect(wt).toContain("my-own-pattern/**");
+    });
   });
 
   // D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): a `--pin-version` typo must be
@@ -1010,6 +1034,55 @@ describe("update command", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  // Silent-writes sweep (release/2.7.1): `.breaker-state.jsonl` is not a
+  // hatch3r-managed filename, so once the file existed the un-forced
+  // safeWriteFile silently skipped every later persist — update's D8-M4
+  // "recognise an already-open circuit on the next invocation" contract was
+  // dead after the first run. The persist now passes
+  // `{ force: true, backup: false }`.
+  describe("breaker-state persists across a second failing update (silent-writes sweep)", () => {
+    it("the state file reflects run 2's accumulated counts, not run 1's", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      const adapterTimeoutMod = await import("../../pipeline/adapterTimeout.js");
+      const spy = vi.spyOn(adapterTimeoutMod, "generateWithTimeout").mockResolvedValue({
+        tool: "cursor",
+        completed: false,
+        elapsedMs: 10,
+        error: 'Adapter "cursor" timed out after 180s and was skipped.',
+        warnings: [],
+      });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      const { hydrateBreakersFromLog, BREAKER_STATE_FILE } = await import(
+        "../../pipeline/circuitBreaker.js"
+      );
+      const breakerPath = join(tempDir, HATCH3R_DIR, BREAKER_STATE_FILE);
+      const readTotal = async (): Promise<number> => {
+        const breakers = hydrateBreakersFromLog(await readFile(breakerPath, "utf-8"));
+        return breakers.get("adapter:cursor")?.totalFailures ?? 0;
+      };
+
+      // Run 1 creates `.breaker-state.jsonl`; run 2 hydrates it, records the
+      // run's failures on top, and must OVERWRITE the existing file.
+      // The assertion is per-run-count agnostic (update currently records a
+      // failing adapter more than once per run — the D8-SA8.4-02 single-count
+      // fix landed in sync only): what this test pins is PERSISTENCE, i.e.
+      // run 2 doubles run 1's persisted total instead of leaving the file at
+      // run 1's state (the pre-fix silent skip).
+      await expect(updateCommand({})).rejects.toBeInstanceOf(HatchError);
+      const afterRun1 = await readTotal();
+      expect(afterRun1).toBeGreaterThanOrEqual(1);
+
+      await expect(updateCommand({})).rejects.toBeInstanceOf(HatchError);
+      spy.mockRestore();
+
+      const afterRun2 = await readTotal();
+      // Pre-fix the second persist was skipped: afterRun2 === afterRun1.
+      expect(afterRun2).toBe(afterRun1 * 2);
     });
   });
 

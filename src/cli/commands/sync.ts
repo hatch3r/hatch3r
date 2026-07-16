@@ -857,7 +857,19 @@ export async function syncCommand(
   let breakers = new Map<string, CircuitBreakerState>();
   try {
     const breakerLog = await readFile(breakerStatePath, "utf-8");
-    breakers = hydrateBreakersFromLog(breakerLog);
+    // Silent-writes sweep (release/2.7.1): hydrateBreakersFromLog keys the map
+    // by serviceId (`adapter:<tool>`) while the adapter loop below keys by
+    // bare tool name, so hydrated entries were never found by
+    // `breakers.get(tool)` — every run re-counted failures from zero even
+    // when the persist succeeded. Re-key into the loop's tool vocabulary at
+    // this seam; each state keeps its full serviceId in `config`, so the
+    // serialized file stays serviceId-keyed.
+    breakers = new Map(
+      [...hydrateBreakersFromLog(breakerLog)].map(([serviceId, state]) => [
+        serviceId.replace(/^adapter:/, ""),
+        state,
+      ]),
+    );
     if (breakers.size > 0) {
       verbose(`Hydrated ${breakers.size} circuit breaker(s) from ${BREAKER_STATE_FILE}`);
     }
@@ -1335,7 +1347,11 @@ export async function syncCommand(
   if (breakers.size > 0) {
     try {
       await mkdir(hatch3rDir, { recursive: true });
-      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers));
+      // Silent-writes sweep (release/2.7.1): `.breaker-state.jsonl` is not a
+      // hatch3r-managed filename, so once the file existed the un-forced write
+      // was silently skipped and breaker state never persisted past the first
+      // run. hatch3r-owned, machine-local, gitignored state: force, no `.bak`.
+      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers), { force: true, backup: false });
       verbose(`Persisted ${breakers.size} circuit breaker(s) to ${BREAKER_STATE_FILE}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

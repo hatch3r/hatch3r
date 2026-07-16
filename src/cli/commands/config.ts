@@ -1598,9 +1598,16 @@ async function configCommandImpl(
   if (worktreeActive) {
     const wtContent = await generateWorktreeInclude(manifest, rootDir);
     const wtManaged = extractManagedContent(wtContent);
-    await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+    // Silent-writes sweep (release/2.7.1): appendIfNoBlock restores the
+    // managed block when a user stripped the markers (parity with sync.ts's
+    // D11-H-3 worktree write and update.ts's reconciliation write) — without
+    // it this write silently returned "skipped" and the warning was
+    // discarded, so a config run never healed the file.
+    const wtResult = await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
       managedContent: wtManaged,
+      appendIfNoBlock: true,
     });
+    if (wtResult.warning) warn(wtResult.warning);
   } else {
     // D10-SA10.5-F6: `.worktreeinclude` is emitted only while worktree isolation
     // is active (a worktree-capable tool selected AND `worktree.enabled`). When a
