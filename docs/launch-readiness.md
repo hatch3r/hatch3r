@@ -20,7 +20,7 @@ This document is the single decision point. If a prerequisite is not GREEN, the 
 | Field | Value |
 |-------|-------|
 | Current readiness | NO-GO (v2.6.0 release-cut refresh, 2026-07-14) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI); the PRD §1 HOLD was dispositioned cleared-with-exception (2026-07-12, C12-CL1-1): the named-blocker Critical cluster is registry-done, so T2 now waits only on the three human acts — T0 storefront-count repair, T1 directory submissions, and a GO row in §6/the decision log. |
-| Last reviewed | 2026-07-14 (v2.6.0 release cut) |
+| Last reviewed | 2026-07-16 (v2.7.0 release cut) |
 | Next review trigger | Any §2 prerequisite flips, or any of the three remaining human acts (T0 storefront repair, T1 submissions, GO decision row) lands |
 
 ## 2. Prerequisites
@@ -45,7 +45,7 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 | P3 | GREEN | PRD §5.x is standards-watch only; PRD §14 records the AAIF-stance gate satisfied |
 | P4 | GREEN | PRD §14 documents npm/CLI + Cursor + Claude Code marketplace lanes as live channels; §14 records the 3-lane-documented gate satisfied. Prior sub-note resolved: `add <pack>` shipped as a trust-gated v1 installer in 2.5.0 (Cycle-12 CL-2, D5-SA5.3-09) |
 | P5 | AMBER | `docs/marketplace-submission.md` Status = PARTIAL (agent portion done); human in-app form submissions pending (PRD §1 "submissions pending") |
-| P6 | GREEN | v2.6.0 (published 2026-07-14) verified same-day: `npm view hatch3r@2.6.0 dist.attestations` returns SLSA-v1 provenance; `npm audit signatures` on a scratch install reports 101 verified registry signatures + 7 verified attestations, 0 invalid (attestations endpoint lagged publish by ~5 minutes — retried); `gh release view v2.6.0` ships the `sbom.cdx.json` SBOM asset with the CHANGELOG section as body; dist-tag `latest` = 2.6.0. First release published through the PRR-DEFER-1 hardened digest path (publish verified against the gates job's `tarball_sha` output) |
+| P6 | GREEN | v2.7.0 (published 2026-07-16) verified same-day: `npm view hatch3r@2.7.0 dist.attestations` returns SLSA-v1 provenance (`https://slsa.dev/provenance/v1`); `npm audit signatures` on a scratch install reports 101 verified registry signatures + 7 verified attestations, 0 invalid; `gh release view v2.7.0` ships the `sbom.cdx.json` SBOM asset with the CHANGELOG 2.7.0 section as body; docs deploy workflow concluded success on the merge commit. Prior v2.6.0 evidence retained in the §6 log |
 
 Overall: **NO-GO** for the T2 promotion wave — P2 RED (no GO decision row) + P5 AMBER (submissions pending); P1 has been GREEN since the v2.5.0 refresh, so the gate waits on human acts only, not engineering. No launch decision was taken at the v2.6.0 cut (no §6 row added).
 
@@ -88,6 +88,7 @@ Append one row per launch-go/no-go decision. Date in ISO format. Status snapshot
 | 2026-07-08 | release/2.2.0 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.2.0 published with provenance + `sbom.cdx.json` SBOM asset; §7 §3 re-check missed |
 | 2026-07-11 | Cycle-12 audit-execute | (none — gate refresh) | RED/RED/GREEN/GREEN/AMBER/GREEN | NO-GO | §2 P1/P2/P4 criteria re-keyed to canonical-source pointers (D18-SA18.3-03); P6 backfilled GREEN with provenance + SBOM evidence (D4-SA4.4-03); T2 promotion remains HELD by the PRD §1 HOLD |
 | 2026-07-13 | release/2.5.0 maintainers | (none — no launch attempted) | GREEN/RED/GREEN/GREEN/AMBER/GREEN | NO-GO | 2.5.0 published with SLSA-v1 provenance + `sbom.cdx.json` (verified same-day, §3 P6); P1 flipped GREEN — HOLD cleared-with-exception (C12-CL1-1), Critical cluster registry-done; T2 waits on T0 storefront repair + T1 submissions + a GO row |
+| 2026-07-16 | release/2.7.0 maintainers | (none — no launch attempted) | GREEN/RED/GREEN/GREEN/AMBER/GREEN | NO-GO (implicit) | 2.7.0 published with SLSA-v1 provenance + `sbom.cdx.json` (verified same-day, §3 P6: 101 registry signatures + 7 attestations, 0 invalid); 4-tier model ladder + effort axis shipped; full queued-work drain landed (a2a16b59 manifests, C4-C6 floors, CL-2 drift gate, P8 hardening); T2 still waits on T0 storefront repair + T1 submissions + a GO row |
 
 ## 7. Maintenance
 
