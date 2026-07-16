@@ -28,7 +28,7 @@ sub_agents_spawned:
 
 # /hatch3r-plan
 
-Planning router: one entry point for "help me plan X". It classifies the request against the nine planning flows, confirms the match with the user, then reads and executes the matched command file(s) in this conversation with shared intake context — so the user does not have to know which of nine planning commands fits. Non-goals: this command routes and plans; it never implements. Execution belongs to `/hatch3r-workflow --plan-file=<path>` (or the board path) in a fresh session, per the consolidated Execute This Plan block this run closes with.
+Planning router: one entry point for "help me plan X". It classifies the request against the nine planning flows, confirms the match with the user, then reads and executes the matched command file(s) in this conversation with shared intake context — so the user does not have to know which of nine planning commands fits. Non-goals: this command routes and plans; it never implements at the plan seam. After consolidation the Phase 3.5 Execute-or-Defer ASK may continue into execution in this session via the workflow plan-file contract; deferred execution belongs to `/hatch3r-workflow --plan-file=<path>` (or the board path), per the consolidated Execute This Plan block a deferred run closes with.
 
 ## Phase 0 — Classify
 
@@ -85,11 +85,19 @@ Execute every numbered step and every ASK checkpoint of the routed command file 
 - **Multi-match dependency order:** `spec` → `project-spec` → `api-spec` → `{feature|bug|migration|refactor}-plan` → `test-plan` → `roadmap`. Routed flows run in this order, never in parallel — each downstream flow consumes the upstream flow's artifacts.
 - **Two-flow inline cap:** execute at most TWO flows inline per run (the context-degradation compress threshold). A longer sequence hands the remainder off as chained fresh-session prompts inside the consolidated Execute This Plan block: `/hatch3r-plan --flow=<next> <carried intake summary>`.
 - **Platform note:** on platforms exposing a SlashCommand tool, invoking the routed command directly is an acceptable equivalent; the file-read path is the portable default.
-- **Suppression:** routed flows do not emit their own Execute This Plan block — this router emits one consolidated block covering every artifact produced (see Execute This Plan below).
+- **Suppression:** routed flows do not emit their own Execute This Plan block or their own Execute-or-Defer ASK — this router asks once in Phase 3.5 and emits one consolidated block covering every artifact produced (see Execute This Plan below).
 
 ## Phase 3 — Consolidate
 
 Verify each routed flow's deliverables landed by checking against that flow's own deliverable manifest or output-paths section (cite it; do not restate it). Then emit the consolidated outcome: one list of every artifact path produced across all routed flows, each with the producing flow and a one-line content summary. A missing or empty deliverable halts with the gap named — never silently accept a partial plan set.
+
+## Phase 3.5 — Execute or Defer
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Execute-Now Continuation. Consolidated form: ONE ASK covering every artifact produced this run, in the Phase 2 dependency order — routed flows suppressed their own ASK, so this is the run's only continuation checkpoint.
+
+- **execute now** (default) — execute the artifacts sequentially in-session, each via the workflow plan-file contract: Read the emitted `hatch3r-workflow` command file and run it with `--plan-file=<artifact>` semantics, fresh `cost_estimate` at each execution start.
+- **revise** — return to the routed flow that produced the artifact needing change (re-enter at that flow's synthesis step).
+- **stop** (the recommended default on Deep multi-flow runs) — emit the consolidated Execute This Plan block below for the deferred remainder.
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
@@ -113,7 +121,7 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 
 ## Execute This Plan
 
-Close the run with the consolidated Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+Close a **deferred** run (Phase 3.5 stop, or the Deep multi-flow default) with the consolidated Plan-Execution Handoff block immediately after the Iteration Summary recap — a sanctioned post-recap trailer (when the Remaining Work terminal block also fires per `rules/hatch3r-iteration-summary.md`, it renders after this block as the run's very last output) (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
 
 Consolidated form: one numbered fenced prompt per plan artifact produced, in the Phase 2 dependency order — run them in order, each in a fresh session. Shape A (`/hatch3r-workflow --plan-file=<artifact-path>`) is the default row; use the Shape B chain row for artifacts whose next step is another command (roadmap → `/hatch3r-board-fill`; spec → `/hatch3r-project-spec` or `/hatch3r-roadmap`; project-spec → `/hatch3r-roadmap`). When the Two-flow inline cap deferred flows, append their chained prompts (`/hatch3r-plan --flow=<next> <carried intake summary>`) as the final numbered entries. Criteria source per artifact: that flow's acceptance-criteria section.
 
@@ -134,7 +142,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Guardrails
 
-- **Never implement.** This command produces plans through the routed flows; code mutation belongs to `/hatch3r-workflow` or the board path, in a fresh session.
+- **Never implement at the plan seam.** This command produces plans through the routed flows; execution runs only through the Phase 3.5 Execute-Now Continuation, or the deferred `/hatch3r-workflow` invocation (or board path) against the persisted artifact.
 - **Never run routed flows in parallel.** The dependency order under Phase 2 is the only execution order.
 - **Never skip the routed flow's ASK checkpoints.** Routing does not reduce the user's checkpoints.
 - **Confirm classification before dispatch.** The user sees the matched row(s) and resolved flow(s) before any flow executes.

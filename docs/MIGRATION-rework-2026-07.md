@@ -2,6 +2,8 @@
 
 Release 2.6.0 renames the `hatch3r-revision` command to `hatch3r-rework` and redesigns it from fix-inline to plan-not-execute.
 
+> **Addendum (2026-07-16, 2.7.1):** `/hatch3r-rework` now ends with an execute-now (same session, default) or defer choice after the plan is written — the copy-paste fresh-session prompt below remains as the deferral path. `--auto` and `--review-only` behavior is unchanged; neither auto-executes.
+
 ## What changed
 
 - **Name:** `/hatch3r-revision` is now `/hatch3r-rework`. The companion directory `commands/revision/` is now `commands/rework/` (emitted as `.claude/commands/rework/`, `.cursor/commands/rework/`, `.github/prompts/rework/`).

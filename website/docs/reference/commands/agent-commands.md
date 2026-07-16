@@ -13,7 +13,7 @@ There are 32 agent commands.
 
 ### plan
 
-Planning router. Classifies a free-form planning request against the nine planning flows (feature-plan, bug-plan, migration-plan, refactor-plan, test-plan, api-spec, project-spec, roadmap, spec), confirms the match, and drives the matched flow(s) with shared intake context. Produces one consolidated outcome and a single copy-paste plan-execution prompt for a fresh session.
+Planning router. Classifies a free-form planning request against the nine planning flows (feature-plan, bug-plan, migration-plan, refactor-plan, test-plan, api-spec, project-spec, roadmap, spec), confirms the match, and drives the matched flow(s) with shared intake context. Produces one consolidated outcome and ends with an execute-now (same session, default) or defer choice — the single copy-paste plan-execution prompt for a fresh session remains as the deferral path.
 
 ### spec
 
@@ -33,15 +33,15 @@ Sequence delivery phases over time into a dependency-ordered milestone plan. Bre
 
 ### feature-plan
 
-Plan a single feature in depth. Spawns parallel researchers (codebase impact, feature design, architecture, risk & pitfalls). Produces a spec, ADR(s), and `todo.md` entries. Optionally chains into `board-fill`.
+Plan a single feature in depth. Spawns parallel researchers (codebase impact, feature design, architecture, risk & pitfalls). Produces a spec, ADR(s), and `todo.md` entries. Optionally chains into `board-fill`. Ends with an execute-now (same session, default) or defer (fresh-session prompt) choice.
 
 ### bug-plan
 
-Diagnose a complex incident. Spawns parallel researchers (symptom tracer, root-cause investigator, impact assessor, regression researcher). Produces an investigation report with ranked hypotheses and `todo.md` entries.
+Diagnose a complex incident. Spawns parallel researchers (symptom tracer, root-cause investigator, impact assessor, regression researcher). Produces an investigation report with ranked hypotheses and `todo.md` entries. Ends with an execute-now (same session, default) or defer (fresh-session prompt) choice.
 
 ### refactor-plan
 
-Plan a refactoring or migration effort. Auto-detects the refactoring dimension (structural, logical, visual, migration, or mixed). Produces a refactoring spec, ADR(s), and phased `todo.md` entries.
+Plan a refactoring or migration effort. Auto-detects the refactoring dimension (structural, logical, visual, migration, or mixed). Produces a refactoring spec, ADR(s), and phased `todo.md` entries. Ends with an execute-now (same session, default) or defer (fresh-session prompt) choice.
 
 ### api-spec
 
@@ -49,11 +49,11 @@ Generate or validate an OpenAPI specification from project requirements and exis
 
 ### migration-plan
 
-Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and a phased execution strategy. Produces migration specs and `todo.md` entries for `board-fill`.
+Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and a phased execution strategy. Produces migration specs and `todo.md` entries for `board-fill`. Ends with an execute-now (same session, default) or defer (fresh-session prompt) choice.
 
 ### test-plan
 
-Plan a test strategy for a feature, module, or codebase area across coverage, risk, and boundary dimensions. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test-pattern extraction, boundary analysis, risk-based prioritization). Produces a test-plan spec with coverage targets, a strategy matrix, prioritized test-case outlines, and `todo.md` entries. Optionally chains to `hatch3r-testability` for implementation or `board-fill` for issue creation.
+Plan a test strategy for a feature, module, or codebase area across coverage, risk, and boundary dimensions. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test-pattern extraction, boundary analysis, risk-based prioritization). Produces a test-plan spec with coverage targets, a strategy matrix, prioritized test-case outlines, and `todo.md` entries. Optionally chains to `hatch3r-testability` for implementation or `board-fill` for issue creation. Ends with an execute-now (same session, default) or defer (fresh-session prompt) choice.
 
 ## Board Commands
 
@@ -93,7 +93,7 @@ Standalone debug-and-fix workflow. Adds strategic debug logging (`[HATCH3R-DEBUG
 
 ### rework
 
-User-guided rework planning for agent-implemented code in a fresh context window. Reconstructs what was delivered from the git diff, interviews the user for feedback, scans for agent leftovers (dead code, TODOs, type issues), validates the findings read-only against the code, and ends at a rework plan (`docs/rework/`) plus a copy-paste fresh-session execution prompt — it never fixes inline, never commits, never pushes.
+User-guided rework planning for agent-implemented code in a fresh context window. Reconstructs what was delivered from the git diff, interviews the user for feedback, scans for agent leftovers (dead code, TODOs, type issues), validates the findings read-only against the code, and ends at a rework plan (`docs/rework/`) with an execute-now (same session, default) or defer (fresh-session prompt) choice — the planning pass never fixes inline, never commits, never pushes, and `--auto`/`--review-only` never auto-execute.
 
 ### quick-change
 

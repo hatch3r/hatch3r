@@ -10,7 +10,10 @@ import {
   splitAtManagedBlock,
   isHealableManagedPrefix,
 } from "../../merge/managedBlocks.js";
-import { readPrefixFrontmatterField } from "../../merge/safeWrite.js";
+import {
+  hasStaleDuplicateGeneratedBody,
+  readPrefixFrontmatterField,
+} from "../../merge/safeWrite.js";
 import { filterUserFacing, readCanonicalFiles } from "../../adapters/canonical.js";
 import { applyCustomization } from "../../adapters/customization.js";
 import { resolveUserContentRoot } from "../../content/index.js";
@@ -86,15 +89,29 @@ export interface DriftEntry {
    *   - `markers-missing` — the file exists but has no HATCH3R:BEGIN/END
    *     markers, so the regenerated block cannot be merged; `hatch3r sync`
    *     re-splices the block and preserves the existing content below it.
+   *   - `stale-duplicate-body` (release/2.7.1) — a script-hosted managed
+   *     output (`.js`/`.mjs`/`.cjs`) carries a stale raw copy of its
+   *     hatch3r-generated script BELOW the END marker: a pre-2.6.0 sync
+   *     spliced markers above the old raw script instead of replacing it, and
+   *     the duplicated ESM `import` bindings break the hook (Node
+   *     SyntaxError) on every invocation. The suffix is preserved user
+   *     content to the merge path, so `hatch3r sync` cannot heal it — delete
+   *     the file, then run `npx hatch3r sync`.
    * Absent for every other entry.
    */
-  driftDetail?: "frontmatter-stub" | "frontmatter-stub-edited" | "markers-missing";
+  driftDetail?:
+    | "frontmatter-stub"
+    | "frontmatter-stub-edited"
+    | "markers-missing"
+    | "stale-duplicate-body";
   /**
    * release/2.7.0: human-readable detail for `frontmatter-stub-edited`
    * entries — names the edited field(s) with on-disk vs baseline values plus
    * the durable override channels (same phrasing family as the safeWrite
-   * stub-heal warning). Rendered verbatim by {@link renderDriftLines}; absent
-   * for every other entry.
+   * stub-heal warning). release/2.7.1: also set on `stale-duplicate-body`
+   * entries, naming the corruption and the delete-then-sync remediation.
+   * Rendered verbatim by {@link renderDriftLines}; absent for every other
+   * entry.
    */
   driftMessage?: string;
 }
@@ -427,9 +444,46 @@ async function compareAdapterOutput(
         }
       }
     }
-    if (matches && !stubDrift) {
+    // Stale-duplicate-body detection (release/2.7.1): a pre-2.6.0 sync could
+    // splice the managed-block markers ABOVE an old raw hook script (e.g.
+    // `.claude/hooks/pretooluse-allowlist.mjs`) instead of replacing it,
+    // stranding a full stale copy of the script body BELOW the END marker —
+    // duplicate ESM `import` bindings, so Node rejects the hook on every tool
+    // call. That suffix is preserved user content to the block-only comparison
+    // above, which therefore reported the file `in-sync` while the hook was
+    // hard-broken — and `hatch3r sync` cannot heal it (the merge path never
+    // rewrites content below END). Detect the stranded copy by the safeWrite
+    // legacy-adoption signature, scoped to script-hosted outputs
+    // (.js/.mjs/.cjs) so a hatch3r script snippet a user pasted below a
+    // markdown/YAML block is never flagged for deletion. Takes precedence over
+    // the block-interior classifications below: whatever the interior says,
+    // plain sync leaves this file broken — the remediation is delete + re-sync.
+    const staleDuplicateBody = hasStaleDuplicateGeneratedBody(existing, out.path);
+    if (matches && !stubDrift && !staleDuplicateBody) {
       acc.entries.push({ path: out.path, tool, status: "in-sync" });
       acc.counts.synced++;
+    } else if (staleDuplicateBody) {
+      // driftKind `canonical-outdated` by construction (same reasoning as the
+      // frontmatter-stub branch): the stranded suffix STARTS with recognizably
+      // stale hatch3r-GENERATED output — but the signature proves only the
+      // start, so the message tells the user to review the suffix for their
+      // own additions before applying the delete + re-sync remediation.
+      acc.entries.push({
+        path: out.path,
+        tool,
+        status: "modified",
+        driftKind: "canonical-outdated",
+        driftDetail: "stale-duplicate-body",
+        driftMessage:
+          "stale duplicate of the generated script below the HATCH3R:END marker " +
+          "(pre-2.6.0 sync splice; Node rejects the duplicated imports on every hook call) — " +
+          "`hatch3r sync` preserves content below the marker and cannot heal this: " +
+          "delete the file, then run `npx hatch3r sync` — the signature only proves the " +
+          "content below the marker STARTS as generated output, so review it for additions " +
+          "of your own before deleting",
+      });
+      acc.driftKindCounts.canonicalOutdated++;
+      acc.counts.modified++;
     } else if (stubDrift) {
       // release/2.7.0 stub-edit attribution: the provenance baseline records
       // the emit-time `model:`/`effort:` prefix scalars (`emittedModel`/
@@ -916,11 +970,18 @@ export function renderDriftLines(report: DriftReport): string[] {
                       "frontmatter model/effort edited on disk — `hatch3r sync` regenerates this prefix; durable overrides: `.hatch3r/<type>/<id>.customize.yaml` or `hatch.json` models.*"
                     })`,
                   )
-                : entry.driftDetail === "markers-missing"
-                  ? chalk.yellow(
-                      " (HATCH3R markers missing on disk — `hatch3r sync` re-splices the block, keeping your content below it)",
+                : entry.driftDetail === "stale-duplicate-body"
+                  ? chalk.red(
+                      ` (${
+                        entry.driftMessage ??
+                        "stale duplicate generated script below HATCH3R:END — `hatch3r sync` cannot heal this: delete the file, then run `npx hatch3r sync`"
+                      })`,
                     )
-                  : driftKindTag(entry.driftKind);
+                  : entry.driftDetail === "markers-missing"
+                    ? chalk.yellow(
+                        " (HATCH3R markers missing on disk — `hatch3r sync` re-splices the block, keeping your content below it)",
+                      )
+                    : driftKindTag(entry.driftKind);
           lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}${tag}`);
           break;
         }

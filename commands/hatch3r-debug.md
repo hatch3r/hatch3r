@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 6
   rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (testability (CQ5) + security (CQ3)); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -357,6 +358,12 @@ Diagnosis Report:
 
 ---
 
+### Stage 4.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact synthesized from the Stage 4b confirmed diagnosis (root cause, evidence, affected components, recommended fix approach + files to modify, debug-cleanup scope); slug from the bug symptom (`docs/plans/{YYYY-MM-DD}-{bug-slug}.md`); gated dispatch = Stage 5a implementer; revise returns to Stage 4.5 synthesis; no unattended flag — the Stage 3 log-collection checkpoint makes this command interactive.
+
+---
+
 ### Stage 5: Implement Fix
 
 **Goal:** Fix the root cause, remove all debug logging, verify quality, and confirm no debug artifacts remain (grep for `[HATCH3R-DEBUG]`).
@@ -471,7 +478,7 @@ If the user chooses to commit:
 
 debug is long-running across a user-checkpoint boundary — Stage 2 instruments the codebase with strategic `[HATCH3R-DEBUG]` log lines, Stage 3 pauses for the user to reproduce the issue and provide runtime logs, Stage 4 root-cause-analyzes from the collected evidence, and Stage 5 implements the fix and removes all debug artifacts through the implementer → reviewer ↔ fixer review loop and the parallel testability + security final-quality gate. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed stage rather than re-instrumenting log statements that already shipped or re-implementing a fix the user has already accepted.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.debug-workspace/`; step range the Stage 1 → Stage 5 progression; `wave` = review-loop iteration index in Stage 5b; snapshot/rollback paths `instrumentedFiles` (pre-instrumentation) and pre-fix working-tree state. Write points: after Stage 1 context capture, after Stage 2 debug-logging implementer returns (so instrumented files are recorded and a crash leaves the cleanup contract intact), after Stage 3 user-log collection ASK, after Stage 4 root-cause synthesis is confirmed, after each Stage 5b review-loop iteration, after the Stage 5c parallel testability + security gate completes, and after the mandatory Stage 5 debug-artifact cleanup pass (the cleanup-complete signal closes the cleanup guarantee).
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.debug-workspace/`; step range the Stage 1 → Stage 5 progression; `wave` = review-loop iteration index in Stage 5b; snapshot/rollback paths `instrumentedFiles` (pre-instrumentation) and pre-fix working-tree state. Write points: after Stage 1 context capture, after Stage 2 debug-logging implementer returns (so instrumented files are recorded and a crash leaves the cleanup contract intact), after Stage 3 user-log collection ASK, after Stage 4 root-cause synthesis is confirmed, after Stage 4.5 plan-gate artifact write + approval, after each Stage 5b review-loop iteration, after the Stage 5c parallel testability + security gate completes, and after the mandatory Stage 5 debug-artifact cleanup pass (the cleanup-complete signal closes the cleanup guarantee).
 
 ---
 
@@ -485,7 +492,7 @@ debug is long-running across a user-checkpoint boundary — Stage 2 instruments 
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 ### Cost Visibility (Decision 29)
 

@@ -81,7 +81,7 @@ When invoked with `--auto` or `--unattended`, the board pickup operates with red
 |-----------|-------------|-----------|
 | Issue selection | ASK user to confirm | Auto-select highest priority ready issue(s); **auto-batch** independent issues up to `--max-batch` (default 4) |
 | Specification generation | ASK user to validate | Auto-generate and attach, skip validation |
-| Implementation plan | ASK user to review | Auto-proceed with plan |
+| Implementation plan (Step 5.5 In-Session Plan Gate) | ASK execute now / revise / stop after the plan artifact is persisted | Persist the plan artifact (`docs/plans/` + issue comment), auto-proceed without the ASK |
 | PR creation | ASK user to confirm | Auto-create PR |
 | Review feedback | Wait for human review | Proceed to next issue/batch |
 

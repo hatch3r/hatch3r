@@ -561,6 +561,17 @@ describe("PHASE_SKIP_CRITERIA", () => {
     const phase2 = PHASE_SKIP_CRITERIA.find((p) => p.phase === 2)!;
     expect(phase2.skipConditions[0]).toContain("Never");
   });
+
+  // Mirror pin (PR #133 finding 4): the Phase-1 mandatory-minimum carries the
+  // plan-gate clause byte-identical to the Phase Skip Criteria table cell in
+  // rules/hatch3r-agent-orchestration.md. Documentation-parity string only —
+  // shouldSkipPhase/validatePhaseTransition never parse it.
+  it("Phase 1 mandatory minimum carries the plan-gate clause (rule-table mirror)", () => {
+    const phase1 = PHASE_SKIP_CRITERIA.find((p) => p.phase === 1)!;
+    expect(phase1.mandatoryMinimum).toContain(
+      "`plan_gate: true` commands: persisted plan artifact approved (In-Session Plan Gate)",
+    );
+  });
 });
 
 describe("SPECIALIST_TRIGGER_TABLE", () => {

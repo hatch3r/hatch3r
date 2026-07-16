@@ -158,6 +158,7 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 ## Iteration Summary
 **SUCCESS** — Spec deliverables written to `docs/specs/`; all 8 greenfield deliverables present, presence checks passed.
 files 8 (+412/−0) · sa 1/1 · gates 8/8 · cost Δ+6% tok / Δ−3% min · tier 2
+Not done: none — full scope completed
 Next: /hatch3r-roadmap to sequence the specs into a dependency-ordered todo.md, then /hatch3r-board-fill.
 ```
 
@@ -178,7 +179,7 @@ docs/specs/
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06). (The Phase 6 block above is the domain rendering; the recap closes the run.)
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28). (The Phase 6 block above is the domain rendering; the recap closes the run.)
 
 ### Cost Visibility (Decision 24)
 
@@ -230,6 +231,6 @@ Both blocks land in the Iteration Summary recap (cost facet; full blocks on the 
 
 ## Execute This Plan
 
-Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — a sanctioned post-recap trailer (when the Remaining Work terminal block also fires per `rules/hatch3r-iteration-summary.md`, it renders after this block as the run's very last output) (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
 
 Fill Shape B (chain) — the spec manifest is not directly executable, so the first line is the canonical next command: `/hatch3r-project-spec` (greenfield — the PRD feeds the technical-design layer) or `/hatch3r-roadmap` (either state — sequence the specs into a board-ready todo.md); still a fenced copy-paste prompt with `<one-line scope>` from the requirements deliverable and top-3 criteria from `docs/specs/acceptance-criteria.md`. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

@@ -173,7 +173,7 @@ Spawn `hatch3r-pack-installer` via the Task tool with `subagent_type: "generalPu
 
 ## Step 5: Iteration Summary
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output — save for that rule's sanctioned post-recap trailers (here, the `## Remaining Work` terminal block when the `Not done:` line carries items): a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default for every line except the always-emitted `Not done:`. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 Worked example for this domain:
 
@@ -182,6 +182,7 @@ Worked example for this domain:
 
 **SUCCESS** — Installed @acme/hatch3r-react-pack@1.2.0: signature PASS, 0 body-scan hits, post-apply hatch3r verify clean.
 files 4 (+96/−0) · sa 2/2 · gates 3/3 · cost Δ+3% tok / Δ−12% min · tier 1
+Not done: none — full scope completed
 Next: run /hatch3r-capability-discover to see the newly installed pack artifacts.
 ```
 

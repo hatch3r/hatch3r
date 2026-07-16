@@ -193,7 +193,7 @@ Runs only when `--plan-file=<path>` is passed — typically pasted from the Plan
 
 1. **Existence guard.** If `<path>` does not resolve to a file, stop with this actionable error and do not proceed:
 
-   > Plan file not found: `<path>`. Check the planning output directories — `docs/specs/`, `docs/investigations/`, `docs/migrations/`, `docs/rework/`, `docs/api/` — for the plan document, or re-run `/hatch3r-workflow` without `--plan-file` and describe the task instead.
+   > Plan file not found: `<path>`. Check the planning output directories — `docs/specs/`, `docs/investigations/`, `docs/migrations/`, `docs/rework/`, `docs/plans/`, `docs/api/` — for the plan document, or re-run `/hatch3r-workflow` without `--plan-file` and describe the task instead.
 
 2. **Parse the plan into task context:** scope, acceptance criteria, files to create/modify, implementation order, dependencies, constraints/ADR references, and out-of-scope items.
 3. **Freshness guard.** For each file the plan names, compare its last-commit time (`git log -1 --format=%cI -- <file>`) against the plan document's own last-commit time (for an uncommitted plan, use its working-tree mtime). If any named file is newer than the plan, list the drifted files and **ASK:** "(a) proceed — drift is compatible with the plan (b) re-validate the plan first — re-run the producing planning command (c) abort". Never execute a stale plan silently.
@@ -631,7 +631,7 @@ workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline 
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 ### Cost Visibility (Decision 24)
 

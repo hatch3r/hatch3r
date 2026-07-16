@@ -8,6 +8,7 @@ import {
   wrapManagedFor,
   wouldChangeMarkerVariant,
   splitAtManagedBlock,
+  splitAfterManagedBlock,
   isHealableManagedPrefix,
 } from "../../merge/managedBlocks.js";
 import { HatchError } from "../../types.js";
@@ -880,6 +881,15 @@ describe("splitAtManagedBlock", () => {
     expect(split!.prefix).toContain("```");
     expect(split!.rest.startsWith(START)).toBe(true);
     expect(split!.rest).toContain("real");
+  });
+});
+
+// Stale-duplicate-body boundary (release/2.7.1): the suffix-side twin of
+// splitAtManagedBlock, consumed by safeWrite.ts::hasStaleDuplicateGeneratedBody.
+describe("splitAfterManagedBlock", () => {
+  it("returns null when no managed block is present", () => {
+    expect(splitAfterManagedBlock("just prose\n", "cmd.md")).toBeNull();
+    expect(splitAfterManagedBlock("#!/usr/bin/env node\nconst a = 1;\n", "hook.mjs")).toBeNull();
   });
 });
 

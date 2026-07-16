@@ -13,6 +13,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
+plan_gate: true
 sub_agents_spawned:
   count: 4
   rationale: One hatch3r-researcher extracts palette + convention seeds from brand assets (Tier 2/3 only); one hatch3r-implementer writes design-tokens.json + docs/design.md + emission targets (all file mutation flows through the implementer per the Mandatory Delegation Directive); hatch3r-ui and hatch3r-ux run in parallel as the two mandatory validation gates — read-only over the same generated files with disjoint checklist rows. Research → implement → gate are the only serialization edges; every alias resolves into one token graph, so generation stays single-implementer by shared-state dependency, never by token cost. Cost-dominance per CONSTITUTION §2 P8.
@@ -148,6 +149,12 @@ ASK per `agents/shared/user-question-protocol.md`: `accept` — generate and gat
 
 ---
 
+## Step 3.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact = the Step 3 token-architecture plan (3-tier taxonomy, per-hue ramp plan, theme set, emission targets) over the confirmed Step 2 intake + research findings; slug from the Step 1 verdict (`docs/plans/{YYYY-MM-DD}-design-system-{create|extend}.md`); gated dispatch = Step 4 implementer; revise returns to Step 3 architecture synthesis; no unattended flag — the Step 2 consolidated ASK is the interactive seam.
+
+---
+
 ## Step 4: Generate (sub-agent delegation)
 
 Delegate to `hatch3r-implementer` via the Task tool. ALL file writes flow through the implementer per the Mandatory Delegation Directive — the orchestrator writes nothing inline.
@@ -205,6 +212,10 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 files 3 (+486/−0) · sa 4/4 · gates 6/6 · cost Δ−8% tok / Δ+3% min · tier 2
 Not done: APCA Lc 58 on `color.text-secondary` (dark) — advisory, recorded in the design.md Accessibility Report
 Next: import the token file into the build (Tailwind `@theme` / Style Dictionary) and point component authors at docs/design.md.
+
+## Remaining Work
+
+Not done: APCA Lc 58 on `color.text-secondary` (dark) — advisory, recorded in the design.md Accessibility Report
 ```
 
 Status decision rules:
@@ -241,7 +252,7 @@ Status decision rules:
 
 design-system-create serializes on the research → generate → gate edges, so checkpoint at the stage boundary — an interrupted run re-enters at the first incomplete stage rather than regenerating the token file it already wrote.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.design-system-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the researcher-batch index in Step 3, then the regeneration-pass index in Step 5; snapshot/rollback paths the token-source file, `docs/design.md`, and every emission-target file the Step 4 implementer touches. Write points: after the Step 1 inventory read, after the Step 2 accept gate, after each Step 3 researcher return, after the Step 4 implementer return, and after each Step 5 gate verdict.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.design-system-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the researcher-batch index in Step 3, then the regeneration-pass index in Step 5; snapshot/rollback paths the token-source file, `docs/design.md`, and every emission-target file the Step 4 implementer touches. Write points: after the Step 1 inventory read, after the Step 2 accept gate, after each Step 3 researcher return, after Step 3.5 plan-gate artifact write + approval, after the Step 4 implementer return, and after each Step 5 gate verdict.
 
 ## References
 

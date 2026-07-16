@@ -17,6 +17,9 @@
 // The machine gate for (e) also runs in CI as Mode K of
 // `scripts/validate-efficiency-invariants.ts`; these pins keep the contract
 // visible to `npm test` without invoking the script harness.
+//
+// Release/2.7.1 adds the in-session plan-gate pins at the bottom of this file
+// ("plan gate content contract (2.7.1)") — the Mode M twin of the same script.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -147,5 +150,90 @@ describe("plan-handoff roster contract (S8)", () => {
     const blockIdx = body.lastIndexOf("## Execute This Plan");
     expect(recapIdx).toBeGreaterThan(-1);
     expect(blockIdx).toBeGreaterThan(recapIdx);
+  });
+});
+
+// ── Release/2.7.1: in-session plan gate + execute-now continuation ──
+//
+// Mirror of PLAN_GATE_COMMANDS in scripts/validate-efficiency-invariants.ts
+// (Mode M). Intentionally re-pinned here so shrinking the roster in the script
+// does not silently shrink the npm-test surface. Exempt by design (NOT
+// gated): hatch3r-workflow (direct-execution entry), hatch3r-quick-change
+// (Tier-1 carve-out), hatch3r-incident-response (urgency), hatch3r-healthcheck /
+// hatch3r-security-audit / hatch3r-board-fill (board-artifact-only outputs).
+const PLAN_GATE_ROSTER = [
+  "hatch3r-board-pickup.md",
+  "hatch3r-bug-pipeline.md",
+  "hatch3r-debug.md",
+  "hatch3r-diagnose.md",
+  "hatch3r-design-system-create.md",
+  "hatch3r-pr-resolve.md",
+  "hatch3r-release.md",
+  "hatch3r-auth-scaffold.md",
+  "hatch3r-slo-scaffold.md",
+] as const;
+
+// The 7 executable-plan producers that gained an Execute or Defer ASK — the
+// `hatch3r-plan` router's heading carries its phase prefix
+// (`## Phase 3.5 — Execute or Defer`); the other six use `## Execute or Defer`.
+const EXECUTE_OR_DEFER_PRODUCERS = [
+  "hatch3r-plan.md",
+  "hatch3r-feature-plan.md",
+  "hatch3r-bug-plan.md",
+  "hatch3r-migration-plan.md",
+  "hatch3r-refactor-plan.md",
+  "hatch3r-test-plan.md",
+  "hatch3r-rework.md",
+] as const;
+
+// The 4 doc planners deliberately keep the two-step flow — no same-session
+// execute, so no Execute or Defer ASK (negative pin: the seam must not creep
+// onto them silently).
+const DOC_PLANNERS = [
+  "hatch3r-roadmap.md",
+  "hatch3r-project-spec.md",
+  "hatch3r-api-spec.md",
+  "hatch3r-spec.md",
+] as const;
+
+describe("plan gate content contract (2.7.1)", () => {
+  it("(a) orchestration frame owns the In-Session Plan Gate + Execute-Now Continuation sections and the ASK literal", () => {
+    const raw = readRepoFile("commands/shared/orchestration-frame.md");
+    expect(raw).toContain("## In-Session Plan Gate (plan_gate: true)");
+    expect(raw).toContain("## Execute-Now Continuation (executable-plan producers)");
+    expect(raw).toContain("execute now");
+  });
+
+  it.each(PLAN_GATE_ROSTER)("(b) %s declares plan_gate: true and cites the In-Session Plan Gate frame section by literal + frame path", (name) => {
+    const raw = readRepoFile(`commands/${name}`);
+    const { frontmatter, body } = splitFrontmatter(raw);
+    expect(frontmatter.plan_gate).toBe(true);
+    // Mode M co-occurrence (PLAN-GATE-POINTER-MISS): the section literal alone
+    // is not a frame citation — the body must also carry the frame path.
+    expect(body).toContain("In-Session Plan Gate");
+    expect(body).toContain("commands/shared/orchestration-frame.md");
+  });
+
+  it.each(EXECUTE_OR_DEFER_PRODUCERS)("(c) %s carries an Execute or Defer heading and the execute-now ASK literal", (name) => {
+    const raw = readRepoFile(`commands/${name}`);
+    const { body } = splitFrontmatter(raw);
+    expect(body).toMatch(/^## (?:Phase 3\.5 — )?Execute or Defer/m);
+    expect(body).toContain("execute now");
+  });
+
+  it("(d) hatch3r-workflow 1a-plan existence-guard directory list includes docs/plans/", () => {
+    const { body } = splitFrontmatter(readRepoFile("commands/hatch3r-workflow.md"));
+    const intakeIdx = body.indexOf("#### 1a-plan. Plan-File Intake");
+    expect(intakeIdx).toBeGreaterThan(-1);
+    // Same containment style as the (b) existence-guard loop above, scoped to
+    // the intake section so the pin cannot be satisfied by an unrelated mention.
+    expect(body.slice(intakeIdx)).toContain("docs/plans/");
+  });
+
+  it.each(DOC_PLANNERS)("(e) %s (doc planner) carries NO Execute or Defer heading", (name) => {
+    const { body } = splitFrontmatter(readRepoFile(`commands/${name}`));
+    // Negative of the (c) heading regex, widened to any h2 that names the seam
+    // (phase-prefixed or not) so a renamed heading cannot dodge the pin.
+    expect(body).not.toMatch(/^##.*Execute or Defer/m);
   });
 });

@@ -14,6 +14,7 @@ import {
   syncParentDirectory,
   predictDenyRefusal,
   isLegacyGeneratedNoMarkerFile,
+  hasStaleDuplicateGeneratedBody,
   LOCK_RETRY_TOTAL_BACKOFF_MS,
 } from "../../merge/safeWrite.js";
 
@@ -443,6 +444,69 @@ describe("safeWrite", () => {
       expect(result.warning).toBeUndefined();
       const entries = await readdir(dir);
       expect(entries.some((e) => e.includes(".bak"))).toBe(false);
+    });
+
+    // release/2.7.1: `backup: false` opts a caller out of the D1-SA1.5-F90
+    // force backup when the target is REGENERABLE machine state the caller
+    // owns (writeProvenance's `.hatch3r/provenance.json` — regenerated on
+    // every sync/init/update, so a per-run `.bak` sibling is pure litter):
+    // no `.bak`/`.bak.<8hex>` slot is created and no backup warning is
+    // emitted. The default (backup omitted) keeps the backup-on-force
+    // contract — pinned by "force mode backs up the original of an unmanaged
+    // file before overwriting" above.
+    it("force + backup:false overwrites an unmanaged file with no .bak and no warning", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "custom-file.md");
+      await writeFile(filePath, "old machine state", "utf-8");
+
+      const result = await safeWriteFile(filePath, "new machine state", {
+        force: true,
+        backup: false,
+      });
+
+      expect(result.action).toBe("updated");
+      expect(await readFile(filePath, "utf-8")).toBe("new machine state");
+      // No canonical `.bak` and no uniquely-suffixed `.bak.<8hex>` slot.
+      const entries = await readdir(dir);
+      expect(entries.some((e) => e.includes(".bak"))).toBe(false);
+      // No backup warning either — there is no backup path to point at.
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("force + backup:false with identical content returns unchanged and creates no .bak", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "custom-file.md");
+      await writeFile(filePath, "same content", "utf-8");
+
+      const result = await safeWriteFile(filePath, "same content", {
+        force: true,
+        backup: false,
+      });
+
+      expect(result.action).toBe("unchanged");
+      expect(result.warning).toBeUndefined();
+      const entries = await readdir(dir);
+      expect(entries.some((e) => e.includes(".bak"))).toBe(false);
+    });
+
+    // Explicit `backup: true` behaves exactly like the omitted default —
+    // together with the backup:false tests above this covers both sides of
+    // the new option (the module carries 90/80/90/90 coverage thresholds).
+    it("force + explicit backup:true keeps the default backup-on-force contract", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "custom-file.md");
+      await writeFile(filePath, "irreplaceable user content", "utf-8");
+
+      const result = await safeWriteFile(filePath, "forced content", {
+        force: true,
+        backup: true,
+      });
+
+      expect(result.action).toBe("updated");
+      const bakPath = filePath + ".bak";
+      expect(await readFile(bakPath, "utf-8")).toBe("irreplaceable user content");
+      expect(result.warning).toContain(bakPath);
+      expect(result.warning).toContain("backed up");
     });
 
     it("force mode writes through even without managed block markers", async () => {
@@ -2545,6 +2609,13 @@ describe("legacy-generated adoption (release/2.6.0)", () => {
       expect(isLegacyGeneratedNoMarkerFile("// my own hook\nconsole.log(1);\n")).toBe(false);
       expect(isLegacyGeneratedNoMarkerFile("#!/usr/bin/env node\nconst a = 1;\n")).toBe(false);
       expect(isLegacyGeneratedNoMarkerFile("const a = 1;\n// hatch3r — mention\n")).toBe(false);
+    });
+  });
+
+  // release/2.7.1: the status/verify stale-duplicate-body detector.
+  describe("hasStaleDuplicateGeneratedBody", () => {
+    it("returns false for a marker-less .mjs script (no END marker to strand a copy below)", () => {
+      expect(hasStaleDuplicateGeneratedBody(LEGACY_SCRIPT, "pretooluse-allowlist.mjs")).toBe(false);
     });
   });
 

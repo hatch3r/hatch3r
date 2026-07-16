@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 7
   rationale: Per-release fanout — implementer applies the version-bump + changelog + SBOM mutations and docs-writer reconciles repo/website docs (parallel, disjoint files); reviewer ↔ fixer review loop verifies the release diff (max 3 iterations); testability (CQ5) and security (CQ3) run the mandatory final-quality pass in parallel; ci-watcher diagnoses any red gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -98,7 +99,7 @@ A MAJOR bump is an irreversible-scope decision — route it through the §0 B1 g
 
 ## Workflow
 
-Execute these steps in order. **Do not skip any step.** The only ASK gates are §0 (ambiguity), the SemVer-line confirmation in Step 2a, and the human-approval handoff in Step 9. For every ASK, use the platform-native question tool per `agents/shared/user-question-protocol.md`.
+Execute these steps in order. **Do not skip any step.** The only ASK gates are §0 (ambiguity), the Step 1.5 plan gate (Tier >= 2), the SemVer-line confirmation in Step 2a, and the human-approval handoff in Step 9. For every ASK, use the platform-native question tool per `agents/shared/user-question-protocol.md`.
 
 ---
 
@@ -159,6 +160,12 @@ Establish a clean, branch-correct starting state. All commands here are read-onl
    Exit code 2. If already on a `release/*` branch, proceed.
 
 3. **Last tag + change set:** `git describe --tags --abbrev=0` for the prior tag; `git log {lastTag}..HEAD --oneline` for the change set feeding the SemVer decision and the changelog completeness probe. Cache both.
+
+---
+
+## Step 1.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact = the release plan — proposed target version (SemVer Decision Table over the cached change set), changelog scope (`{lastTag}..HEAD`), and the Step 4–8 gate list; slug version-free (`docs/plans/{YYYY-MM-DD}-release.md`) — the proposed target version is stated in the artifact body pending Step 2a confirmation, and a Step 2a version change updates the body via the gate's revise path (re-persist); gated dispatch = Step 2b implementer bump; revise returns to Step 1.5 synthesis; no unattended flag — Step 9 stops before publish/merge regardless. Tier-1 patch bumps are exempt (Tier < 2 skips artifact persistence per the frame).
 
 ---
 
@@ -338,7 +345,7 @@ The npm publish itself runs in CI (`.github/workflows/release.yml`) on the human
 
 ## Step 10: Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 **Status enum:** SUCCESS (release assembled + committed on the branch, all gates green, awaiting human publish) | PARTIAL (a gate ended on a retry-limit miss or SBOM tooling absent) | FAILED (build broken, no release commit produced) | BLOCKED (review loop unresolved after 3 iterations, or a breaking-change decision needs the user). SUCCESS here means "ready for human publish" — never "published".
 
@@ -348,7 +355,7 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 
 release is long-running — a Tier 3 release runs preflight, version bump, changelog sync, build + SBOM, adapter verification, the gate set, the reviewer ↔ fixer loop, the final-quality specialist batch, and release-notes reconciliation. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-bumping the version or re-emitting the SBOM.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.release-workspace/`; step range the Step 0 → Step 10 progression; `wave` = review-loop iteration index in Step 7a; snapshot/rollback paths every release file touched by Step 2/3/4 implementers and Step 7a fixers. Write points: after Step 1 preflight passes, after the Step 2 version-bump implementer returns, after the Step 3 changelog implementer returns, after the Step 4 build + SBOM step, after Step 5 adapter verification, after the Step 6 gate run, after each Step 7a review-loop iteration, after the Step 7b/7c specialist batch, and after Step 8 reconciliation. The Step 9 commit is recorded so a resume does not double-commit.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.release-workspace/`; step range the Step 0 → Step 10 progression; `wave` = review-loop iteration index in Step 7a; snapshot/rollback paths every release file touched by Step 2/3/4 implementers and Step 7a fixers. Write points: after Step 1 preflight passes, after Step 1.5 plan-gate artifact write + approval, after the Step 2 version-bump implementer returns, after the Step 3 changelog implementer returns, after the Step 4 build + SBOM step, after Step 5 adapter verification, after the Step 6 gate run, after each Step 7a review-loop iteration, after the Step 7b/7c specialist batch, and after Step 8 reconciliation. The Step 9 commit is recorded so a resume does not double-commit.
 
 ---
 

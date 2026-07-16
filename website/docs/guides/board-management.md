@@ -25,7 +25,7 @@ Platform-specific CLI/MCP commands, terminology, and sync procedures live in eac
 |---------|---------|
 | **board-init** | Create or connect a GitHub Projects V2 board with status fields, label taxonomy, and optional migration |
 | **board-fill** | Parse `todo.md`, create epics/issues, deduplicate, analyze dependencies, set implementation order |
-| **board-pickup** | Auto-pick the next best issue, check collisions, delegate to sub-agents, create PRs |
+| **board-pickup** | Auto-pick the next best issue, check collisions, persist a Tier >= 2 plan artifact (`docs/plans/`) and gate implementation on it, delegate to sub-agents, create PRs |
 | **board-refresh** | Regenerate the board overview dashboard with current state, health metrics, and model recommendations |
 | **board-shared** | Configurable shared context (org, repo, project board IDs, label taxonomy) |
 
@@ -93,6 +93,7 @@ Selects and implements the next issue:
 - Checks for collisions against in-progress work and open PRs
 - Creates a branch from the default branch
 - Marks the issue as in-progress
+- Persists a plan artifact (`docs/plans/`) at Tier >= 2 and gates implementation on your approval — auto-advance persists the plan and continues
 - Delegates to the appropriate skill
 - For epics: spawns parallel sub-agents for independent sub-issues
 - Runs quality checks

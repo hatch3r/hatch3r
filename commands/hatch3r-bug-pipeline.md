@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 4
   rationale: One researcher (merged reproduce + root-cause), one implementer (regression test + fix authored together, TDD-style), then a reviewer ↔ fixer loop on root-cause depth; the canonical four-phase Final Quality specialists collapse onto the implementer's bundled regression test plus the reviewer's root-cause-depth gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -118,6 +119,12 @@ Apply the **Research Completeness Checklist** (`rules/hatch3r-agent-orchestratio
 
 ---
 
+### Step 1.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact synthesized from the Step 1 root-cause findings (confirmed hypothesis, reproduction path, affected files, test-first fix order); slug from the bug brief (`docs/plans/{YYYY-MM-DD}-{bug-slug}.md`); gated dispatch = Step 2; revise returns to Step 1.5 synthesis; no unattended flag — non-interactive runs persist the artifact and continue per the frame.
+
+---
+
 ### Step 2: Regression-Test + Fix Authored Together (Phase 2)
 
 Spawn `hatch3r-implementer` via the Task tool (`subagent_type: "generalPurpose"`). Unlike the default pipeline — where hatch3r-testability runs in Phase 4 after the fix — this phase authors the failing regression test FIRST, then the minimal fix that makes it pass.
@@ -178,7 +185,7 @@ Commit message format: `fix: {short root-cause-oriented description}`. For pushe
 
 bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1), one or more implementers authoring regression test + fix (Step 2), and a reviewer ↔ fixer loop (Step 3). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher or re-implementing a fix that already landed.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-pipeline-workspace/`; step range the Step 0 → Step 4 progression; `wave` = review-loop iteration index in Step 3; snapshot/rollback paths the working-tree state. Write points: after Step 1 researcher returns and the root-cause ASK is confirmed, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-pipeline-workspace/`; step range the Step 0 → Step 4 progression; `wave` = review-loop iteration index in Step 3; snapshot/rollback paths the working-tree state. Write points: after Step 1 researcher returns and the root-cause ASK is confirmed, after Step 1.5 plan-gate artifact write + approval, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
 
 ---
 
@@ -192,7 +199,7 @@ bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1),
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 ### Cost Visibility (Decision 29)
 

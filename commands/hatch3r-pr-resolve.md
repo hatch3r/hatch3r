@@ -14,6 +14,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 10
   rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, performance (CQ7), plus ui (CQ1) and ux (CQ2) as mandatory-on-match Tier 2/3 gates — a trigger-glob match requires a dedicated instance) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -436,6 +437,8 @@ Tier: 2 (standard pipeline)
 Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify_n} clarify • {needs_call_n} need your call • {defer_n} defer
 ```
 
+**In-Session Plan Gate (Tier >= 2).** At Tier >= 2 the routing table above IS the run's plan artifact — persist it to `docs/plans/{YYYY-MM-DD}-pr-{N}-resolution.md` before the 5c ASK, per `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: slug from the PR number; gated dispatch = Step 6; revise = the 5c adjustment options (re-persist after edits); no unattended flag — 5c is the interactive seam.
+
 #### 5c. ASK (triage gate, once per round)
 
 > Found {N} comments on PR #{pr_number} (round {round.index}). Evaluation done. Review the suggested routing. Adjustments:
@@ -446,12 +449,13 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 > - `defer N` — route to todo.md instead of fixing now
 > - `show N` — print the full evaluation for item N (decision, causal chain, counter-argument, sources)
 > - `fix all` — implement every ACCEPT item including Needs-your-call (skip per-item triage)
+> - `stop` — keep the persisted routing-table plan artifact and emit the Execute This Plan handoff for a fresh session
 >
-> (accept / adjust / show N / fix all)
+> (accept = the plan gate's execute-now default / adjust = revise + re-persist / stop / show N / fix all)
 
 If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-rework.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
-After the user accepts, the round is autonomous through Step 9; Step 9.5 then gates any further round.
+On `accept` or `fix all` (the execute-now path), the round is autonomous through Step 9; Step 9.5 then gates any further round. On `stop`, the run halts before Step 6 — no implementation — and emits the In-Session Plan Gate stop outcome: the Execute This Plan handoff for a fresh session per `commands/shared/orchestration-frame.md` → In-Session Plan Gate, then the closing Iteration Summary.
 
 #### 5d. File Deferred Findings to todo.md
 
@@ -678,6 +682,11 @@ Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-
 Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
 Confidence: medium — reviewer loop clean after 1 round; 2 comments unresolved. The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
 Next: re-run /hatch3r-pr-resolve when the reviewer answers c-207.
+
+## Remaining Work
+
+Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-fill
+Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
 ```
 
 Status decision rules:
@@ -692,7 +701,7 @@ Status decision rules:
 
 pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), commit + push (Step 9), and the Step 9.5 re-poll gate, which can add further full rounds. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range Step 0 → Step 10 with a Step 9.5 loop-back to Step 2; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log; checkpoint meta gains `roundIndex` + `roundStartedAt`. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), after Step 9 commit + push, and after each Step 9.5 decision (round counter + `roundStartedAt` persist; the `postedCommentIds` filter carries across rounds).
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range Step 0 → Step 10 with a Step 9.5 loop-back to Step 2; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log; checkpoint meta gains `roundIndex` + `roundStartedAt`. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions and the Tier >= 2 plan-gate artifact path + approval persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), after Step 9 commit + push, and after each Step 9.5 decision (round counter + `roundStartedAt` persist; the `postedCommentIds` filter carries across rounds).
 
 ---
 
@@ -706,7 +715,7 @@ pr-resolve is long-running — a Tier 3 PR with many open comments runs identity
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06). (The Step 10 block above is the domain rendering; the recap closes the run.)
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28). (The Step 10 block above is the domain rendering; the recap closes the run.)
 
 ### Cost Visibility (Decision 29)
 

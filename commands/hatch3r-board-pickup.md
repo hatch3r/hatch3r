@@ -14,6 +14,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 11
   rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (testability (CQ5), security (CQ3), docs-writer, lint-fixer, hatch3r-ui (CQ1), hatch3r-ux (CQ2), performance (CQ7)) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -314,6 +315,12 @@ git checkout {base} && git pull origin {base} && git checkout -b {branch-name}
 
 ---
 
+### Step 5.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact covers the picked batch — issue set, dependency levels, per-issue scope/acceptance criteria/predicted files from Steps 1–3 (plus Step 3b spec links when generated); slug from the primary issue (`docs/plans/{YYYY-MM-DD}-issue-{N}-{slug}.md`); gated dispatch = Step 6; revise returns to Step 5.5 synthesis; unattended mode = auto-advance (`--auto`) — persist, attach as issue comment, continue per `commands/board/pickup-modes.md`.
+
+---
+
 ### Step 6: Executor Check & Delegate Implementation
 
 Check `executor:` label (for batch mode, check each issue):
@@ -367,7 +374,7 @@ Execute Steps 7-10 in order after all implementation completes:
 
 board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issues, branches, delegates parallel implementers per dependency level (Step 6), runs the reviewer ↔ fixer review loop (Step 7a), and fans out the Phase 4 specialist batch (Step 7b–7c) across 11 sub-agents in `agentPipeline`. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-claiming issues, re-creating branches, or repeating implementer work that already wrote code.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.board-pickup-workspace/`; step range the Step 0 → Step 10 progression; `wave` = dependency-level batch index when parallel implementers run; snapshot/rollback paths `.hatch3r/handoffs/` entries written by `hatch3r-handoff` and pre-commit working-tree state. Write points: after Step 1 work selection ASK, after Step 2 scope + dependency lock, after Step 3 collision detection, after Step 4 board-status update (issues moved to In Progress), after Step 5 branch creation (atomic with `branchName` persistence), after each Step 6 implementer batch returns per dependency level (so completed implementations survive a crash and are not re-implemented on resume), after each Step 7a review-loop iteration, after each Step 7b/7c parallel-specialist batch completes, after Step 8 git commit, and after Step 9 PR-readiness gate.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.board-pickup-workspace/`; step range the Step 0 → Step 10 progression; `wave` = dependency-level batch index when parallel implementers run; snapshot/rollback paths `.hatch3r/handoffs/` entries written by `hatch3r-handoff` and pre-commit working-tree state. Write points: after Step 1 work selection ASK, after Step 2 scope + dependency lock, after Step 3 collision detection, after Step 4 board-status update (issues moved to In Progress), after Step 5 branch creation (atomic with `branchName` persistence), after Step 5.5 plan-gate artifact write + approval, after each Step 6 implementer batch returns per dependency level (so completed implementations survive a crash and are not re-implemented on resume), after each Step 7a review-loop iteration, after each Step 7b/7c parallel-specialist batch completes, after Step 8 git commit, and after Step 9 PR-readiness gate.
 
 ---
 
@@ -377,11 +384,11 @@ board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issu
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: implementer code changes, test additions, fixer corrections.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: implementer code changes, test additions, fixer corrections; plus the Step 5.5 plan-gate artifact — an orchestrator-written planning artifact (single-writer synthesis per the frame's In-Session Plan Gate), attributed to the orchestrator, not to an implementer proof id.
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 ### Cost Visibility (Decision 29)
 

@@ -438,7 +438,8 @@ describe("ensureGitignoreEntry", () => {
 
   // F2.7-F3 (D2, P1) + D1-14 + D1-SA1.2-06 (D1, P1) + 2.2.0-S1 (P6, P1):
   // `ensureGitignoreEntry` registers all hatch3r entries — secrets
-  // (`.env.mcp`), operational state (archive/snapshots/handoffs/provenance),
+  // (`.env.mcp`), operational state (archive/snapshots/handoffs/provenance
+  // plus its stale `provenance.json.bak*` siblings, release/2.7.1),
   // the five `.{command}-workspace/` checkpoint dirs (`.init-workspace/`,
   // `.sync-workspace/`, `.update-workspace/`, `.config-workspace/`,
   // `.verify-fix-workspace/`), `.pr-resolve-workspace/`, and the 2.2.0-S1
@@ -455,6 +456,11 @@ describe("ensureGitignoreEntry", () => {
     ".hatch3r/snapshots/",
     ".hatch3r/handoffs/",
     ".hatch3r/provenance.json",
+    // release/2.7.1: stale `provenance.json.bak` / `.bak.<8hex>` siblings
+    // minted by pre-2.7.1 force-overwrites (writeProvenance now writes with
+    // backup: false and sweeps the canonical `.bak`, but repos initialized
+    // earlier can still carry them — keep them out of `git add .`).
+    ".hatch3r/provenance.json.bak*",
     ".init-workspace/",
     ".sync-workspace/",
     ".update-workspace/",

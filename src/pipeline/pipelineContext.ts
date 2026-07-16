@@ -819,6 +819,7 @@ export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
     mandatoryMinimum: [
       "Affected files must still be identified (even if via quick inline scan)",
       "Existing tests in the affected area must be noted",
+      "`plan_gate: true` commands: persisted plan artifact approved (In-Session Plan Gate)",
     ],
   },
   {

@@ -6,7 +6,7 @@
 // single writer boundary (`writeProvenance`) plus the pure helper it uses.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -553,5 +553,126 @@ describe("writeProvenance emittedModel/emittedEffort scalars (release/2.7.0)", (
     expect(after.lastRunId).not.toBe(SENTINEL_RUN);
     // …and the persisted scalar refreshed to the emit-time value.
     expect(after.outputs.find((o) => o.path === AGENT_PATH)?.emittedModel).toBe("claude-fable-5");
+  });
+});
+
+// release/2.7.1: `.hatch3r/provenance.json` is regenerable machine state, yet
+// every content-changing regeneration force-overwrote it as an UNMANAGED file,
+// so safeWriteFile's D1-SA1.5-F90 force path minted a `provenance.json.bak` on
+// each such run (then uniquely-suffixed `.bak.<8hex>` siblings once the
+// canonical slot was taken). The writer now passes `{ force: true,
+// backup: false }` so no backup is ever created, and after EVERY successful
+// write — including idempotent no-op runs — it best-effort deletes a stale
+// `<provenancePath>.bak` left behind by a pre-2.7.1 writer. `.bak.<8hex>`
+// siblings are deliberately NOT touched (the 7-day orphan sweep in
+// safeWrite.ts owns their reclamation); a failed deletion emits exactly one
+// warning on the existing onWarn channel while still returning written: true.
+describe("writeProvenance .bak hygiene (release/2.7.1)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-prov-bak-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const hatch3rDir = (): string => join(tempDir, HATCH3R_DIR);
+  const provenancePath = (): string => join(hatch3rDir(), PROVENANCE_FILE);
+  const bakPath = (): string => provenancePath() + ".bak";
+
+  async function readManifest(): Promise<ProvenanceManifest> {
+    return JSON.parse(await readFile(provenancePath(), "utf-8")) as ProvenanceManifest;
+  }
+
+  // One-output adapter set keyed by content, so consecutive calls with a
+  // different body take the CHANGED-content path (idempotency mismatch →
+  // real force-overwrite of the existing manifest), while identical bodies
+  // take the idempotent match branch.
+  const inputs = (body: string): { adapter: string; outputs: AdapterOutput[] }[] => [
+    {
+      adapter: "claude",
+      outputs: [{ path: "CLAUDE.md", content: body, action: "create", sourceFiles: [] }],
+    },
+  ];
+
+  it("never mints a provenance.json.bak* across content-changing re-runs", async () => {
+    const onWarn = vi.fn();
+    const first = await writeProvenance(tempDir, inputs("claude-v1"), "sync", { onWarn });
+    expect(first.written).toBe(true);
+
+    // Second run with CHANGED content force-overwrites the existing unmanaged
+    // manifest — exactly the shape that minted a `.bak` before backup: false.
+    const second = await writeProvenance(tempDir, inputs("claude-v2"), "sync", { onWarn });
+    expect(second.written).toBe(true);
+
+    const entries = await readdir(hatch3rDir());
+    expect(entries.some((e) => e.includes(".bak"))).toBe(false);
+    expect(onWarn).not.toHaveBeenCalled();
+  });
+
+  it("deletes a stale pre-2.7.1 .bak on a content-changing run and leaves .bak.<8hex> siblings alone", async () => {
+    const first = await writeProvenance(tempDir, inputs("claude-v1"), "sync");
+    expect(first.written).toBe(true);
+    await writeFile(bakPath(), "stale pre-2.7.1 backup", "utf-8");
+    await writeFile(bakPath() + ".deadbeef", "operator recovery copy", "utf-8");
+
+    const onWarn = vi.fn();
+    const second = await writeProvenance(tempDir, inputs("claude-v2"), "sync", { onWarn });
+    expect(second.written).toBe(true);
+    expect(onWarn).not.toHaveBeenCalled();
+
+    const entries = await readdir(hatch3rDir());
+    expect(entries).not.toContain(`${PROVENANCE_FILE}.bak`);
+    // The uniquely-suffixed sibling is not the writer's to reclaim.
+    expect(entries).toContain(`${PROVENANCE_FILE}.bak.deadbeef`);
+    expect(await readFile(bakPath() + ".deadbeef", "utf-8")).toBe("operator recovery copy");
+    // The manifest itself refreshed to the new content set.
+    expect((await readManifest()).outputs.find((o) => o.path === "CLAUDE.md")).toBeDefined();
+  });
+
+  it("deletes a stale .bak on an idempotent no-op run too, keeping the manifest byte-identical", async () => {
+    const first = await writeProvenance(tempDir, inputs("claude-v1"), "sync");
+    expect(first.written).toBe(true);
+    const bytesBefore = await readFile(provenancePath(), "utf-8");
+    await writeFile(bakPath(), "stale pre-2.7.1 backup", "utf-8");
+    await writeFile(bakPath() + ".deadbeef", "operator recovery copy", "utf-8");
+
+    const onWarn = vi.fn();
+    // Byte-identical inputs → the F2.7-F5 idempotency match branch (an
+    // "unchanged" write) — the deletion contract covers this path as well.
+    const second = await writeProvenance(tempDir, inputs("claude-v1"), "sync", { onWarn });
+    expect(second.written).toBe(true);
+    expect(onWarn).not.toHaveBeenCalled();
+
+    const entries = await readdir(hatch3rDir());
+    expect(entries).not.toContain(`${PROVENANCE_FILE}.bak`);
+    expect(entries).toContain(`${PROVENANCE_FILE}.bak.deadbeef`);
+    // The hygiene pass causes no spurious manifest rewrite on a no-op run.
+    expect(await readFile(provenancePath(), "utf-8")).toBe(bytesBefore);
+  });
+
+  it("emits exactly one warning and still returns written:true when the stale-.bak deletion fails", async () => {
+    const first = await writeProvenance(tempDir, inputs("claude-v1"), "sync");
+    expect(first.written).toBe(true);
+    // A NON-EMPTY directory at the .bak path: `rm` without `recursive`
+    // rejects (EISDIR/ERR_FS_EISDIR on POSIX, EPERM on win32), and
+    // `force: true` suppresses only ENOENT — a deterministic, cross-platform
+    // deletion failure.
+    await mkdir(bakPath());
+    await writeFile(join(bakPath(), "occupant.txt"), "makes the dir non-empty", "utf-8");
+
+    const onWarn = vi.fn();
+    const second = await writeProvenance(tempDir, inputs("claude-v2"), "sync", { onWarn });
+
+    // Best-effort: the failed cleanup is warned about, never fatal.
+    expect(second.written).toBe(true);
+    expect(onWarn).toHaveBeenCalledTimes(1);
+    expect(String(onWarn.mock.calls[0]?.[0])).toContain(".bak");
+    // The manifest write itself succeeded and reflects the new content.
+    const manifest = await readManifest();
+    expect(manifest.schemaVersion).toBe(1);
+    expect(manifest.outputs.find((o) => o.path === "CLAUDE.md")).toBeDefined();
   });
 });

@@ -73,16 +73,17 @@ Summary: {summary}
 Warnings: {list or "none"}
 ```
 
-Then close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Worked example:
+Then close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default, except the always-emitted `Not done:` line (`Not done: none — full scope completed` when every scope item completed). Worked example:
 
 ```
 ## Iteration Summary
 
 **SUCCESS** — Handoff written for gh:owner/repo#42 at .hatch3r/handoffs/active/2026-07-06_T0910_a3f2c_issue-42.md.
 files 1 (+64/−0) · sa 0/0 · gates 6/6 · cost Δ0% tok / Δ0% min · tier 1
+Not done: none — full scope completed
 ```
 
-Handoff body composition consumes the session's most recent recap via the rule's Handoff Mapping: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Open findings ← the Step 1 ledger fold, authoritative at composition time: compose the Work Remaining bullet from the fold's open rows in the recap grammar `Open findings: <finding_id> <sev> — <disposition>; …`, with the last recap's line as cross-check provenance — when it agrees with the fold, copy it verbatim as before; when it is absent or disagrees (stale recap, mid-session interrupt), the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`. Zero open rows ⇒ no bullet.
+Handoff body composition consumes the session's most recent recap via the rule's Handoff Mapping: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line verbatim (the `none — full scope completed` form ⇒ no remaining work; a transcript with no `Not done:` line is a legacy pre-2.7.1 recap, and only there does absent ⇒ `None — full scope completed`); Blockers ← `Blockers:` line, absent ⇒ `None`. Open findings ← the Step 1 ledger fold, authoritative at composition time: compose the Work Remaining bullet from the fold's open rows in the recap grammar `Open findings: <finding_id> <sev> — <disposition>; …`, with the last recap's line as cross-check provenance — when it agrees with the fold, copy it verbatim as before; when it is absent or disagrees (stale recap, mid-session interrupt), the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`. Zero open rows ⇒ no bullet.
 
 ## Outputs
 

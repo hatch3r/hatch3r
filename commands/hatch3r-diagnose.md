@@ -12,6 +12,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
+plan_gate: true
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-researcher (root-cause mode against the captured state bundle) plus one hatch3r-fixer (applies the single proposed remediation). Independent symptom domains fan out to N parallel researchers; serialization holds only on the diagnose -> fix dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes the diagnosis from the fix when both are needed.
@@ -141,6 +142,8 @@ Tier: 2
 Confidence: high — root cause reproduced against the captured state bundle.
 ```
 
+**In-Session Plan Gate (Tier >= 2).** The remediation table above IS the run's plan artifact — persist it to `docs/plans/{YYYY-MM-DD}-diagnose-{symptom-slug}.md` before the ASK, per `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: slug from the symptom; gated dispatch = Step 5 fixer; revise = `fix N` narrowing (re-persist the narrowed table); no unattended flag — this ASK is the interactive seam.
+
 ASK (only gate), per `agents/shared/user-question-protocol.md`:
 
 > Diagnosed {N} root cause(s). Review the proposed remediation:
@@ -151,7 +154,7 @@ ASK (only gate), per `agents/shared/user-question-protocol.md`:
 >
 > (accept / fix N / explain N / skip)
 
-If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `rules/hatch3r-clarification-default.md`. After the user accepts, the run is autonomous through Step 6.
+If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `rules/hatch3r-clarification-default.md`. At Tier >= 2 the gate maps onto this ASK: `accept` / `fix N` = execute now over the persisted artifact, `skip` = stop — the artifact remains as the diagnosis record. After the user accepts, the run is autonomous through Step 6.
 
 ---
 
@@ -181,7 +184,7 @@ Re-run the relevant Step 1 probe(s) to confirm the fix cleared the symptom: re-r
 
 ### Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 Worked example for this domain:
 
@@ -190,9 +193,15 @@ Worked example for this domain:
 
 **PARTIAL** — Diagnosed manifest schema drift; migrated .hatch3r/hatch.json to schemaVersion 3; primary symptom resolved (hatch3r status re-run clean); second symptom not yet reproduced.
 files 1 (+3/−1) · sa 3/3 · gates 2/2 · cost Δ−8% tok / Δ+5% min · tier 3
+Not done: intermittent sync stall (second symptom) — unverified: not reproduced, no fix applied
 Blockers: second symptom (intermittent sync stall) not reproduced against the captured state bundle — needs a failing transcript
 Confidence: medium — primary fix verified by re-run probe; residual symptom unreproduced.
 Next: commit the manifest migration; re-run /hatch3r-diagnose if the stall recurs.
+
+## Remaining Work
+
+Not done: intermittent sync stall (second symptom) — unverified: not reproduced, no fix applied
+Blockers: second symptom (intermittent sync stall) not reproduced against the captured state bundle — needs a failing transcript
 ```
 
 Status decision rules:
@@ -221,7 +230,7 @@ Status decision rules:
 
 diagnose is checkpoint-light — Step 1 state capture and Step 3 root-cause analysis are read-only, so an interrupted run re-captures cheaply; the only mutation point is Step 5 (fixer apply), so checkpoint there to avoid re-applying a fix already landed.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.diagnose-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the per-finding fix index in Step 5; snapshot/rollback paths every file a Step 5 fixer touches. Write points: after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision, and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.diagnose-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the per-finding fix index in Step 5; snapshot/rollback paths every file a Step 5 fixer touches. Write points: after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision (Tier >= 2: the plan-gate artifact path + approval persist with it, so a resume re-enters after the gate, not before it), and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
 
 ## References
 

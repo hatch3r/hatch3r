@@ -13,6 +13,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
+plan_gate: true
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-implementer writes the SLI/SLO/alert scaffold files (code mutation flows through the implementer per the Mandatory Delegation Directive); one hatch3r-reliability gates the result against the CQ4 floor (SLO completeness, multi-burn-rate alert correctness). N services fan out to N parallel implementers; the implement -> gate edge is the only serialization. Cost-dominance per CONSTITUTION §2 P8.
@@ -108,6 +109,8 @@ Burn-rate alert tiers (Google SRE Workbook ch. 5):
 Tier: 1
 ```
 
+**In-Session Plan Gate (Tier >= 2).** The resolved spec + derived-budget block above IS the run's plan artifact — persist it to `docs/plans/{YYYY-MM-DD}-slo-{service}-scaffold.md` before the ASK, per `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: slug from the service name; gated dispatch = Step 3 implementer fan-out; revise = `edit` (re-persist after changes); no unattended flag — this ASK is the interactive seam.
+
 ASK (only gate), per `agents/shared/user-question-protocol.md`:
 
 > Generate the SLO scaffold for {name} with the targets above?
@@ -117,7 +120,7 @@ ASK (only gate), per `agents/shared/user-question-protocol.md`:
 >
 > (accept / edit / skip)
 
-After the user accepts, the run is autonomous through Step 5.
+At Tier >= 2 the gate maps onto this ASK: `accept` = execute now (default), `edit` = revise + re-persist, `skip` = stop — the persisted plan artifact remains for the Execute This Plan handoff. After the user accepts, the run is autonomous through Step 5.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
@@ -135,6 +138,8 @@ cost_estimate:
 Post-execution actuals + delta land in the Step 5 Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`. `--effort=light|standard|deep` (Decision 17) forces the tier; record both auto and override.
 
 ---
+
+> Gated dispatch (Tier >= 2): Step 3 fires only after the Step 2 In-Session Plan Gate approval — no implementer is spawned before the plan artifact is persisted and accepted.
 
 ## Step 3: Generate Scaffold (sub-agent delegation)
 
@@ -187,7 +192,7 @@ Run the available validation commands and record exit codes: `promtool check rul
 
 ### Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 Worked example for this domain:
 
@@ -198,6 +203,10 @@ Worked example for this domain:
 files 2 (+118/−0) · sa 2/2 · gates 2/2 · cost Δ+4% tok / Δ−10% min · tier 1
 Not done: metric-name placeholders (`# TODO`) — deferred: fill with the project's real metric names before deploy
 Next: wire slo/checkout-service.alerts.yaml into the Prometheus rule_files.
+
+## Remaining Work
+
+Not done: metric-name placeholders (`# TODO`) — deferred: fill with the project's real metric names before deploy
 ```
 
 Status decision rules:
@@ -226,7 +235,7 @@ Status decision rules:
 
 slo-scaffold fans out one implementer per service, so checkpoint at the per-service boundary — an interrupted multi-service run re-enters at the first un-scaffolded service rather than regenerating the SLO/alert file sets it already wrote.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.slo-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-service index in Step 3/4; snapshot/rollback paths every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.slo-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-service index in Step 3/4; snapshot/rollback paths every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate (Tier >= 2: the plan-gate artifact path + approval persist with it), after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
 
 ## References
 
