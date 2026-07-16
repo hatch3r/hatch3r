@@ -482,7 +482,7 @@ Plan Readiness:
 Verdict: READY / NOT READY ({remaining items})
 ```
 
-A deferred finding counts as "tracked", not "unplanned" — it does not block plan readiness. On READY, close with the `## Iteration Summary` recap and the `## Execute This Plan` terminal block (see below). On NOT READY, **ASK** the user: resolve the remaining items now, or close with the verdict recorded.
+A deferred finding counts as "tracked", not "unplanned" — it does not block plan readiness. On READY, route to the `## Execute or Defer` ASK (below; it follows Step 10 learnings capture) — the `## Iteration Summary` recap then closes the run per that ASK's outcome, with the `## Execute This Plan` terminal block emitted only on the deferral path. On NOT READY, **ASK** the user: resolve the remaining items now, or close with the verdict recorded.
 
 ---
 

@@ -77,7 +77,7 @@ When invoked with `--review-only`, rework becomes a **read-only code-review surf
 | Step 6 Plan validation & enrichment | Researcher (Tier 2/3) + reviewer validation pass (+ below-floor second pass) | **Single `hatch3r-reviewer` pass only** — no researcher enrichment, no second pass |
 | Step 7 Write the rework plan | Plan-lint + confirm ASK + plan write | **Skipped** — no plan document is written |
 | Step 8 Board housekeeping | PR note + todo.md deferrals + dashboard refresh | **Skipped** — no PR note, no todo.md write, no board mutation |
-| Step 9 Plan readiness | Readiness verdict + terminal block | Emit the review report (see below); no `## Execute This Plan` block |
+| Step 9 Plan readiness | Readiness verdict, then the Execute-or-Defer ASK (terminal block on the defer path only) | Emit the review report (see below); no `## Execute This Plan` block |
 | Step 10 Capture learnings | Write `.hatch3r/learnings/` | **Skipped** — no learnings file written |
 
 The single reviewer pass still carries the Confidence Propagation Contract: the reviewer's high/medium/low confidence is surfaced verbatim in the report. The `--confidence-floor` knob is inert in review-only mode (it gates the second validation pass before a plan write, and no plan is written); state that in the report header rather than silently dropping it. `--review-only` and `--auto` are independent — `--auto` only relaxes ASK checkpoints, so `--review-only --auto` runs the read-only review with Step 2 auto-proceeding when a PR + linked issues are found.
