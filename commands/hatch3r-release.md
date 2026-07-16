@@ -165,7 +165,7 @@ Establish a clean, branch-correct starting state. All commands here are read-onl
 
 ## Step 1.5: In-Session Plan Gate (Tier >= 2)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact = the release plan — proposed target version (SemVer Decision Table over the cached change set), changelog scope (`{lastTag}..HEAD`), and the Step 4–8 gate list; slug from the target version (`docs/plans/{YYYY-MM-DD}-release-{X.Y.Z}.md`); gated dispatch = Step 2b implementer bump; revise returns to Step 1.5 synthesis; no unattended flag — Step 9 stops before publish/merge regardless. Tier-1 patch bumps are exempt (Tier < 2 skips artifact persistence per the frame).
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact = the release plan — proposed target version (SemVer Decision Table over the cached change set), changelog scope (`{lastTag}..HEAD`), and the Step 4–8 gate list; slug version-free (`docs/plans/{YYYY-MM-DD}-release.md`) — the proposed target version is stated in the artifact body pending Step 2a confirmation, and a Step 2a version change updates the body via the gate's revise path (re-persist); gated dispatch = Step 2b implementer bump; revise returns to Step 1.5 synthesis; no unattended flag — Step 9 stops before publish/merge regardless. Tier-1 patch bumps are exempt (Tier < 2 skips artifact persistence per the frame).
 
 ---
 

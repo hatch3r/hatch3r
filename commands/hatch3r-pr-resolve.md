@@ -455,7 +455,7 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 
 If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-rework.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
-After the user accepts, the round is autonomous through Step 9; Step 9.5 then gates any further round.
+On `accept` or `fix all` (the execute-now path), the round is autonomous through Step 9; Step 9.5 then gates any further round. On `stop`, the run halts before Step 6 — no implementation — and emits the In-Session Plan Gate stop outcome: the Execute This Plan handoff for a fresh session per `commands/shared/orchestration-frame.md` → In-Session Plan Gate, then the closing Iteration Summary.
 
 #### 5d. File Deferred Findings to todo.md
 

@@ -537,7 +537,7 @@ test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-age
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Execute-Now Continuation. Per-command slots: artifact = `docs/specs/{NN}_{scope-slug}_test-plan.md` (the Step 5 spec Step 8 wrote); revise returns to Step 4 (Synthesize & Review Research).
 
-After the Step 8 write, ASK: execute now (default) / revise / stop. `execute now` Reads the emitted `hatch3r-workflow` command file and executes it in THIS conversation with `--plan-file=<artifact>` semantics, emitting a fresh `cost_estimate` at execution start; `stop` or a non-interactive run defers via the Execute This Plan block below. Skipped when this flow runs under `/hatch3r-plan` — the router asks once, consolidated.
+After the Step 8 write, once the Step 9 chain offer (test writer or board-fill) has run, ASK: execute now (default) / revise / stop. `execute now` Reads the emitted `hatch3r-workflow` command file and executes it in THIS conversation with `--plan-file=<artifact>` semantics, emitting a fresh `cost_estimate` at execution start; `stop` or a non-interactive run defers via the Execute This Plan block below. Skipped when this flow runs under `/hatch3r-plan` — the router asks once, consolidated.
 
 ## Iteration Summary (mandatory output)
 

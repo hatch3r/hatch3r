@@ -394,7 +394,7 @@ migration-plan is long-running — a Tier 3 multi-major-version or framework mig
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Execute-Now Continuation. Per-command slots: artifact = `docs/migrations/{dependency}_{current}_to_{target}.md` (the Step 5 plan Step 7 wrote); revise returns to Step 4 (Synthesize & Review Analysis).
 
-After the Step 7 write, ASK: execute now (default) / revise / stop. `execute now` Reads the emitted `hatch3r-workflow` command file and executes it in THIS conversation with `--plan-file=<artifact>` semantics, emitting a fresh `cost_estimate` at execution start; `stop` or a non-interactive run defers via the Execute This Plan block below. Skipped when this flow runs under `/hatch3r-plan` — the router asks once, consolidated.
+After the Step 7 write, once the Step 8 board-fill chain offer has run, ASK: execute now (default) / revise / stop. `execute now` Reads the emitted `hatch3r-workflow` command file and executes it in THIS conversation with `--plan-file=<artifact>` semantics, emitting a fresh `cost_estimate` at execution start; `stop` or a non-interactive run defers via the Execute This Plan block below. Skipped when this flow runs under `/hatch3r-plan` — the router asks once, consolidated.
 
 ## Iteration Summary (mandatory output)
 
