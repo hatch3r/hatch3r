@@ -370,12 +370,15 @@ describe("D13-12: read-only code-review surface (--review-only)", () => {
   it("replaces the retired always-commit guardrail with the never-commit contract", () => {
     // The 2.6.0 redesign ends every run at the rework plan — the modes file
     // must carry the never-commit guardrail and no residue of the old
-    // always-commit one.
+    // always-commit one. 2.7.1 rewords the guardrail for the Execute-or-Defer
+    // ending (defer → execution prompt; execute-now → the workflow pipeline
+    // owns commit semantics) while keeping the never-commit contract.
     const guardrail = modes
       .split("\n")
       .find((line) => line.includes("Never commit or push"));
     expect(guardrail).toBeDefined();
-    expect(guardrail).toContain("rework plan + execution prompt");
+    expect(guardrail).toContain("rework plan plus the Execute-or-Defer choice");
+    expect(guardrail).toContain("still never commits or pushes");
     expect(modes).not.toContain("Always commit and push");
   });
 });
