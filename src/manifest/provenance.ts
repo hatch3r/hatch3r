@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, relative, isAbsolute } from "node:path";
 import { extractManagedBlock, splitAtManagedBlock } from "../merge/managedBlocks.js";
@@ -346,9 +346,29 @@ export async function writeProvenance(
       lastRunId: previousLastRunId ?? getRunId(),
       outputs,
     };
+    // release/2.7.1: `backup: false` — provenance.json is machine-local
+    // regenerable state (gitignored per D12-3), so the force-overwrite `.bak`
+    // copy protected nothing and littered end-user repos on every
+    // content-changing rewrite.
     await safeWriteFile(provenancePath, JSON.stringify(provenance, null, 2) + "\n", {
       force: true,
+      backup: false,
     });
+    // release/2.7.1: best-effort one-time cleanup of the `.bak` litter earlier
+    // releases left beside the manifest. Only the canonical `.bak` slot — the
+    // `.bak.<8hex>` slot siblings stay owned by the 7-day orphan sweep
+    // (safeWrite.ts::ORPHAN_BAK_MIN_AGE_MS).
+    try {
+      await rm(provenancePath + ".bak", { force: true });
+    } catch (rmErr) {
+      // Silent Failure Contract (P5): surface the skipped cleanup — the stale
+      // backup stays on disk and the operator should know why.
+      onWarn(
+        `Failed to remove legacy backup ${HATCH3R_DIR}/${PROVENANCE_FILE}.bak: ` +
+          `${rmErr instanceof Error ? rmErr.message : String(rmErr)}. ` +
+          `Delete it manually — hatch3r no longer writes it.`,
+      );
+    }
     return { written: true };
   } catch (err) {
     // Silent Failure Contract (P5): a provenance write failure must not break

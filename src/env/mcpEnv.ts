@@ -293,6 +293,10 @@ export function parseEnvFile(content: string): Record<string, string> {
  * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
  * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`, the
  * `.hatch3r/*.jsonl`/`*.json` logs, `.hatch3r/.lock`) stay unsuffixed.
+ * `.hatch3r/provenance.json.bak*` is a glob: it covers both the canonical
+ * `.bak` copy pre-2.7.1 force-overwrites left beside the manifest (the
+ * release/2.7.1 writer passes `backup: false` and removes it) and any
+ * `.bak.<8hex>` slot siblings awaiting the 7-day orphan sweep.
  */
 const REQUIRED_GITIGNORE_ENTRIES: readonly string[] = [
   ".env.mcp",
@@ -300,6 +304,7 @@ const REQUIRED_GITIGNORE_ENTRIES: readonly string[] = [
   ".hatch3r/snapshots/",
   ".hatch3r/handoffs/",
   ".hatch3r/provenance.json",
+  ".hatch3r/provenance.json.bak*",
   // `.init-workspace/`, `.sync-workspace/`, `.update-workspace/`,
   // `.config-workspace/`, `.verify-fix-workspace/` — derived from the shared
   // `CHECKPOINT_WORKSPACE_COMMANDS` list the checkpoint writers use (D1-SA1.2-06).
@@ -342,6 +347,7 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  * (archive trees from sync/update), `.hatch3r/snapshots/` (per-session
  * snapshots), `.hatch3r/handoffs/` (handoff payloads),
  * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3),
+ * `.hatch3r/provenance.json.bak*` (legacy pre-2.7.1 backup litter),
  * `.init-workspace/` + `.sync-workspace/` + `.update-workspace/` +
  * `.config-workspace/` + `.verify-fix-workspace/` (per-run checkpoint trees,
  * D1-14 + D1-SA1.2-06 — spread from `WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES`),

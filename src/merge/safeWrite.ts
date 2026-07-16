@@ -1472,6 +1472,14 @@ export interface SafeWriteFileOptions {
   /** When true, always write through regardless of filename prefix. */
   force?: boolean;
   /**
+   * When false, the force-overwrite path skips the pre-overwrite `.bak` copy
+   * (the D1-SA1.5-F90 branch below). Only for hatch3r-owned, machine-local,
+   * regenerable state (e.g. `.hatch3r/provenance.json`) — the backup exists to
+   * protect genuine user content, which these files never carry; for them the
+   * copy is pure litter in the user's repo. Default true.
+   */
+  backup?: boolean;
+  /**
    * G3: When true (default), skip the underlying atomic write when the
    * computed/merged bytes are identical to what is already on disk.
    * Returns `{ action: "unchanged" }` instead of `"updated"`. This makes
@@ -1867,7 +1875,11 @@ async function safeWriteFileLocked(
     // the no-backup fast path (matching "overwrites a managed file without
     // creating backups"). The backup uses the same non-clobbering slot scheme so
     // a pre-existing user `.bak` is never overwritten (the D11-12 invariant).
-    if (options.force && !isManagedFile) {
+    // release/2.7.1: `backup: false` opts an unmanaged-BY-FILENAME but
+    // hatch3r-owned, regenerable file (`.hatch3r/provenance.json`) out of the
+    // copy — suppressed, the write falls through to the plain atomic path
+    // below with no `.bak` and no backup warning.
+    if (options.force && !isManagedFile && options.backup !== false) {
       const bakPath = await resolveNonClobberingBakPath(filePath);
       try {
         await copyFile(filePath, bakPath);
