@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 6
   rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (testability (CQ5) + security (CQ3)); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -354,6 +355,12 @@ Diagnosis Report:
 ```
 
 **ASK:** "Here is the diagnosis. Root cause: {summary}, confidence: {level}. Confirm to proceed with the fix, or adjust the diagnosis."
+
+---
+
+### Stage 4.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact synthesized from the Stage 4b confirmed diagnosis (root cause, evidence, affected components, recommended fix approach + files to modify, debug-cleanup scope); slug from the bug symptom (`docs/plans/{YYYY-MM-DD}-{bug-slug}.md`); gated dispatch = Stage 5a implementer; revise returns to Stage 4.5 synthesis; no unattended flag — the Stage 3 log-collection checkpoint makes this command interactive.
 
 ---
 

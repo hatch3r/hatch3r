@@ -17,7 +17,7 @@ Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` 
 Citation template (drop into the command where the block used to live):
 
 ```
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff | In-Session Plan Gate | Execute-Now Continuation}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
 ```
 
 `<…>` slots below are the only text a command varies; everything outside them is invariant and lives here.
@@ -166,8 +166,46 @@ Top acceptance criteria (full list in the plan file):
 
 **Tier-1 carve-out:** a cleanup-only plan (≤3 single-line findings) MAY substitute `/hatch3r-quick-change` with the findings inlined as its batch input.
 
-**Suppression rule:** a flow executed UNDER `/hatch3r-plan` does not emit its own block — the router emits one consolidated block covering every artifact produced.
+**Suppression rule:** a flow executed UNDER `/hatch3r-plan` does not emit its own block — the router emits one consolidated block covering every artifact produced. A producer run that continued through the Execute-Now Continuation (§Execute-Now Continuation below) emits no handoff block either — the plan was consumed in-session; the block is the deferral path.
 
-**Position rule:** the block appears immediately AFTER the `## Iteration Summary` recap — the one sanctioned post-recap trailer.
+**Position rule:** the block appears immediately AFTER the `## Iteration Summary` recap — the first of the two sanctioned post-recap trailers. When the Remaining Work terminal block (`rules/hatch3r-iteration-summary.md` → Remaining Work) also fires, it renders after this block as the run's very last output.
 
 Per-command slot: `<plan-path>` (the command's documented artifact path), the `<one-line scope>` source, and the acceptance-criteria source (spec section, investigation report, or plan step list).
+
+---
+
+## In-Session Plan Gate (plan_gate: true)
+
+Authoritative rule: `rules/hatch3r-agent-orchestration.md` → Deep Context Integration (Tier 2 hard gate) + Phase Skip Criteria (Phase 1 Mandatory Minimum). Code-mutating orchestrator commands declaring `plan_gate: true` in frontmatter persist their plan as an artifact and gate implementation on it, at effective Tier ≥ 2. Tier 1 runs skip artifact persistence — the command's existing ASK cadence stands.
+
+Before the first `hatch3r-implementer`/`hatch3r-fixer` dispatch, the orchestrator synthesizes a plan artifact from the run's triage/research/board context in the workflow 1a-plan seven-field format — scope, acceptance criteria, files to create/modify, implementation order, dependencies, constraints/ADR references, out-of-scope — the same shape `/hatch3r-workflow --plan-file` parses.
+
+Write the artifact to `docs/plans/{YYYY-MM-DD}-{slug}.md` via the safe-write pattern (temp+rename, `src/merge/safeWrite.ts`). This is an orchestrator-written planning artifact (single-writer synthesis, the same sanctioned class as the rework plan document) — it is not code and does not violate the Mandatory Delegation Directive. Board flows with an open board transaction also attach the plan as an issue comment.
+
+Interactive runs then ASK (canonical literal):
+
+> Plan persisted at <path>. (a) execute now — continue in this session consuming the plan (default) (b) revise the plan (c) stop — emit the Execute This Plan handoff for a fresh session.
+
+Unattended runs (`--auto` / CI / board auto-advance) persist the artifact, record the checkpoint write point, and continue without pausing; the artifact path lands in the Iteration Summary and the PR body.
+
+Execution consumes the just-persisted artifact as the task source — the plan-file freshness guard is trivially satisfied in-session. Choosing (c) stop emits the Plan-Execution Handoff block above: the Decision-35 fresh-session seam, unchanged.
+
+Per-command slot: the artifact slug source; the dispatch step gated; the step "revise" returns to; the command's unattended-mode flag.
+
+---
+
+## Execute-Now Continuation (executable-plan producers)
+
+Authoritative rule: `rules/hatch3r-iteration-summary.md` → Plan-Execution Handoff (its deferral fallback). Executable-plan producers — `hatch3r-plan` (router), `hatch3r-feature-plan`, `hatch3r-bug-plan`, `hatch3r-migration-plan`, `hatch3r-refactor-plan`, `hatch3r-test-plan`, `hatch3r-rework` — offer same-session execution before falling back to the Decision-35 fresh-session handoff. Doc planners (`hatch3r-roadmap`, `hatch3r-project-spec`, `hatch3r-api-spec`, `hatch3r-spec`) keep their existing endings unchanged.
+
+After deliverable consolidation, before the Iteration Summary, ASK: execute now (default) / revise / stop.
+
+- **(a) execute now** — resolve and Read the emitted `hatch3r-workflow` command file (the same platform-path resolution the `/hatch3r-plan` Phase 2 dispatch uses) and execute it in THIS conversation with `--plan-file=<artifact>` semantics: 1a-plan intake, then the canonical phases as written there. The workflow file's own pipeline governs execution; the producer's `agentPipeline` stays execution-agent-free (the P7 plan/act split gate `P7-PLAN-ACT-SPLIT` stays intact). Emit a fresh `cost_estimate` at execution start — the producer's own calibration covers planning only.
+- **(b) revise** — return to the producing flow's synthesis step.
+- **(c) stop**, `--auto`, `--review-only`, or non-interactive — emit the Plan-Execution Handoff block above: the two-step deferral fallback.
+
+**Suppression:** a flow executed UNDER `/hatch3r-plan` never fires its own continuation ASK — the router asks once, consolidated, after its Phase 3.
+
+**Deep-run deferral default:** on Deep multi-flow router runs the recommended default flips to (c) stop — the fresh-session context rationale dominates there.
+
+The Iteration Summary covers plan + execution when (a) ran; the handoff block is emitted only on the (c) path.

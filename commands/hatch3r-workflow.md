@@ -193,7 +193,7 @@ Runs only when `--plan-file=<path>` is passed — typically pasted from the Plan
 
 1. **Existence guard.** If `<path>` does not resolve to a file, stop with this actionable error and do not proceed:
 
-   > Plan file not found: `<path>`. Check the planning output directories — `docs/specs/`, `docs/investigations/`, `docs/migrations/`, `docs/rework/`, `docs/api/` — for the plan document, or re-run `/hatch3r-workflow` without `--plan-file` and describe the task instead.
+   > Plan file not found: `<path>`. Check the planning output directories — `docs/specs/`, `docs/investigations/`, `docs/migrations/`, `docs/rework/`, `docs/plans/`, `docs/api/` — for the plan document, or re-run `/hatch3r-workflow` without `--plan-file` and describe the task instead.
 
 2. **Parse the plan into task context:** scope, acceptance criteria, files to create/modify, implementation order, dependencies, constraints/ADR references, and out-of-scope items.
 3. **Freshness guard.** For each file the plan names, compare its last-commit time (`git log -1 --format=%cI -- <file>`) against the plan document's own last-commit time (for an uncommitted plan, use its working-tree mtime). If any named file is newer than the plan, list the drifted files and **ASK:** "(a) proceed — drift is compatible with the plan (b) re-validate the plan first — re-run the producing planning command (c) abort". Never execute a stale plan silently.

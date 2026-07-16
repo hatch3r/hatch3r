@@ -1,7 +1,7 @@
 ---
 id: hatch3r-iteration-summary
 type: rule
-description: Recap-contract iteration summary — every orchestrator command and meaningful skill run closes with a 1-2 line recap (status, outcome, files/sub-agents/gates/cost-delta telemetry) plus exception lines that fire only on non-default outcomes; silence asserts the default.
+description: "Recap-contract iteration summary — every orchestrator command and meaningful skill run closes with a 1-2 line recap (status, outcome, files/sub-agents/gates/cost-delta telemetry) plus exception lines that fire on non-default outcomes with one always-emitted exception — the `Not done:` line appears on every recap (`Not done: none — full scope completed` when empty) — and a Remaining Work terminal block closes the run when scope items remain; silence asserts the default for every other line."
 tags: [iteration, summary, telemetry, floor:content-quality]
 precedence: high
 alwaysApply: true
@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with exactly one sanctioned trailer permitted after it, the Plan-Execution Handoff block (see §Plan-Execution Handoff below). The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with at most two sanctioned trailers after it: the Plan-Execution Handoff block (see §Plan-Execution Handoff below), then the Remaining Work block (§Remaining Work (terminal block)), which when it fires is the run's very last output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
 
 ## Pre-Execution Cost Preview
 
@@ -31,11 +31,11 @@ Status enum reused from `agents/shared/quality-charter.md` §11. Facet order fix
 
 ## Exception Lines
 
-Below the recap, a line appears ONLY when its firing condition holds. An absent exception line is a positive claim of its Silent-when default — silence asserts the default. Each entry is a single line; `Cost:` is the one multi-line exception (its fenced YAML follows the line).
+Below the recap, a line appears ONLY when its firing condition holds. An absent exception line is a positive claim of its Silent-when default — silence asserts the default. Each entry is a single line; `Cost:` is the one multi-line exception (its fenced YAML follows the line). Exception to the silence rule — `Not done:` has an always-true firing condition: it appears on every recap, as `Not done: none — full scope completed` when every scope item completed (a positive assertion, never silence).
 
 | Line | Format | Fires when | Gate preserved | Silent-when |
 |---|---|---|---|---|
-| Not done | `Not done: <item> [— deferred: <why> \| unverified: <what>]; …` | any scope item not done/deferred/unverified | charter honesty; handoff Work Remaining | full scope completed |
+| Not done | `Not done: <item> [— deferred: <why> \| unverified: <what>]; …` or `Not done: none — full scope completed` | always (the empty form is the positive assertion of full completion) | charter honesty; handoff Work Remaining | never — always emitted |
 | Blockers | `Blockers: <blocker or open question>; …` | any open blocker | old §8; handoff Blockers | none open |
 | Open findings | `Open findings: <finding_id> <sev> — <disposition>; …` | any findings-ledger row folds non-terminal, or terminal as `escalated`/`surfaced`, at recap time | findings-ledger run-exit invariant (`rules/hatch3r-findings-ledger.md`) | no ledger file for this run, or every row folds to done/deferred/declined/accepted-risk/already-resolved |
 | Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default | ASK default exercised | **P8 B1** | no default taken |
@@ -56,7 +56,7 @@ Charter-field mapping: Status + Outcome → line 1; Done → outcome + files fac
 Handoff surfaces (`rules/hatch3r-handoff-readiness.md`, `skills/hatch3r-handoff-prepare/SKILL.md`, `agents/hatch3r-handoff-preparer.md`) derive their fields from the recap:
 
 - **Work Done** ← recap outcome (line 1) + files facet
-- **Work Remaining** ← `Not done:` line; absent ⇒ `None — full scope completed`
+- **Work Remaining** ← `Not done:` line verbatim (the `none — full scope completed` form ⇒ no remaining work); a missing line in a legacy transcript ⇒ `None — full scope completed`
 - **Blockers** ← `Blockers:` line; absent ⇒ `None`
 - **Open Findings** ← `Open findings:` line; absent ⇒ none
 
@@ -96,16 +96,25 @@ Absence of the line on a recorded bypass is a P5 gate failure.
 
 ## Validation Gate
 
-A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. A `plan_handoff: true` run that closes without the Plan-Execution Handoff block fails the gate identically. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
+A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. A `plan_handoff: true` run that closes without the Plan-Execution Handoff block fails the gate identically. A recap missing the `Not done:` line fails the gate — the line is always-emitted, never a silent default. A run whose `Not done:` line carries ≥1 item but that does not close with the `## Remaining Work` terminal block (§Remaining Work (terminal block)) fails the gate. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
 
 ## Plan-Execution Handoff (plan_handoff: true)
 
-Commands whose frontmatter declares `plan_handoff: true` MUST append the Plan-Execution Handoff block immediately after the recap. Format, shapes (A direct / B chain), Tier-1 carve-out, and suppression rule are owned by `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block) — this rule points there and restates nothing. The block is the ONE sanctioned post-recap trailer; every other run still closes with the recap itself.
+Commands whose frontmatter declares `plan_handoff: true` MUST append the Plan-Execution Handoff block immediately after the recap. Format, shapes (A direct / B chain), Tier-1 carve-out, and suppression rule are owned by `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block) — this rule points there and restates nothing. The block and the Remaining Work block (§Remaining Work (terminal block)) are the two sanctioned post-recap trailers; when both fire, the handoff block renders first and Remaining Work renders last. A run firing neither closes with the recap itself. The block is required when the run ends at the plan seam (stop/defer, `--auto`, `--review-only`, non-interactive); a producer run that continued through the Execute-Now Continuation (`commands/shared/orchestration-frame.md` → Execute-Now Continuation) closes with the execution recap and emits no handoff block.
+
+## Remaining Work (terminal block)
+
+Fires when the `Not done:` line carries ≥1 item (not the `none — full scope completed` form). Position: the VERY LAST output of the run — after the recap, its exception lines, and the Plan-Execution Handoff block when both fire.
+
+Format: the heading `## Remaining Work`, then the `Not done:` line copied verbatim, then the `Blockers:` and `Open findings:` lines copied verbatim only when those recap lines fired — zero new bookkeeping; the block re-surfaces recap data for end-of-run prominence.
+
+Scope clause: the block reflects THIS run's scope gaps only — a plan-producing run whose deliverable is the plan does not list plan execution as not-done.
 
 ## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 
 The Validation Gate asserts recap presence per run; no automated cross-run emission-rate measurement exists today. `src/pipeline/spaceTelemetry.ts` provides `recordSpaceMetric`, `loadSpaceMetricsFromDisk`, and `summarizeSpaceMetricRecords`, but nothing on the iteration-summary path invokes them — commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, so the cross-run loop is a future capability, not a live measurement (origin D10-SA10.8-F-6; gap corrected D10-18). The module records only the `activity` and `performance` axes; `satisfaction` and `communication` are reserved with no feeder, so "SPACE" names the data shape, not five-axis coverage (D10-40). Wiring requires a host-runtime post-turn bridge emitting an `iterationSummaryEmitted` metric to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; until then, P5 emission compliance rests on the per-run gate plus audit-cycle spot checks.
 
 ## Pillar Service
+- P1 — the always-emitted `Not done:` line plus the Remaining Work terminal block make incompleteness un-missable at run end (actionability)
 - P5 — one standardised recap plus an auditable exception-line registry prevents drift across orchestrators
 - P7 — the recap cost facet surfaces token + duration deltas per Decision 29 at a fraction of the former template's token footprint

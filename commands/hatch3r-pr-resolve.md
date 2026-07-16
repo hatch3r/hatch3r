@@ -14,6 +14,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 10
   rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, performance (CQ7), plus ui (CQ1) and ux (CQ2) as mandatory-on-match Tier 2/3 gates — a trigger-glob match requires a dedicated instance) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -436,6 +437,8 @@ Tier: 2 (standard pipeline)
 Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify_n} clarify • {needs_call_n} need your call • {defer_n} defer
 ```
 
+**In-Session Plan Gate (Tier >= 2).** At Tier >= 2 the routing table above IS the run's plan artifact — persist it to `docs/plans/{YYYY-MM-DD}-pr-{N}-resolution.md` before the 5c ASK, per `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: slug from the PR number; gated dispatch = Step 6; revise = the 5c adjustment options (re-persist after edits); no unattended flag — 5c is the interactive seam.
+
 #### 5c. ASK (triage gate, once per round)
 
 > Found {N} comments on PR #{pr_number} (round {round.index}). Evaluation done. Review the suggested routing. Adjustments:
@@ -446,8 +449,9 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 > - `defer N` — route to todo.md instead of fixing now
 > - `show N` — print the full evaluation for item N (decision, causal chain, counter-argument, sources)
 > - `fix all` — implement every ACCEPT item including Needs-your-call (skip per-item triage)
+> - `stop` — keep the persisted routing-table plan artifact and emit the Execute This Plan handoff for a fresh session
 >
-> (accept / adjust / show N / fix all)
+> (accept = the plan gate's execute-now default / adjust = revise + re-persist / stop / show N / fix all)
 
 If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-rework.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
@@ -678,6 +682,11 @@ Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-
 Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
 Confidence: medium — reviewer loop clean after 1 round; 2 comments unresolved. The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
 Next: re-run /hatch3r-pr-resolve when the reviewer answers c-207.
+
+## Remaining Work
+
+Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-fill
+Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
 ```
 
 Status decision rules:

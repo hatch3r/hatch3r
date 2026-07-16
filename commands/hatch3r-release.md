@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 7
   rationale: Per-release fanout — implementer applies the version-bump + changelog + SBOM mutations and docs-writer reconciles repo/website docs (parallel, disjoint files); reviewer ↔ fixer review loop verifies the release diff (max 3 iterations); testability (CQ5) and security (CQ3) run the mandatory final-quality pass in parallel; ci-watcher diagnoses any red gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -98,7 +99,7 @@ A MAJOR bump is an irreversible-scope decision — route it through the §0 B1 g
 
 ## Workflow
 
-Execute these steps in order. **Do not skip any step.** The only ASK gates are §0 (ambiguity), the SemVer-line confirmation in Step 2a, and the human-approval handoff in Step 9. For every ASK, use the platform-native question tool per `agents/shared/user-question-protocol.md`.
+Execute these steps in order. **Do not skip any step.** The only ASK gates are §0 (ambiguity), the Step 1.5 plan gate (Tier >= 2), the SemVer-line confirmation in Step 2a, and the human-approval handoff in Step 9. For every ASK, use the platform-native question tool per `agents/shared/user-question-protocol.md`.
 
 ---
 
@@ -159,6 +160,12 @@ Establish a clean, branch-correct starting state. All commands here are read-onl
    Exit code 2. If already on a `release/*` branch, proceed.
 
 3. **Last tag + change set:** `git describe --tags --abbrev=0` for the prior tag; `git log {lastTag}..HEAD --oneline` for the change set feeding the SemVer decision and the changelog completeness probe. Cache both.
+
+---
+
+## Step 1.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact = the release plan — proposed target version (SemVer Decision Table over the cached change set), changelog scope (`{lastTag}..HEAD`), and the Step 4–8 gate list; slug from the target version (`docs/plans/{YYYY-MM-DD}-release-{X.Y.Z}.md`); gated dispatch = Step 2b implementer bump; revise returns to Step 1.5 synthesis; no unattended flag — Step 9 stops before publish/merge regardless. Tier-1 patch bumps are exempt (Tier < 2 skips artifact persistence per the frame).
 
 ---
 

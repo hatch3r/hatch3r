@@ -60,7 +60,7 @@ Populate the 8 required sections in the order defined by the README schema:
 - {bullet from the most recent Iteration Summary recap's outcome + files facet}
 
 ## Work Remaining
-- {bullet per the recap's `Not done:` item; absent line ⇒ write "None — full scope completed"}
+- {bullet per the recap's `Not done:` item, copied verbatim; the `none — full scope completed` form ⇒ write "None — full scope completed"; a recap with no `Not done:` line is legacy (pre-2.7.1) — only there does absence ⇒ the same fallback}
 
 ## Blockers
 - {bullet per the recap's `Blockers:` item; absent line ⇒ write "None"}
@@ -83,7 +83,7 @@ Populate the 8 required sections in the order defined by the README schema:
 --- END USER-TIER CONTENT: handoff ---
 ```
 
-**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` derive from the session's most recent Iteration Summary per the Handoff Mapping in `rules/hatch3r-iteration-summary.md`: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Present lines are copied **verbatim** — do not paraphrase; the contract is exact reuse so loaders can correlate handoff state with prior turn output. The Work Remaining `Open findings` bullet is composed from the active run's findings-ledger fold (last line per `finding_id` wins; `rules/hatch3r-findings-ledger.md`), authoritative at composition time, in the recap grammar `Open findings: <finding_id> <sev> — <disposition>; …`: when the last recap's line agrees with the fold, copy it verbatim; when it is absent or disagrees (stale recap, mid-session interrupt), the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`; zero open rows ⇒ no bullet.
+**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` derive from the session's most recent Iteration Summary per the Handoff Mapping in `rules/hatch3r-iteration-summary.md`: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line verbatim (the `none — full scope completed` form ⇒ no remaining work; a transcript with no `Not done:` line is a legacy pre-2.7.1 recap, and only there does absent ⇒ `None — full scope completed`); Blockers ← `Blockers:` line, absent ⇒ `None`. Present lines are copied **verbatim** — do not paraphrase; the contract is exact reuse so loaders can correlate handoff state with prior turn output. The Work Remaining `Open findings` bullet is composed from the active run's findings-ledger fold (last line per `finding_id` wins; `rules/hatch3r-findings-ledger.md`), authoritative at composition time, in the recap grammar `Open findings: <finding_id> <sev> — <disposition>; …`: when the last recap's line agrees with the fold, copy it verbatim; when it is absent or disagrees (stale recap, mid-session interrupt), the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`; zero open rows ⇒ no bullet.
 
 **Hard cap:** body ≤ 51,200 bytes (50 KB). If exceeded:
 

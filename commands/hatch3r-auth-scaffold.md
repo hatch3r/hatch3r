@@ -13,6 +13,7 @@ cache_friendly: true
 parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
+plan_gate: true
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-implementer writes the OAuth 2.1 / OIDC / PAT boilerplate (code mutation flows through the implementer per the Mandatory Delegation Directive); one hatch3r-security gates the result against the CQ3 auth-depth floor (PKCE, exact redirect-URI match, ID-token claim validation, token-secret hashing). Independent auth modes (interactive OAuth vs machine-to-machine PAT) fan out to parallel implementers; the implement -> security-gate edge is the only serialization. Cost-dominance per CONSTITUTION §2 P8.
@@ -110,6 +111,8 @@ OAuth 2.1 invariants enforced (draft-ietf-oauth-v2-1-15):
 Tier: 2
 ```
 
+**In-Session Plan Gate (Tier >= 2).** The resolved spec + threat-model block above IS the run's plan artifact — persist it to `docs/plans/{YYYY-MM-DD}-auth-{service}-scaffold.md` before the ASK, per `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: slug from the service name; gated dispatch = Step 3 implementer fan-out; revise = `edit` (re-persist after changes); no unattended flag — this ASK is the interactive seam.
+
 ASK (only gate), per `agents/shared/user-question-protocol.md`:
 
 > Generate the auth scaffold for {name} with the flow + threat model above?
@@ -119,7 +122,7 @@ ASK (only gate), per `agents/shared/user-question-protocol.md`:
 >
 > (accept / edit / skip)
 
-After the user accepts, the run is autonomous through Step 5.
+At Tier >= 2 the gate maps onto this ASK: `accept` = execute now (default), `edit` = revise + re-persist, `skip` = stop — the persisted plan artifact remains for the Execute This Plan handoff. After the user accepts, the run is autonomous through Step 5.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
@@ -137,6 +140,8 @@ cost_estimate:
 Post-execution actuals + delta land in the Step 5 Iteration Summary. `--effort=light|standard|deep` (Decision 17) forces the tier; record both auto and override.
 
 ---
+
+> Gated dispatch (Tier >= 2): Step 3 fires only after the Step 2 In-Session Plan Gate approval — no implementer is spawned before the plan artifact is persisted and accepted.
 
 ## Step 3: Generate Boilerplate (sub-agent delegation)
 
@@ -199,6 +204,10 @@ Worked example for this domain:
 files 9 (+412/−0) · sa 4/4 · gates 3/3 · cost Δ+6% tok / Δ+2% min · tier 2
 Not done: `.env.example` placeholders — deferred: populate real issuer + client_secret before first run
 Next: wire the OIDC callback route into the service router.
+
+## Remaining Work
+
+Not done: `.env.example` placeholders — deferred: populate real issuer + client_secret before first run
 ```
 
 Status decision rules:

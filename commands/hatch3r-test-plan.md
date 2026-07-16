@@ -533,6 +533,12 @@ test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-age
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: test-plan doc, mandate matrix, coverage spec.
 
+## Execute or Defer
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Execute-Now Continuation. Per-command slots: artifact = `docs/specs/{NN}_{scope-slug}_test-plan.md` (the Step 5 spec Step 8 wrote); revise returns to Step 4 (Synthesize & Review Research).
+
+After the Step 8 write, ASK: execute now (default) / revise / stop. `execute now` Reads the emitted `hatch3r-workflow` command file and executes it in THIS conversation with `--plan-file=<artifact>` semantics, emitting a fresh `cost_estimate` at execution start; `stop` or a non-interactive run defers via the Execute This Plan block below. Skipped when this flow runs under `/hatch3r-plan` — the router asks once, consolidated.
+
 ## Iteration Summary (mandatory output)
 
 Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
@@ -583,6 +589,6 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Execute This Plan
 
-Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+Close a **deferred** run (Execute-or-Defer stop, or a non-interactive run) with the Plan-Execution Handoff block immediately after the Iteration Summary recap — a sanctioned post-recap trailer (when the Remaining Work terminal block also fires per `rules/hatch3r-iteration-summary.md`, it renders after this block as the run's very last output) (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
 
 Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/specs/{NN}_{scope-slug}_test-plan.md` (the test-plan spec this run wrote); `<one-line scope>` from the test-planning brief; top-3 criteria from the spec's coverage targets and priority-1 test cases. When todo.md entries were written, append the board-alternative line. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

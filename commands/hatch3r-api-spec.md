@@ -406,6 +406,6 @@ servers:
 
 ## Execute This Plan
 
-Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — the one sanctioned post-recap trailer (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+Close the run with the Plan-Execution Handoff block immediately after the Iteration Summary recap — a sanctioned post-recap trailer (when the Remaining Work terminal block also fires per `rules/hatch3r-iteration-summary.md`, it renders after this block as the run's very last output) (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
 
 Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/api/openapi.yaml` (the spec this run wrote — point at `docs/api/drift-report.md` instead when the run was validate-mode and the fix work lives there); `<one-line scope>` from the API surface scanned; top-3 criteria from the reviewer's validation findings. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block.

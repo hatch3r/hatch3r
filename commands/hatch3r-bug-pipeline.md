@@ -13,6 +13,7 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
+plan_gate: true
 sub_agents_spawned:
   count: 4
   rationale: One researcher (merged reproduce + root-cause), one implementer (regression test + fix authored together, TDD-style), then a reviewer ↔ fixer loop on root-cause depth; the canonical four-phase Final Quality specialists collapse onto the implementer's bundled regression test plus the reviewer's root-cause-depth gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -115,6 +116,12 @@ The researcher prompt MUST include: the bug brief (symptoms, expected behavior, 
 Apply the **Research Completeness Checklist** (`rules/hatch3r-agent-orchestration.md`) before handing off to Phase 2: affected files identified, blast radius assessed (Tier 3), existing tests located (or absence noted), dependencies mapped. If any item is unconfirmed, re-run the researcher with additional modes or surface to the user.
 
 **ASK:** "Top root-cause hypothesis: {hypothesis} (confidence {high/medium/low}). Reproduction path: {summary}. Proceed to author a failing regression test + fix? (yes / adjust hypothesis / re-run researcher)"
+
+---
+
+### Step 1.5: In-Session Plan Gate (Tier >= 2)
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → In-Session Plan Gate. Per-command slots: artifact synthesized from the Step 1 root-cause findings (confirmed hypothesis, reproduction path, affected files, test-first fix order); slug from the bug brief (`docs/plans/{YYYY-MM-DD}-{bug-slug}.md`); gated dispatch = Step 2; revise returns to Step 1.5 synthesis; no unattended flag — non-interactive runs persist the artifact and continue per the frame.
 
 ---
 
