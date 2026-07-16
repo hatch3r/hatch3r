@@ -345,7 +345,7 @@ The npm publish itself runs in CI (`.github/workflows/release.yml`) on the human
 
 ## Step 10: Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
 
 **Status enum:** SUCCESS (release assembled + committed on the branch, all gates green, awaiting human publish) | PARTIAL (a gate ended on a retry-limit miss or SBOM tooling absent) | FAILED (build broken, no release commit produced) | BLOCKED (review loop unresolved after 3 iterations, or a breaking-change decision needs the user). SUCCESS here means "ready for human publish" — never "published".
 

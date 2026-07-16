@@ -12,7 +12,7 @@ scope: always
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with at most two sanctioned trailers after it: the Plan-Execution Handoff block (see §Plan-Execution Handoff below), then the Remaining Work block (§Remaining Work (terminal block)), which when it fires is the run's very last output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with at most two sanctioned trailers after it: the Plan-Execution Handoff block (see §Plan-Execution Handoff below), then the Remaining Work block (§Remaining Work (terminal block)), which when it fires is the run's very last output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 37 (2.7.1; Replaces: 28 — the recap contract that superseded the former sectioned template 2026-07-06).
 
 ## Pre-Execution Cost Preview
 
@@ -104,7 +104,7 @@ Commands whose frontmatter declares `plan_handoff: true` MUST append the Plan-Ex
 
 ## Remaining Work (terminal block)
 
-Fires when the `Not done:` line carries ≥1 item (not the `none — full scope completed` form). Position: the VERY LAST output of the run — after the recap, its exception lines, and the Plan-Execution Handoff block when both fire.
+Fires when the `Not done:` line carries ≥1 item (not the `none — full scope completed` form) (Decision 37). Position: the VERY LAST output of the run — after the recap, its exception lines, and the Plan-Execution Handoff block when both fire.
 
 Format: the heading `## Remaining Work`, then the `Not done:` line copied verbatim, then the `Blockers:` and `Open findings:` lines copied verbatim only when those recap lines fired — zero new bookkeeping; the block re-surfaces recap data for end-of-run prominence.
 

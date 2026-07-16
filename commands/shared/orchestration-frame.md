@@ -176,7 +176,7 @@ Per-command slot: `<plan-path>` (the command's documented artifact path), the `<
 
 ## In-Session Plan Gate (plan_gate: true)
 
-Authoritative rule: `rules/hatch3r-agent-orchestration.md` → Deep Context Integration (Tier 2 hard gate) + Phase Skip Criteria (Phase 1 Mandatory Minimum). Code-mutating orchestrator commands declaring `plan_gate: true` in frontmatter persist their plan as an artifact and gate implementation on it, at effective Tier ≥ 2. Tier 1 runs skip artifact persistence — the command's existing ASK cadence stands.
+Authoritative rule: `rules/hatch3r-agent-orchestration.md` → Deep Context Integration (Tier 2 hard gate) + Phase Skip Criteria (Phase 1 Mandatory Minimum). Code-mutating orchestrator commands declaring `plan_gate: true` in frontmatter persist their plan as an artifact and gate implementation on it, at effective Tier ≥ 2 (CONSTITUTION §6 Decision 36). Tier 1 runs skip artifact persistence — the command's existing ASK cadence stands.
 
 Before the first `hatch3r-implementer`/`hatch3r-fixer` dispatch, the orchestrator synthesizes a plan artifact from the run's triage/research/board context in the workflow 1a-plan seven-field format — scope, acceptance criteria, files to create/modify, implementation order, dependencies, constraints/ADR references, out-of-scope — the same shape `/hatch3r-workflow --plan-file` parses.
 
@@ -196,7 +196,7 @@ Per-command slot: the artifact slug source; the dispatch step gated; the step "r
 
 ## Execute-Now Continuation (executable-plan producers)
 
-Authoritative rule: `rules/hatch3r-iteration-summary.md` → Plan-Execution Handoff (its deferral fallback). Executable-plan producers — `hatch3r-plan` (router), `hatch3r-feature-plan`, `hatch3r-bug-plan`, `hatch3r-migration-plan`, `hatch3r-refactor-plan`, `hatch3r-test-plan`, `hatch3r-rework` — offer same-session execution before falling back to the Decision-35 fresh-session handoff. Doc planners (`hatch3r-roadmap`, `hatch3r-project-spec`, `hatch3r-api-spec`, `hatch3r-spec`) keep their existing endings unchanged.
+Authoritative rule: `rules/hatch3r-iteration-summary.md` → Plan-Execution Handoff (its deferral fallback). Executable-plan producers — `hatch3r-plan` (router), `hatch3r-feature-plan`, `hatch3r-bug-plan`, `hatch3r-migration-plan`, `hatch3r-refactor-plan`, `hatch3r-test-plan`, `hatch3r-rework` — offer same-session execution (CONSTITUTION §6 Decision 36) before falling back to the Decision-35 fresh-session handoff. Doc planners (`hatch3r-roadmap`, `hatch3r-project-spec`, `hatch3r-api-spec`, `hatch3r-spec`) keep their existing endings unchanged.
 
 After deliverable consolidation, before the Iteration Summary, ASK: execute now (default) / revise / stop.
 
