@@ -143,6 +143,110 @@ describe("verify command", () => {
     expect(err.message).toMatch(/drift detected/i);
   });
 
+  // release/2.7.1: the pre-2.6.0 splice corruption (stale raw script stranded
+  // below `// HATCH3R:END` in `.claude/hooks/pretooluse-allowlist.mjs`,
+  // duplicating the ESM imports so Node rejects the hook on every tool call)
+  // used to pass verify as in-sync — the block-only comparison classified the
+  // stranded copy as preserved user content. Verify must now FAIL and carry
+  // the `stale-duplicate-body` detail + delete-then-sync remediation in JSON.
+  it("fails with INTEGRITY_ERROR and reports stale-duplicate-body for a duplicated hook script body", async () => {
+    await createTestProject(tempDir, { tools: ["claude"] });
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const hookAbs = join(tempDir, ".claude", "hooks", "pretooluse-allowlist.mjs");
+    const original = await readFile(hookAbs, "utf-8");
+    expect(original).toContain("// HATCH3R:END");
+    // Model the pre-2.6.0 splice: the old raw script stranded below END.
+    await writeFile(
+      hookAbs,
+      `${original}\n#!/usr/bin/env node\n// hatch3r — Claude Code PreToolUse allowlist hook (C9-H49, D15 P6).\nimport { readFileSync } from "node:fs";\n`,
+      "utf-8",
+    );
+
+    // emitJson writes via process.stdout.write, not console.log — spy on it.
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    let thrown: unknown;
+    try {
+      const { verifyCommand } = await import("../../cli/commands/verify.js");
+      try {
+        await verifyCommand({ format: "json" });
+      } catch (e) {
+        thrown = e;
+      }
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("INTEGRITY_ERROR");
+
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      status: string;
+      entries: Array<{ path: string; status: string; driftDetail?: string; driftMessage?: string }>;
+    };
+    expect(payload.status).toBe("fail");
+    const entry = payload.entries.find(
+      (e) => e.path === ".claude/hooks/pretooluse-allowlist.mjs",
+    );
+    expect(entry?.status).toBe("modified");
+    expect(entry?.driftDetail).toBe("stale-duplicate-body");
+    expect(entry?.driftMessage).toContain("delete the file, then run `npx hatch3r sync`");
+  });
+
+  // release/2.7.1 (r3): stale-duplicate-body drift counts as `modified` but
+  // regeneration can never clear it — the merge path never rewrites content
+  // below the END marker. `verify --fix` must therefore run 0 regenerate
+  // attempts on a stale-only report (no futile snapshot+regenerate cycles),
+  // and the recovery hint must name the real remediation — delete the named
+  // file, then `npx hatch3r sync` — instead of the generic sync/--fix
+  // guidance that cannot heal this class.
+  it("runs 0 regenerate attempts and names delete-then-sync for stale-duplicate-body-only --fix (r3)", async () => {
+    await createTestProject(tempDir, { tools: ["claude"] });
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const hookAbs = join(tempDir, ".claude", "hooks", "pretooluse-allowlist.mjs");
+    const original = await readFile(hookAbs, "utf-8");
+    expect(original).toContain("// HATCH3R:END");
+    // Model the pre-2.6.0 splice: the old raw script stranded below END.
+    await writeFile(
+      hookAbs,
+      `${original}\n#!/usr/bin/env node\n// hatch3r — Claude Code PreToolUse allowlist hook (C9-H49, D15 P6).\nimport { readFileSync } from "node:fs";\n`,
+      "utf-8",
+    );
+
+    consoleSpy.mockClear();
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    let thrown: unknown;
+    try {
+      await verifyCommand({ fix: true });
+    } catch (e) {
+      thrown = e;
+    }
+    // Stale drift still FAILS verify — regeneration cannot clear it.
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("INTEGRITY_ERROR");
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // 0 regenerate attempts: the "--fix attempt N/" progress line never prints.
+    expect(output).not.toMatch(/--fix attempt \d+\//);
+    // The fix-loop's final hint carries the stale-aware delete-then-sync sentence.
+    expect(output).toContain("delete the file(s), then run `npx hatch3r sync`");
+    // The thrown recovery hint names the file and the real remediation, and
+    // drops the generic regenerate guidance that cannot heal this class.
+    const hint = (thrown as HatchError).recoveryHint ?? "";
+    expect(hint).toContain(".claude/hooks/pretooluse-allowlist.mjs");
+    expect(hint).toContain("delete the file(s), then run `npx hatch3r sync`");
+    expect(hint).not.toContain("Run `hatch3r sync` to regenerate");
+  });
+
   it("throws HatchError(INTEGRITY_ERROR) when an adapter output is missing", async () => {
     await createTestProject(tempDir);
 

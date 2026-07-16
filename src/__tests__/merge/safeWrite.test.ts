@@ -14,6 +14,7 @@ import {
   syncParentDirectory,
   predictDenyRefusal,
   isLegacyGeneratedNoMarkerFile,
+  hasStaleDuplicateGeneratedBody,
   LOCK_RETRY_TOTAL_BACKOFF_MS,
 } from "../../merge/safeWrite.js";
 
@@ -2608,6 +2609,13 @@ describe("legacy-generated adoption (release/2.6.0)", () => {
       expect(isLegacyGeneratedNoMarkerFile("// my own hook\nconsole.log(1);\n")).toBe(false);
       expect(isLegacyGeneratedNoMarkerFile("#!/usr/bin/env node\nconst a = 1;\n")).toBe(false);
       expect(isLegacyGeneratedNoMarkerFile("const a = 1;\n// hatch3r — mention\n")).toBe(false);
+    });
+  });
+
+  // release/2.7.1: the status/verify stale-duplicate-body detector.
+  describe("hasStaleDuplicateGeneratedBody", () => {
+    it("returns false for a marker-less .mjs script (no END marker to strand a copy below)", () => {
+      expect(hasStaleDuplicateGeneratedBody(LEGACY_SCRIPT, "pretooluse-allowlist.mjs")).toBe(false);
     });
   });
 

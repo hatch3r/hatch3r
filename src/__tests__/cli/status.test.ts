@@ -776,6 +776,103 @@ describe("status command", () => {
     });
   });
 
+  // release/2.7.1 stale-duplicate-body detection: a pre-2.6.0 sync could splice
+  // the managed-block markers ABOVE the old raw `.claude/hooks/*.mjs` script
+  // instead of replacing it, stranding a stale copy of the script body BELOW
+  // `// HATCH3R:END` (duplicate ESM imports — Node rejects the hook on every
+  // tool call). The block-only comparison classified that suffix as preserved
+  // user content and reported `in-sync`; plain re-sync does not heal it. The
+  // comparison now flags the stranded copy by the safeWrite legacy
+  // generated-script signature, scoped to script-hosted (.js/.mjs/.cjs) outputs.
+  describe("stale duplicate generated-script body (release/2.7.1)", () => {
+    const hookRelPath = ".claude/hooks/pretooluse-allowlist.mjs";
+    /** The two-line legacy header every generated hook script opens with —
+     *  the exact shape a pre-2.6.0 splice stranded below the END marker. */
+    const legacyRawScript =
+      "#!/usr/bin/env node\n" +
+      "// hatch3r — Claude Code PreToolUse allowlist hook (C9-H49, D15 P6).\n" +
+      'import { readFileSync } from "node:fs";\n' +
+      "process.exit(0);\n";
+
+    it("flags a stale duplicate script body below END as stale-duplicate-body with the delete+sync remediation", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const hookAbs = join(tempDir, ".claude", "hooks", "pretooluse-allowlist.mjs");
+      const original = await readFile(hookAbs, "utf-8");
+      expect(original).toContain("// HATCH3R:END"); // fresh write is marker-wrapped
+      // Model the pre-2.6.0 splice result: current marker-wrapped content with
+      // the old raw script stranded below the END marker.
+      await writeFile(hookAbs, `${original}\n${legacyRawScript}`, "utf-8");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift, renderDriftLines } = await import(
+        "../../cli/commands/status.js"
+      );
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === hookRelPath);
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("modified");
+      expect(entry!.driftDetail).toBe("stale-duplicate-body");
+      expect(entry!.driftKind).toBe("canonical-outdated");
+      // The message names the state and the remediation (delete, then sync).
+      expect(entry!.driftMessage).toContain("stale duplicate");
+      expect(entry!.driftMessage).toContain("cannot heal");
+      expect(entry!.driftMessage).toContain("delete the file, then run `npx hatch3r sync`");
+      // The shared human renderer (status always; verify --verbose) carries it.
+      const rendered = renderDriftLines(report).join("\n");
+      expect(rendered).toContain("stale duplicate");
+      expect(rendered).toContain("delete the file, then run `npx hatch3r sync`");
+    });
+
+    it("keeps a genuine user-content suffix below END reporting in-sync (no false positive)", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const hookAbs = join(tempDir, ".claude", "hooks", "pretooluse-allowlist.mjs");
+      const original = await readFile(hookAbs, "utf-8");
+      // A user-authored addition below the END marker — no legacy signature.
+      await writeFile(hookAbs, `${original}\n// local note: keep this hook enabled\n`, "utf-8");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find((e) => e.path === hookRelPath);
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("in-sync");
+      expect(entry!.driftDetail).toBeUndefined();
+    });
+
+    it("does not flag a script snippet pasted below a NON-script managed output (scope gate)", async () => {
+      await createTestProject(tempDir); // cursor fixture
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const cmdAbs = join(tempDir, ".cursor", "commands", "hatch3r-workflow.md");
+      const original = await readFile(cmdAbs, "utf-8");
+      expect(original).toContain("<!-- HATCH3R:END -->");
+      // The same legacy script text below a markdown END marker is USER content
+      // (e.g. pasted for reference) — the .js/.mjs/.cjs scope gate must keep it
+      // unflagged, or status would tell the operator to delete their own file.
+      await writeFile(cmdAbs, `${original}\n${legacyRawScript}`, "utf-8");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const entry = report.entries.find(
+        (e) => e.path === ".cursor/commands/hatch3r-workflow.md",
+      );
+      expect(entry).toBeDefined();
+      expect(entry!.status).toBe("in-sync");
+      expect(entry!.driftDetail).toBeUndefined();
+    });
+  });
+
   // D14-1 (Cycle 11 Wave 1, Critical): monorepo per-package outputs must not be
   // reported as `unexpected` orphans. init/sync write each adapter output into
   // every `<package>/.hatch3r/<rel>` and stamp those paths into

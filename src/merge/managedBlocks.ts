@@ -453,6 +453,34 @@ export function splitAtManagedBlock(
 }
 
 /**
+ * Split {@link content} at the END of its managed block: `head` is every byte
+ * through the line-anchored END marker token (inclusive); `suffix` is every
+ * byte AFTER it — the preserved-user-content region the merge path never
+ * rewrites. Returns `null` when no managed block is detected.
+ *
+ * Stale-duplicate-body detection (release/2.7.1): `status`/`verify` inspect
+ * the suffix for a legacy hatch3r-generated script signature via
+ * `safeWrite.ts::hasStaleDuplicateGeneratedBody` — a pre-2.6.0 sync could
+ * splice markers ABOVE an old raw hook script instead of replacing it,
+ * stranding a stale copy of the script body below END where the block-only
+ * drift comparison cannot see it. Uses the same {@link detectMarkers}
+ * resolution as {@link splitAtManagedBlock} (line-anchored, path-preferred
+ * variant, fence-aware on markdown hosts).
+ */
+export function splitAfterManagedBlock(
+  content: string,
+  filePath?: string,
+): { head: string; suffix: string } | null {
+  const detected = detectMarkers(content, filePath);
+  if (!detected) return null;
+  const afterEnd = detected.endIdx + detected.variant.end.length;
+  return {
+    head: content.substring(0, afterEnd),
+    suffix: content.substring(afterEnd),
+  };
+}
+
+/**
  * True when {@link prefix} — the out-of-block slice BEFORE a managed block —
  * carries no user-authored content, so the sync-side stub heal may replace it
  * with the freshly generated prefix:

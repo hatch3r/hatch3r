@@ -264,7 +264,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Symptom:** Claude Code prints `PreToolUse:… hook error / Failed with non-blocking status code: …pretooluse-allowlist.mjs:<line>` on every tool call — Bash, Read, all of them. Opening `.claude/hooks/pretooluse-allowlist.mjs` shows the script body twice; the duplicated ESM `import` bindings are a Node `SyntaxError` at load.
 
-**Cause:** A pre-2.6.0 `hatch3r sync` spliced managed-block markers above the old raw script instead of replacing it. Current releases replace recognized legacy scripts wholesale, but a file corrupted before that fix stays corrupted: sync preserves content below the `// HATCH3R:END` marker as user content, so re-running sync does not heal it — and `hatch3r status`/`verify` report the file as in-sync.
+**Cause:** A pre-2.6.0 `hatch3r sync` spliced managed-block markers above the old raw script instead of replacing it. Current releases replace recognized legacy scripts wholesale, but a file corrupted before that fix stays corrupted: sync preserves content below the `// HATCH3R:END` marker as user content, so re-running sync does not heal it. `hatch3r status`/`verify` (2.7.1+) flag the file as drifted with detail `stale-duplicate-body` and name this exact fix; older CLIs reported it as in-sync.
 
 **Solution:**
 1. Delete the corrupted file: `rm .claude/hooks/pretooluse-allowlist.mjs` (it then shows as `missing` in `hatch3r status`)

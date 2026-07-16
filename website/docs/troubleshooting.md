@@ -158,7 +158,7 @@ Run `npx hatch3r status` to check. Run `npx hatch3r sync` to fix drift.
 
 ### PreToolUse hook error on every tool call (pretooluse-allowlist.mjs)
 
-Claude Code prints `PreToolUse:… hook error / Failed with non-blocking status code: …pretooluse-allowlist.mjs:<line>` on every tool call, and the file body appears twice (duplicate ESM `import` bindings — a Node `SyntaxError` at load). A pre-2.6.0 `hatch3r sync` spliced managed-block markers above the old raw script instead of replacing it; sync preserves content below the `// HATCH3R:END` marker as user content, so re-syncing does not heal it and `status`/`verify` report the file as in-sync.
+Claude Code prints `PreToolUse:… hook error / Failed with non-blocking status code: …pretooluse-allowlist.mjs:<line>` on every tool call, and the file body appears twice (duplicate ESM `import` bindings — a Node `SyntaxError` at load). A pre-2.6.0 `hatch3r sync` spliced managed-block markers above the old raw script instead of replacing it; sync preserves content below the `// HATCH3R:END` marker as user content, so re-syncing does not heal it. `hatch3r status`/`verify` (2.7.1+) flag the file as drifted with detail `stale-duplicate-body` and name this fix; older CLIs reported it as in-sync.
 
 **Fix:** delete `.claude/hooks/pretooluse-allowlist.mjs` (it then shows as `missing` in `hatch3r status`), then run `npx hatch3r sync`.
 

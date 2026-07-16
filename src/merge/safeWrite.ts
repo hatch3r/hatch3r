@@ -13,13 +13,20 @@ import {
 import { dirname, basename, join, resolve } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import * as properLockfile from "proper-lockfile";
-import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
+import {
+  HATCH3R_PREFIX,
+  HatchError,
+  MANAGED_BLOCK_START_JS,
+  getMarkersForPath,
+  type MergeResult,
+} from "../types.js";
 import {
   insertManagedBlock,
   hasManagedBlock,
   extractCustomContent,
   wouldChangeMarkerVariant,
   splitAtManagedBlock,
+  splitAfterManagedBlock,
   isHealableManagedPrefix,
 } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
@@ -1100,6 +1107,37 @@ const LEGACY_GENERATED_NO_MARKER_SIGNATURES: readonly RegExp[] = [
  */
 export function isLegacyGeneratedNoMarkerFile(existingContent: string): boolean {
   return LEGACY_GENERATED_NO_MARKER_SIGNATURES.some((re) => re.test(existingContent));
+}
+
+/**
+ * release/2.7.1 — stale-duplicate-body detection for `status`/`verify`. True
+ * when a MARKER-WRAPPED script output still carries a stale raw copy of a
+ * hatch3r-generated script BELOW its `// HATCH3R:END` marker: a pre-2.6.0
+ * `hatch3r sync` (before the legacy-adoption branch above existed) could
+ * prepend-splice the new managed block ABOVE the old raw script instead of
+ * replacing it, duplicating the ESM `import` bindings — a SyntaxError on
+ * every hook invocation. The managed-block model classifies that suffix as
+ * preserved user content, so the block-only drift comparison reported the
+ * file `in-sync` and a plain re-sync never heals it (the merge path never
+ * rewrites content below END); remediation is delete the file, then
+ * `hatch3r sync`.
+ *
+ * Scoped to script-hosted outputs only (`.js`/`.mjs`/`.cjs` — the paths
+ * {@link getMarkersForPath} assigns the JS marker variant): only script
+ * outputs can carry this corruption class (the pre-2.6.0 raw emissions were
+ * all `.mjs` hook scripts), and the gate keeps a hatch3r script snippet a
+ * user legitimately pasted below the END marker of a markdown/YAML output
+ * from being flagged for deletion. Reuses
+ * {@link LEGACY_GENERATED_NO_MARKER_SIGNATURES} via
+ * {@link isLegacyGeneratedNoMarkerFile}; the signature is start-anchored, so
+ * the suffix is tested with leading whitespace stripped (the splice left a
+ * blank line between END and the stranded body).
+ */
+export function hasStaleDuplicateGeneratedBody(content: string, filePath: string): boolean {
+  if (getMarkersForPath(filePath).start !== MANAGED_BLOCK_START_JS) return false;
+  const split = splitAfterManagedBlock(content, filePath);
+  if (split === null) return false;
+  return isLegacyGeneratedNoMarkerFile(split.suffix.trimStart());
 }
 
 /**

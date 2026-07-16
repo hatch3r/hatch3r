@@ -145,6 +145,20 @@ function driftCountOf(report: DriftReport): number {
 }
 
 /**
+ * release/2.7.1 (r3): paths of `modified` entries carrying the
+ * `stale-duplicate-body` detail — a stale raw copy of the generated script
+ * stranded BELOW the HATCH3R:END marker by a pre-2.6.0 sync splice.
+ * Regeneration can never clear these (the merge path never rewrites content
+ * below END), so they are excluded from {@link regenerableDriftCountOf} and
+ * get a dedicated delete-then-sync sentence in {@link buildRecoveryHint}.
+ */
+function staleDuplicateBodyPathsOf(report: DriftReport): string[] {
+  return report.entries
+    .filter((e) => e.driftDetail === "stale-duplicate-body")
+    .map((e) => e.path);
+}
+
+/**
  * D1-SA1.4-07 / D2-SA2.7-06 (D1/D2, P1): the subset of drift that REGENERATION
  * can clear — drifted (`modified`) + `missing` managed output. Orphan
  * (`unexpected`) files are removed only by `hatch3r clean`, never by
@@ -154,9 +168,16 @@ function driftCountOf(report: DriftReport): number {
  * minting a snapshot session and regenerating every adapter) with zero chance
  * of clearing the drift. {@link driftCountOf} (which still counts `unexpected`)
  * continues to drive the PASS/FAIL exit code — an orphan is still real drift.
+ *
+ * release/2.7.1 (r3): `stale-duplicate-body` entries are excluded for the same
+ * reason — they count into `modified`, but the corruption lives BELOW the END
+ * marker where regeneration never writes, so a stale-only report must drive 0
+ * regenerate attempts (the remediation is delete + re-sync, not `--fix`).
  */
 function regenerableDriftCountOf(report: DriftReport): number {
-  return report.counts.modified + report.counts.missing;
+  return (
+    report.counts.modified - staleDuplicateBodyPathsOf(report).length + report.counts.missing
+  );
 }
 
 /**
@@ -169,28 +190,56 @@ function regenerableDriftCountOf(report: DriftReport): number {
  * for missing, clean for unexpected): emit `clean` when the drift is purely
  * orphan files, `sync` when drift includes drifted/missing output (and append a
  * `clean` note when orphans also coexist).
+ *
+ * release/2.7.1 (r3): `stale-duplicate-body` entries get their own sentence —
+ * neither `sync` nor `--fix` can heal them (the merge path never rewrites
+ * content below the END marker), so the hint names the real remediation
+ * (delete the listed file(s), then `npx hatch3r sync`) and, on a stale-only
+ * failure, replaces the generic sync/--fix guidance entirely.
  */
 function buildRecoveryHint(report: DriftReport, olderSkewHint?: string): string {
-  const { modified, missing, unexpected } = report.counts;
-  const hasSyncable = modified > 0 || missing > 0;
+  const { unexpected } = report.counts;
+  const stalePaths = staleDuplicateBodyPathsOf(report);
+  const staleSentence =
+    stalePaths.length > 0
+      ? "Stale duplicate of the generated script below the END marker in " +
+        `${stalePaths.map((p) => `\`${p}\``).join(", ")} — \`hatch3r sync\` cannot heal this: ` +
+        "delete the file(s), then run `npx hatch3r sync`."
+      : "";
+  const withStale = (hint: string): string =>
+    staleSentence === "" ? hint : `${hint} ${staleSentence}`;
+  // Syncable = drift REGENERATION can clear; stale-duplicate-body entries are
+  // excluded (see regenerableDriftCountOf) so they never point at a no-op sync.
+  const hasSyncable = regenerableDriftCountOf(report) > 0;
+  if (!hasSyncable && unexpected === 0 && stalePaths.length > 0) {
+    // Stale-only failure — the delete-then-sync sentence IS the remediation;
+    // the generic sync/--fix guidance cannot heal this class.
+    return staleSentence;
+  }
   if (!hasSyncable && unexpected > 0) {
     // Orphan-only drift — `clean`, not `sync`; version skew is irrelevant
     // (clean removes files, it never regenerates from canonical).
-    return "Run `hatch3r clean` to remove unexpected files no longer produced by any adapter.";
+    return withStale(
+      "Run `hatch3r clean` to remove unexpected files no longer produced by any adapter.",
+    );
   }
   // D1-SA1.4-04 (D1, P1): installed-older + real (syncable) drift → `sync`/`--fix`
   // would regenerate from the OLDER canonical set and DOWNGRADE the files. Point
   // at `update` first (the `olderSkewHint` sentence) instead of sync.
   if (olderSkewHint && hasSyncable) {
-    return unexpected > 0
-      ? `${olderSkewHint} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
-      : olderSkewHint;
+    return withStale(
+      unexpected > 0
+        ? `${olderSkewHint} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
+        : olderSkewHint,
+    );
   }
   const base =
     "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.";
-  return unexpected > 0
-    ? `${base} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
-    : base;
+  return withStale(
+    unexpected > 0
+      ? `${base} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
+      : base,
+  );
 }
 
 /**
@@ -308,6 +357,10 @@ async function runFixLoop(
   // report must perform 0 regenerate attempts instead of spinning futile
   // snapshot+regenerate cycles it can never clear (the operator is pointed at
   // `hatch3r clean` in the caller's category-aware hint instead).
+  // release/2.7.1 (r3): `stale-duplicate-body` entries are likewise excluded
+  // from the count — regeneration never rewrites content below the END marker,
+  // so a stale-only report also drives 0 attempts (the caller's hint names the
+  // delete-then-sync remediation instead).
   for (let attempt = 1; attempt <= attempts && regenerableDriftCountOf(report) > 0; attempt++) {
     info(`--fix attempt ${attempt}/${attempts}: regenerating drifted adapter output...`);
     const result = await runRegenerate(rootDir, manifest, { snapshotCommandName: "verify-fix" });
