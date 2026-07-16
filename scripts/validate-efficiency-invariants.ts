@@ -104,8 +104,23 @@
  *                     (c) `commands/shared/orchestration-frame.md` contains
  *                     the `## Plan-Execution Handoff` section and the literal
  *                     `--plan-file=` template line.
+ *   --plan-gate       In-session plan gate contract (release/2.7.1):
+ *                     (a) roster lock in BOTH directions — every pinned
+ *                     PLAN_GATE_COMMANDS roster member declares
+ *                     `plan_gate: true` (PLAN-GATE-ROSTER-MISS: silent key
+ *                     removal) AND every `commands/hatch3r-*.md` declaring
+ *                     `plan_gate: true` is a roster member
+ *                     (PLAN-GATE-KEY-MISS: unreviewed addition); (b) each
+ *                     gated command's body carries BOTH the literal
+ *                     `In-Session Plan Gate` AND the frame path
+ *                     `commands/shared/orchestration-frame.md`
+ *                     (PLAN-GATE-POINTER-MISS); (c) the orchestration frame
+ *                     contains the `## In-Session Plan Gate (plan_gate: true)`
+ *                     and `## Execute-Now Continuation (executable-plan
+ *                     producers)` sections and the ASK literal `execute now`
+ *                     (PLAN-GATE-FRAME-MISS).
  *
- * No flags → all twelve modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all thirteen modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/EVOLVE.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -209,6 +224,8 @@ interface ModeFlags {
   planHandoff?: boolean;
   /** Mode L — website quick-start fast-path line cap (EVOLVE a2a16b59 / S2-F4). */
   quickStartCap?: boolean;
+  /** Mode M — in-session plan gate contract on gated orchestrator commands (release/2.7.1). */
+  planGate?: boolean;
 }
 
 interface RunOptions {
@@ -244,7 +261,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
     "--rule-narrative", "--orch-contract", "--efficiency-tier",
     "--rule-line-cap", "--runtime-efficiency", "--model-class",
-    "--plan-handoff", "--quick-start-cap",
+    "--plan-handoff", "--quick-start-cap", "--plan-gate",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
@@ -252,7 +269,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
       ruleNarrative: true, orchContract: true, efficiencyTier: true,
       ruleLineCap: true, runtimeEfficiency: true, modelClass: true,
-      planHandoff: true, quickStartCap: true,
+      planHandoff: true, quickStartCap: true, planGate: true,
     };
   }
   return {
@@ -268,6 +285,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     modelClass: requested.has("--model-class"),
     planHandoff: requested.has("--plan-handoff"),
     quickStartCap: requested.has("--quick-start-cap"),
+    planGate: requested.has("--plan-gate"),
   };
 }
 
@@ -1112,6 +1130,155 @@ async function checkQuickStartCap(absPath: string): Promise<Finding[]> {
   }];
 }
 
+// ── Mode M: plan-gate (release/2.7.1) ───────────────────────────────
+//
+// Gated orchestrator commands pause after emitting their in-session plan and
+// ASK before mutating the repo (In-Session Plan Gate). Format owner:
+// `commands/shared/orchestration-frame.md` → In-Session Plan Gate +
+// Execute-Now Continuation; each gated command carries a one-line frame
+// citation instead of an inlined copy. Exempt by design (deliberately NOT in
+// the roster):
+//
+//   - hatch3r-workflow                — direct-execution entry point (the gate
+//                                       would double-ASK its own intake)
+//   - hatch3r-quick-change            — Tier-1 carve-out (no plan phase)
+//   - hatch3r-incident-response       — urgency path (a gate delays mitigation)
+//   - hatch3r-healthcheck,
+//     hatch3r-security-audit,
+//     hatch3r-board-fill              — board-artifact-only outputs (no code
+//                                       mutation to gate)
+//
+//   All other orchestrator commands produce docs/board artifacts rather than
+//   gated code mutations, so the roster + exempt list closes the enumeration.
+//
+// Three error-level checks:
+//
+//   (a) PLAN-GATE-ROSTER-MISS / PLAN-GATE-KEY-MISS — roster lock in BOTH
+//       directions: every PLAN_GATE_COMMANDS member present in the scanned dir
+//       declares `plan_gate: true` (silent key removal), AND every
+//       `commands/hatch3r-*.md` declaring `plan_gate: true` is a roster member
+//       (unreviewed addition). An absent roster FILE is skipped here — corpus
+//       presence is owned by the AGENT_COMMAND_NAMES drift guard and the
+//       inventory gate, not this mode (same tolerance as Mode K).
+//   (b) PLAN-GATE-POINTER-MISS — each command declaring `plan_gate: true`
+//       carries BOTH the literal `In-Session Plan Gate` AND the frame path
+//       `commands/shared/orchestration-frame.md` in its body (co-occurrence —
+//       the section literal alone is not a frame citation).
+//   (c) PLAN-GATE-FRAME-MISS — the orchestration frame contains the
+//       `## In-Session Plan Gate (plan_gate: true)` and
+//       `## Execute-Now Continuation (executable-plan producers)` sections and
+//       the ASK literal `execute now` (single home of the gate contract).
+
+const PLAN_GATE_COMMANDS: readonly string[] = [
+  "hatch3r-board-pickup.md",
+  "hatch3r-bug-pipeline.md",
+  "hatch3r-debug.md",
+  "hatch3r-diagnose.md",
+  "hatch3r-design-system-create.md",
+  "hatch3r-pr-resolve.md",
+  "hatch3r-release.md",
+  "hatch3r-auth-scaffold.md",
+  "hatch3r-slo-scaffold.md",
+];
+
+const PLAN_GATE_POINTER = "In-Session Plan Gate";
+const PLAN_GATE_FRAME_HEADING = "## In-Session Plan Gate (plan_gate: true)";
+const EXECUTE_NOW_FRAME_HEADING = "## Execute-Now Continuation (executable-plan producers)";
+const EXECUTE_NOW_ASK_LITERAL = "execute now";
+
+const hasPlanGate = (fm: Record<string, unknown>): boolean => fm.plan_gate === true;
+
+function checkPlanGateRoster(commandFiles: readonly ParsedFile[]): Finding[] {
+  const out: Finding[] = [];
+  const byBasename = new Map(commandFiles.map((f) => [posix.basename(f.relPath), f]));
+  // Direction 1 (ROSTER-MISS): pinned roster member lost the key.
+  for (const name of PLAN_GATE_COMMANDS) {
+    const f = byBasename.get(name);
+    if (!f) continue;
+    if (!hasPlanGate(f.frontmatter)) {
+      out.push({
+        level: "error", code: "PLAN-GATE-ROSTER-MISS", file: f.relPath,
+        message:
+          "pinned plan-gate roster member (PLAN_GATE_COMMANDS) lacks `plan_gate: true` in " +
+          "frontmatter — removing the key silently drops the in-session plan gate",
+      });
+    }
+  }
+  // Direction 2 (KEY-MISS): a key-bearing command is not in the pinned roster.
+  const rosterSet = new Set(PLAN_GATE_COMMANDS);
+  for (const f of commandFiles) {
+    if (!f.relPath.startsWith("commands/hatch3r-")) continue;
+    if (!hasPlanGate(f.frontmatter)) continue;
+    if (!rosterSet.has(posix.basename(f.relPath))) {
+      out.push({
+        level: "error", code: "PLAN-GATE-KEY-MISS", file: f.relPath,
+        message:
+          "command declares `plan_gate: true` but is not in the pinned PLAN_GATE_COMMANDS " +
+          "roster — add it to the roster (reviewed addition) or drop the key; the two-way " +
+          "lock exists so gate membership never changes unreviewed",
+      });
+    }
+  }
+  return out;
+}
+
+function checkPlanGatePointer(file: ParsedFile): Finding[] {
+  if (!file.relPath.startsWith("commands/hatch3r-")) return [];
+  if (!hasPlanGate(file.frontmatter)) return [];
+  if (file.body.includes(PLAN_GATE_POINTER) && file.body.includes(ORCH_FRAME_REL)) return [];
+  return [{
+    level: "error", code: "PLAN-GATE-POINTER-MISS", file: file.relPath,
+    message:
+      "command declares `plan_gate: true` but its body does not carry BOTH the literal " +
+      `\`In-Session Plan Gate\` AND the frame path \`${ORCH_FRAME_REL}\` — each gated command ` +
+      `cites the gate contract's single home (${ORCH_FRAME_REL} → In-Session Plan Gate) ` +
+      "instead of inlining a copy; the section literal alone is not a frame citation",
+  }];
+}
+
+async function checkPlanGateFrame(frameAbs: string): Promise<Finding[]> {
+  let raw: string;
+  try {
+    raw = await readFile(frameAbs, "utf-8");
+    // Not silent: the read failure IS the diagnostic — the catch returns an
+    // error-level finding the caller prints and exits non-zero on.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return [{
+      level: "error", code: "PLAN-GATE-FRAME-MISS", file: ORCH_FRAME_REL,
+      message:
+        "orchestration frame not found — it is the single home of the In-Session Plan Gate + " +
+        "Execute-Now Continuation contracts (Mode M check (c))",
+    }];
+  }
+  const out: Finding[] = [];
+  if (!raw.includes(PLAN_GATE_FRAME_HEADING)) {
+    out.push({
+      level: "error", code: "PLAN-GATE-FRAME-MISS", file: ORCH_FRAME_REL,
+      message:
+        `missing the \`${PLAN_GATE_FRAME_HEADING}\` section (single home of the in-session ` +
+        "plan-gate contract)",
+    });
+  }
+  if (!raw.includes(EXECUTE_NOW_FRAME_HEADING)) {
+    out.push({
+      level: "error", code: "PLAN-GATE-FRAME-MISS", file: ORCH_FRAME_REL,
+      message:
+        `missing the \`${EXECUTE_NOW_FRAME_HEADING}\` section (single home of the ` +
+        "executable-plan producers' continuation contract)",
+    });
+  }
+  if (!raw.includes(EXECUTE_NOW_ASK_LITERAL)) {
+    out.push({
+      level: "error", code: "PLAN-GATE-FRAME-MISS", file: ORCH_FRAME_REL,
+      message:
+        `missing the ASK literal \`${EXECUTE_NOW_ASK_LITERAL}\` (the continuation reply token ` +
+        "gated commands and executable-plan producers both quote)",
+    });
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function listSkillFiles(dir: string): Promise<string[]> {
@@ -1271,6 +1438,11 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   }
   if (opts.flags.quickStartCap) {
     findings.push(...(await checkQuickStartCap(opts.quickStartFile ?? join(ROOT, QUICK_START_REL))));
+  }
+  if (opts.flags.planGate) {
+    for (const f of commandFiles) findings.push(...checkPlanGatePointer(f));
+    findings.push(...checkPlanGateRoster(commandFiles));
+    findings.push(...(await checkPlanGateFrame(join(cmdDir, "shared", "orchestration-frame.md"))));
   }
 
   let errorCount = 0, warningCount = 0;

@@ -1681,4 +1681,199 @@ Close the run with the recap. Then emit the Plan-Execution Handoff block per the
     expect(findings.filter((f) => f.code.startsWith("PLAN-HANDOFF"))).toHaveLength(0);
     expect(errorCount).toBe(0);
   });
+
+  // ── Mode M: plan-gate (release/2.7.1) ─────────────────────────────
+  const PLAN_GATE_FLAGS = {
+    triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, planGate: true,
+  } as const;
+
+  const PLAN_GATE_FRAME_BODY = `# Orchestration Frame
+
+## In-Session Plan Gate (plan_gate: true)
+
+Emit the in-session plan, then ASK before mutating the repo.
+
+## Execute-Now Continuation (executable-plan producers)
+
+Reply \`execute now\` to continue execution in this session.
+`;
+
+  it("Mode M: ERRORs (PLAN-GATE-ROSTER-MISS) when a pinned roster file lacks plan_gate: true", async () => {
+    await writeFrame(fx.commandsDir, PLAN_GATE_FRAME_BODY);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
+type: command
+description: Debug command
+tags: [maintenance]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]`,
+      `# Debug
+
+Pause per the In-Session Plan Gate (orchestration frame) before executing.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const roster = findings.filter((f) => f.code === "PLAN-GATE-ROSTER-MISS");
+    expect(roster).toHaveLength(1);
+    expect(roster[0].file).toBe("commands/hatch3r-debug.md");
+    // No POINTER-MISS: the pointer check only binds commands declaring the key.
+    expect(findings.filter((f) => f.code === "PLAN-GATE-POINTER-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode M: ERRORs (PLAN-GATE-KEY-MISS) when a non-roster command declares plan_gate: true", async () => {
+    await writeFrame(fx.commandsDir, PLAN_GATE_FRAME_BODY);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-mycustom.md"),
+      `id: hatch3r-mycustom
+type: command
+description: Custom orchestrator
+tags: [maintenance]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+plan_gate: true`,
+      `# My Custom
+
+Pause per \`commands/shared/orchestration-frame.md\` -> In-Session Plan Gate before executing.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const keyMiss = findings.filter((f) => f.code === "PLAN-GATE-KEY-MISS");
+    expect(keyMiss).toHaveLength(1);
+    expect(keyMiss[0].file).toBe("commands/hatch3r-mycustom.md");
+    expect(keyMiss[0].message).toContain("PLAN_GATE_COMMANDS");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode M: ERRORs (PLAN-GATE-POINTER-MISS) when a gated command lacks the In-Session Plan Gate citation", async () => {
+    await writeFrame(fx.commandsDir, PLAN_GATE_FRAME_BODY);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
+type: command
+description: Debug command
+tags: [maintenance]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+plan_gate: true`,
+      `# Debug
+
+Body with no frame citation.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const pointer = findings.filter((f) => f.code === "PLAN-GATE-POINTER-MISS");
+    expect(pointer).toHaveLength(1);
+    expect(pointer[0].file).toBe("commands/hatch3r-debug.md");
+    expect(pointer[0].message).toContain("In-Session Plan Gate");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode M: ERRORs (PLAN-GATE-POINTER-MISS) when a gated command has the literal but not the frame path (co-occurrence)", async () => {
+    await writeFrame(fx.commandsDir, PLAN_GATE_FRAME_BODY);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
+type: command
+description: Debug command
+tags: [maintenance]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+plan_gate: true`,
+      `# Debug
+
+Pause per the In-Session Plan Gate before executing.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const pointer = findings.filter((f) => f.code === "PLAN-GATE-POINTER-MISS");
+    expect(pointer).toHaveLength(1);
+    expect(pointer[0].file).toBe("commands/hatch3r-debug.md");
+    expect(pointer[0].message).toContain("commands/shared/orchestration-frame.md");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode M: ERRORs (PLAN-GATE-FRAME-MISS) once per missing frame section / ASK literal", async () => {
+    // Frame carries the gate section but neither the Execute-Now Continuation
+    // heading nor the `execute now` ASK literal → exactly two findings.
+    await writeFrame(
+      fx.commandsDir,
+      "# Orchestration Frame\n\n## In-Session Plan Gate (plan_gate: true)\n\nGate contract only.\n",
+    );
+
+    const { findings } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const frame = findings.filter((f) => f.code === "PLAN-GATE-FRAME-MISS");
+    expect(frame).toHaveLength(2);
+    expect(frame.some((f) => f.message.includes("Execute-Now Continuation"))).toBe(true);
+    expect(frame.some((f) => f.message.includes("execute now"))).toBe(true);
+  });
+
+  it("Mode M: ERRORs (PLAN-GATE-FRAME-MISS) when the frame file is absent entirely", async () => {
+    const { findings } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const frame = findings.filter((f) => f.code === "PLAN-GATE-FRAME-MISS");
+    expect(frame).toHaveLength(1);
+    expect(frame[0].message).toContain("not found");
+  });
+
+  it("Mode M: PASSes a roster command with plan_gate: true, the frame citation, and a compliant frame", async () => {
+    await writeFrame(fx.commandsDir, PLAN_GATE_FRAME_BODY);
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
+type: command
+description: Debug command
+tags: [maintenance]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+plan_gate: true`,
+      `# Debug
+
+Pause per \`commands/shared/orchestration-frame.md\` -> In-Session Plan Gate before executing.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: PLAN_GATE_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("PLAN-GATE"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
 });
