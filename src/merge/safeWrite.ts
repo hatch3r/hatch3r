@@ -1170,7 +1170,8 @@ export function hasStaleDuplicateGeneratedBody(content: string, filePath: string
  * - Without `managedContent`:
  *   - hatch3r-managed filename OR `force` → `unchanged` when bytes match, else
  *     `updated`.
- *   - otherwise → `skipped`.
+ *   - otherwise → `unchanged` when bytes match (silent-writes sweep: mirrors
+ *     the live skip branch's G3 guard), else `skipped`.
  *
  * The deny-pattern scan is intentionally NOT run here: a deny hit aborts the
  * live write (throws) rather than producing an action, and this predictor
@@ -1255,6 +1256,8 @@ export function predictMergeAction(
     if (skipIfUnchanged && content === existingContent) return "unchanged";
     return "updated";
   }
+  // Silent-writes sweep: mirror the live skip branch's G3 unchanged guard.
+  if (skipIfUnchanged && content === existingContent) return "unchanged";
   return "skipped";
 }
 
@@ -1945,11 +1948,24 @@ async function safeWriteFileLocked(
     return { path: filePath, action: "updated" };
   }
 
-  // #144 (D19-15): Improved recovery guidance — avoid suggesting init --force
+  // Silent-writes sweep (release/2.7.1): identical bytes are "unchanged", not
+  // "skipped" — the same G3 guard every sibling branch applies. Raw JSON
+  // outputs (.claude/settings.json, .mcp.json, agent-tool-policies.json) are
+  // emitted without managed blocks by design (JSON has no comment syntax —
+  // see getMarkersForPath), so a fresh `init` → `sync` round-trip landed here
+  // with byte-identical content and warned "markers missing" on every run.
+  if (skipIfUnchanged && content === existingContent) {
+    return { path: filePath, action: "unchanged" };
+  }
+  // #144 (D19-15) + silent-writes sweep: this branch has no managedContent,
+  // so the marker-restoration guidance the managedContent branch gives would
+  // be wrong here — hatch3r's own marker-less JSON outputs land on this
+  // branch by design. Name the real condition (existing unmanaged file,
+  // differing bytes) and the two recovery paths.
   return {
     path: filePath,
     action: "skipped",
-    warning: `Skipped ${filePath}: managed block markers (HATCH3R:BEGIN/END) missing. To fix: restore the markers around hatch3r content, or run \`hatch3r sync\` to re-splice the managed block while preserving your content below it, or move your custom content elsewhere and re-run the command.`,
+    warning: `Skipped ${filePath}: it already exists with different content and its filename is not hatch3r-managed, so it was left untouched (hatch3r's generated content changed since this file was written, or the file was edited locally). To regenerate it from hatch3r output, run \`hatch3r sync --force\` (the existing file is backed up to a .bak copy first), or delete the file and re-run the command.`,
   };
 }
 

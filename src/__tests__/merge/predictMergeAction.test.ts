@@ -206,6 +206,20 @@ describe("predictMergeAction", () => {
     it("predicts 'skipped' for a non-managed filename without force", () => {
       expect(predictMergeAction("user content", "new", "custom.md")).toBe("skipped");
     });
+
+    // Silent-writes sweep (release/2.7.1): the live unmanaged skip branch
+    // gained the G3 unchanged guard, so byte-identical content on a
+    // non-managed filename previews as "unchanged", not "skipped" — keeping
+    // dry-run rows in lockstep with the live write.
+    it("predicts 'unchanged' for a non-managed filename without force when bytes match", () => {
+      expect(predictMergeAction("same bytes", "same bytes", "custom.md")).toBe("unchanged");
+    });
+
+    it("keeps predicting 'skipped' for matching bytes when skipIfUnchanged is false", () => {
+      expect(
+        predictMergeAction("same bytes", "same bytes", "custom.md", { skipIfUnchanged: false }),
+      ).toBe("skipped");
+    });
   });
 });
 

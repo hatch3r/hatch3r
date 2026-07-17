@@ -1766,7 +1766,12 @@ describe("no-marker skip warning names a recovering command (D10-SA10.4-01)", ()
     expect(result.warning).not.toContain("re-run hatch3r update");
   });
 
-  it("non-managed filename skip carries the same recovery guidance", async () => {
+  // Silent-writes sweep (release/2.7.1): the unmanaged branch has no
+  // managedContent, so marker-restoration guidance would be wrong there —
+  // hatch3r's own marker-less JSON outputs (.claude/settings.json, .mcp.json)
+  // land on that branch by design. The warning must name the real condition
+  // and the two recovery paths (`hatch3r sync --force` or delete + re-run).
+  it("non-managed filename skip names the real condition and actionable recovery, not marker guidance", async () => {
     const dir = await createTempDir();
     const filePath = join(dir, "custom-file.md");
     await writeFile(filePath, "user content", "utf-8");
@@ -1774,8 +1779,73 @@ describe("no-marker skip warning names a recovering command (D10-SA10.4-01)", ()
     const result = await safeWriteFile(filePath, "new content");
 
     expect(result.action).toBe("skipped");
-    expect(result.warning).toContain("hatch3r sync");
+    expect(result.warning).toContain("hatch3r sync --force");
+    expect(result.warning).toContain("delete the file");
+    // No marker guidance on this branch: restoring HATCH3R:BEGIN/END inside
+    // a raw JSON output is impossible (JSON has no comment syntax).
+    expect(result.warning).not.toContain("HATCH3R:BEGIN");
+    expect(result.warning).not.toContain("restore the markers");
     expect(result.warning).not.toContain("re-run hatch3r update");
+  });
+});
+
+// Silent-writes sweep (release/2.7.1): the unmanaged skip branch previously
+// lacked the G3 unchanged guard every sibling branch applies, so a fresh
+// `init` → `sync` round-trip reported "skipped" + a spurious "markers missing"
+// warning for byte-identical raw JSON outputs (.claude/settings.json,
+// .mcp.json, agent-tool-policies.json).
+describe("unmanaged skip branch: G3 unchanged guard (silent-writes sweep)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-skipunchanged-"));
+    return tempDir;
+  }
+
+  it("returns 'unchanged' with no warning when the existing unmanaged file already matches the incoming bytes", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "settings.json");
+    const body = JSON.stringify({ env: { X: "1" } }, null, 2);
+    await writeFile(filePath, body, "utf-8");
+
+    const result = await safeWriteFile(filePath, body);
+
+    expect(result.action).toBe("unchanged");
+    expect(result.warning).toBeUndefined();
+    expect(await readFile(filePath, "utf-8")).toBe(body);
+  });
+
+  it("still skips (with warning) when the existing unmanaged file differs", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "settings.json");
+    await writeFile(filePath, "{\"old\": true}", "utf-8");
+
+    const result = await safeWriteFile(filePath, "{\"new\": true}");
+
+    expect(result.action).toBe("skipped");
+    expect(result.warning).toBeDefined();
+    expect(await readFile(filePath, "utf-8")).toBe("{\"old\": true}");
+  });
+
+  // The (ii)-class fix shape for hatch3r-owned machine-local state
+  // (.failure-log.jsonl rotation, .breaker-state.jsonl persistence): force
+  // writes through an existing unmanaged target, and backup: false leaves no
+  // `.bak` litter for regenerable state.
+  it("force + backup:false updates an existing unmanaged state file and leaves no .bak", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, ".breaker-state.jsonl");
+    await writeFile(filePath, "{\"run\":1}\n", "utf-8");
+
+    const result = await safeWriteFile(filePath, "{\"run\":2}\n", { force: true, backup: false });
+
+    expect(result.action).toBe("updated");
+    expect(await readFile(filePath, "utf-8")).toBe("{\"run\":2}\n");
+    const bakExists = await access(filePath + ".bak").then(() => true).catch(() => false);
+    expect(bakExists).toBe(false);
   });
 });
 

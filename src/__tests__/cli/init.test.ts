@@ -3720,6 +3720,35 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
     }
   });
 
+  // Silent-writes sweep (release/2.7.1): `.gitignore` is not a hatch3r-managed
+  // filename, so the per-package entry registration previously routed through
+  // safeWriteFile's skip branch whenever the repo already HAD a `.gitignore` —
+  // the entries were silently never appended and `git add .` committed every
+  // generated per-package copy. The append now writes through atomicWriteFile
+  // (the ensureGitignoreEntry #240 convention); the composed content is
+  // append-only over the existing bytes.
+  it("appends per-package entries to a PRE-EXISTING .gitignore and preserves its content", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
+
+    await initCommand({ yes: true, tools: "cursor", perPackage: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const cursorManaged = manifest.managedFilesByAdapter.cursor as string[];
+    const pkgPaths = cursorManaged.filter((p) => p.startsWith("packages/"));
+    expect(pkgPaths.length).toBeGreaterThan(0);
+
+    const gitignore = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    const ignored = new Set(gitignore.split("\n").map((l) => l.trim()));
+    // Pre-fix: the skip branch dropped every per-package entry here.
+    for (const p of pkgPaths) {
+      expect(ignored.has(`/${p}`)).toBe(true);
+    }
+    // The user's original entries survive (append-only composition).
+    expect(ignored.has("node_modules/")).toBe(true);
+    expect(ignored.has("dist/")).toBe(true);
+  });
+
   // D14-6: per-package copying fights the load model of claude (ancestor-loads
   // root CLAUDE.md → double-load) and copilot (root-only
   // .github/copilot-instructions.md → never read). Even WITH --per-package they

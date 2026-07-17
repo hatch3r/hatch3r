@@ -562,7 +562,19 @@ export async function runRegenerate(
   let breakers = new Map<string, CircuitBreakerState>();
   try {
     const breakerLog = await readFile(breakerStatePath, "utf-8");
-    breakers = hydrateBreakersFromLog(breakerLog);
+    // Silent-writes sweep (release/2.7.1): hydrateBreakersFromLog keys the map
+    // by serviceId (`adapter:<tool>`) while the regenerate loop keys by bare
+    // tool name, so hydrated entries were never found by `breakers.get(tool)`
+    // — every run re-counted failures from zero even when the persist
+    // succeeded. Re-key into the loop's tool vocabulary at this seam; each
+    // state keeps its full serviceId in `config`, so the serialized file
+    // stays serviceId-keyed (parity with sync.ts).
+    breakers = new Map(
+      [...hydrateBreakersFromLog(breakerLog)].map(([serviceId, state]) => [
+        serviceId.replace(/^adapter:/, ""),
+        state,
+      ]),
+    );
     if (breakers.size > 0) {
       verbose(`Hydrated ${breakers.size} circuit breaker(s) from ${BREAKER_STATE_FILE}`);
     }
@@ -781,7 +793,11 @@ export async function runRegenerate(
   if (breakers.size > 0) {
     try {
       await mkdir(hatch3rDir, { recursive: true });
-      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers));
+      // Silent-writes sweep (release/2.7.1): `.breaker-state.jsonl` is not a
+      // hatch3r-managed filename, so once the file existed the un-forced write
+      // was silently skipped and breaker state never persisted past the first
+      // run. hatch3r-owned, machine-local, gitignored state: force, no `.bak`.
+      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers), { force: true, backup: false });
       verbose(`Persisted ${breakers.size} circuit breaker(s) to ${BREAKER_STATE_FILE}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -864,11 +880,18 @@ export async function runRegenerate(
   if (manifest.worktree?.enabled) {
     const wtContent = await generateWorktreeInclude(manifest, rootDir);
     const wtManaged = extractManagedContent(wtContent);
-    await safeWriteFile(
+    // Silent-writes sweep (release/2.7.1): appendIfNoBlock restores the
+    // managed block when a user stripped the markers, matching sync.ts's
+    // D11-H-3 worktree write — without it this write silently returned
+    // "skipped" (and the warning was discarded) so update never healed the
+    // file. Surface the MergeResult warning like sync does (Silent Failure
+    // Contract, CONSTITUTION §2 P5).
+    const wtResult = await safeWriteFile(
       join(rootDir, WORKTREE_INCLUDE_FILE),
       wtContent,
-      { managedContent: wtManaged, force: options.force },
+      { managedContent: wtManaged, appendIfNoBlock: true, force: options.force },
     );
+    if (wtResult.warning) warn(wtResult.warning);
   }
 
   if (manifest.features.mcp && manifest.mcp.servers.length > 0) {
@@ -1278,7 +1301,14 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         };
       }
       const wtContent = await generateWorktreeInclude(updated, rootDir);
+      // Silent-writes sweep (release/2.7.1): `appendIfNoBlock` only takes
+      // effect on the managedContent branch — without `managedContent` this
+      // write silently returned "skipped" whenever a `.worktreeinclude`
+      // already existed (the option was dead). Pass the managed body so an
+      // existing user file gets the block spliced in, matching init.ts's
+      // worktree write.
       await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+        managedContent: extractManagedContent(wtContent),
         appendIfNoBlock: true,
       });
       return { manifest: updated, notices: ["Worktree isolation enabled — .worktreeinclude generated"] };

@@ -730,7 +730,7 @@ describe("safeWriteFile additional branches", () => {
       expect(result.warning).toContain("restore the markers");
     });
 
-    it("skip warning for non-managed file without managedContent also includes guidance", async () => {
+    it("skip warning for non-managed file without managedContent names the real condition and recovery paths", async () => {
       const { safeWriteFile } = await import("../../merge/safeWrite.js");
 
       const dir = await createTempDir();
@@ -740,8 +740,16 @@ describe("safeWriteFile additional branches", () => {
       const result = await safeWriteFile(filePath, "new content");
 
       expect(result.action).toBe("skipped");
-      expect(result.warning).toContain("managed block markers");
-      expect(result.warning).toContain("HATCH3R:BEGIN/END");
+      // Silent-writes sweep (release/2.7.1): this branch has no
+      // managedContent, so marker-restoration guidance would be wrong here —
+      // hatch3r's own marker-less JSON outputs land on this branch by design.
+      // The warning names the real condition (existing unmanaged file,
+      // differing bytes) and both recovery paths (`hatch3r sync --force`
+      // with a .bak backup, or delete + re-run).
+      expect(result.warning).toContain("already exists with different content");
+      expect(result.warning).toContain("not hatch3r-managed");
+      expect(result.warning).toContain("hatch3r sync --force");
+      expect(result.warning).toContain(".bak");
     });
   });
 });

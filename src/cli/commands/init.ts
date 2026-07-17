@@ -19,7 +19,7 @@ import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
-import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { safeWriteFile, atomicWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
   DEFAULT_FEATURES,
@@ -205,9 +205,12 @@ async function mapWithConcurrency<T, R>(
  * checked against the existing trimmed lines before being added, so a re-run
  * never duplicates. Distinct from `ensureGitignoreEntry` (which manages the
  * fixed `REQUIRED_GITIGNORE_ENTRIES` set): this appends caller-computed,
- * per-run entries. Writes through `safeWriteFile` (temp+rename) for crash
- * safety, matching the rest of init's writes. Best-effort — a write failure
- * routes through `warn()` (Silent Failure Contract — P5) and never aborts init.
+ * per-run entries. Writes through `atomicWriteFile` (temp+rename) for crash
+ * safety, matching `ensureGitignoreEntry`'s #240 convention — the composed
+ * content is append-only over the existing bytes, and `safeWriteFile` would
+ * skip the write once `.gitignore` exists (silent-writes sweep, release/2.7.1).
+ * Best-effort — a write failure routes through `warn()` (Silent Failure
+ * Contract — P5) and never aborts init.
  */
 async function appendLocalGitignoreEntries(rootDir: string, entries: string[]): Promise<void> {
   const gitignorePath = join(rootDir, ".gitignore");
@@ -222,7 +225,14 @@ async function appendLocalGitignoreEntries(rootDir: string, entries: string[]): 
   if (missing.length === 0) return;
   const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
   try {
-    await safeWriteFile(gitignorePath, `${content}${separator}${missing.join("\n")}\n`);
+    // Silent-writes sweep (release/2.7.1): `.gitignore` is not a
+    // hatch3r-managed filename, so safeWriteFile skipped the write whenever
+    // the file already existed — the per-package entries were silently never
+    // registered on any repo with a pre-existing .gitignore. The composed
+    // content preserves every existing byte (append-only), so write it
+    // through the crash-safe atomic writer directly, matching the sibling
+    // `ensureGitignoreEntry` (src/env/mcpEnv.ts, #240 convention).
+    await atomicWriteFile(gitignorePath, `${content}${separator}${missing.join("\n")}\n`);
   } catch (err) {
     warn(`init: could not register per-package .gitignore entries — ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -246,7 +246,13 @@ export async function writeFailureLog(
       const existing = await readFile(logPath, "utf-8");
       if (shouldRotateLog(existing + line)) {
         const rotated = rotateLog(existing);
-        await safeWriteFile(logPath, rotated + line);
+        // Silent-writes sweep (release/2.7.1): the log always EXISTS on this
+        // branch (we just read it) and `.failure-log.jsonl` is not a
+        // hatch3r-managed filename, so without `force` safeWriteFile skipped
+        // the write — rotation never happened and the new entry was silently
+        // dropped while `written: true` was reported. hatch3r-owned,
+        // machine-local, gitignored state: force-overwrite with no `.bak`.
+        await safeWriteFile(logPath, rotated + line, { force: true, backup: false });
         return { written: true };
       }
     } catch (err) {
