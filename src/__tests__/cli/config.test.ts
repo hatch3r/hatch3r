@@ -150,7 +150,16 @@ vi.mock("../../merge/safeWrite.js", async () => {
   const { writeFile, mkdir } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
   return {
-    safeWriteFile: vi.fn(),
+    // Silent-writes sweep (release/2.7.1): configCommand now reads the
+    // MergeResult that safeWriteFile resolves (`wtResult.warning` on the
+    // worktree-include write, config.ts) — a bare `vi.fn()` resolves
+    // undefined and the `.warning` read throws. Honor the real contract
+    // with a minimal `{ path, action }` MergeResult (src/types.ts). The
+    // implementation is passed INTO vi.fn() (not set via mockResolvedValue)
+    // so the afterEach `vi.restoreAllMocks()` restores THIS implementation
+    // instead of wiping it after the first test — same style as the
+    // functional atomicWriteFile mock below.
+    safeWriteFile: vi.fn(async (filePath: string) => ({ path: filePath, action: "updated" as const })),
     // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
     // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
     acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),

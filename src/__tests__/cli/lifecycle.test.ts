@@ -45,6 +45,17 @@ import { HATCH3R_VERSION } from "../../version.js";
  * produce two checkpoints with distinct timestamps by design (so `--resume`
  * has an accurate "when did the last phase complete" record); the adapter
  * outputs they protect remain byte-identical.
+ *
+ * Silent-writes sweep (release/2.7.1): `.hatch3r/.breaker-state.jsonl` is
+ * excluded for the same reason. `sync` now re-persists the circuit-breaker
+ * ledger on EVERY run (`force: true` — pre-sweep, the unmanaged-filename
+ * skip silently froze the file after first creation, so breaker state never
+ * survived past the first run; see sync.ts D8-M4), and each JSONL entry
+ * carries a load-bearing `persistedAt` wall-clock timestamp (24h TTL expiry
+ * in `parseBreakerStateLog`, src/pipeline/circuitBreaker.ts). Two idempotent
+ * syncs therefore produce two distinct ledger byte-states by design —
+ * machine-local, gitignored operational state, not deterministic generated
+ * output.
  */
 async function snapshotProject(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
@@ -65,6 +76,10 @@ async function snapshotProject(root: string): Promise<Map<string, string>> {
       }
       if (!entry.isFile()) continue;
       if (/\.tmp\.[0-9a-f]{8}$/.test(entry.name)) continue;
+      // Skip the circuit-breaker operational ledger — re-persisted with a
+      // fresh `persistedAt` timestamp on every sync since the silent-writes
+      // sweep (release/2.7.1); see JSDoc above.
+      if (entryRel === ".hatch3r/.breaker-state.jsonl") continue;
       const buf = await readFile(full);
       const hash = createHash("sha256").update(buf).digest("hex");
       snapshot.set(relative(root, full), hash);
@@ -232,7 +247,8 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000, sequential: true
     // sync. The first sync after `init` is the only run that diffs its
     // per-adapter output against the manifest history `init` wrote, sweeps a
     // cold orphan set, and first-creates non-deterministic operational ledgers
-    // (`.hatch3r/.breaker-state.jsonl`, the `.sync-workspace/` checkpoint).
+    // (`.hatch3r/.breaker-state.jsonl`, the `.sync-workspace/` checkpoint —
+    // both excluded from `snapshotProject`; see its JSDoc).
     // Snapshotting after the FIRST sync (the prior shape of this test) compared
     // a post-init-cold state against a warm one, leaving a window where the two
     // snapshots could legitimately differ on first-run-only side effects. With
