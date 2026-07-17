@@ -2,7 +2,11 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [Unreleased]
+## [2.7.2] - 2026-07-17
+
+### Headline
+
+Reliability patch: the `safeWriteFile` silent-skip sweep. Four callers that own machine-local state under `.hatch3r/` (failure-log rotation, circuit-breaker persistence, per-package `.gitignore` registration, worktree-include healing) silently stopped writing once their target file existed — breaker state additionally never survived hydration because the on-disk map is serviceId-keyed while the adapter loops read bare tool names. All four now write unconditionally through the 2.7.1 `{ force: true, backup: false }` shape (or the atomic writer where content is append-only), hydration re-keys into the loop vocabulary, and the spurious "managed block markers missing" warning on byte-identical re-syncs of the marker-less JSON outputs is gone. No behavior change for genuinely user-edited files: differing unmanaged content is still left untouched, with a warning that now names the real condition and recovery. No CLI or manifest changes (schema generation 3). Ships as PR #134, plus one docs rider (#135 — launch-readiness v2.7.1 release-cut refresh, Chore).
 
 ### Fixed
 
