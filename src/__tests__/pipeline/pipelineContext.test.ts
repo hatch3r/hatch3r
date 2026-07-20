@@ -8,6 +8,11 @@ import {
   isHaltStatus,
   AGENT_STATUS_VALUES,
   PHASE_SKIP_CRITERIA,
+  TIER1_SPECIALIST_SKIP_CRITERIA,
+  TIER1_SKIP_MAX_CHANGED_LOC,
+  TIER1_SKIPPABLE_CHANGE_CLASSES,
+  evaluateTier1SpecialistSkip,
+  type Tier1SpecialistSkipInput,
   SPECIALIST_TRIGGER_TABLE,
   LANGUAGE_SPECIALIST_CONFIGS,
   DEFAULT_MAX_VALIDATION_PASS_ITERATIONS,
@@ -571,6 +576,113 @@ describe("PHASE_SKIP_CRITERIA", () => {
     expect(phase1.mandatoryMinimum).toContain(
       "`plan_gate: true` commands: persisted plan artifact approved (In-Session Plan Gate)",
     );
+  });
+
+  // 2.8.0: the Phase-4 skipConditions carry the Tier-1 CQ5+CQ3 relaxation.
+  // Mirror pin against the orchestration rule (authored canonically in the
+  // same release): the criteria text is the contract of record, byte-for-byte.
+  it("Phase 4 skipConditions carry the Tier-1 CQ5+CQ3 relaxation verbatim (rule mirror, 2.8.0)", () => {
+    const phase4 = PHASE_SKIP_CRITERIA.find((p) => p.phase === 4)!;
+    expect(phase4.skipConditions).toContain(TIER1_SPECIALIST_SKIP_CRITERIA);
+    expect(TIER1_SPECIALIST_SKIP_CRITERIA).toBe(
+      "Tier-1 may skip CQ5+CQ3 specialist waves only when ALL: (1) diff ≤50 changed LOC; (2) no new dependencies; (3) no files under security-adjacent paths (auth, crypto, secrets, input parsing/validation, permissions); (4) change class ∈ {docs-only, config-only, copy/comment-only, single-function fix with existing test coverage}. Any unmet criterion pins CQ5+CQ3 back on.",
+    );
+  });
+});
+
+// ── evaluateTier1SpecialistSkip (2.8.0) ──────────────────────────
+
+describe("evaluateTier1SpecialistSkip", () => {
+  /** All four criteria met — the only shape that yields canSkip: true. */
+  function allMet(overrides: Partial<Tier1SpecialistSkipInput> = {}): Tier1SpecialistSkipInput {
+    return {
+      changedLoc: 12,
+      hasNewDependencies: false,
+      filesChanged: ["docs/guide.md", "src/render/banner.ts"],
+      changeClass: "docs-only",
+      ...overrides,
+    };
+  }
+
+  it("skips when ALL four criteria are met", () => {
+    const verdict = evaluateTier1SpecialistSkip(allMet());
+    expect(verdict.canSkip).toBe(true);
+    expect(verdict.reason).toContain("all four Tier-1 criteria met");
+  });
+
+  it("accepts every skippable change class when the other criteria hold", () => {
+    for (const changeClass of TIER1_SKIPPABLE_CHANGE_CLASSES) {
+      expect(evaluateTier1SpecialistSkip(allMet({ changeClass })).canSkip).toBe(true);
+    }
+  });
+
+  it("accepts the exact ≤50 LOC boundary", () => {
+    expect(TIER1_SKIP_MAX_CHANGED_LOC).toBe(50);
+    expect(evaluateTier1SpecialistSkip(allMet({ changedLoc: 50 })).canSkip).toBe(true);
+  });
+
+  // Each criterion individually unmet ⇒ no skip (the "any unmet criterion
+  // pins CQ5+CQ3 back on" clause, one criterion at a time).
+  it("criterion (1) alone unmet — 51 changed LOC — denies the skip", () => {
+    const verdict = evaluateTier1SpecialistSkip(allMet({ changedLoc: 51 }));
+    expect(verdict.canSkip).toBe(false);
+    expect(verdict.reason).toContain("(1)");
+    expect(verdict.reason).not.toContain("(2)");
+  });
+
+  it("criterion (2) alone unmet — new dependency — denies the skip", () => {
+    const verdict = evaluateTier1SpecialistSkip(allMet({ hasNewDependencies: true }));
+    expect(verdict.canSkip).toBe(false);
+    expect(verdict.reason).toContain("(2) change introduces new dependencies");
+  });
+
+  it("criterion (3) alone unmet — a security-adjacent path from EACH family — denies the skip", () => {
+    const familyPaths = [
+      "src/auth/login.ts", // auth
+      "src/lib/crypto/hash.ts", // crypto
+      "config/secrets.json", // secrets
+      "src/input/parser.ts", // input parsing
+      "src/validation/schema.ts", // input validation
+      "src/permissions/roles.ts", // permissions
+    ];
+    for (const file of familyPaths) {
+      const verdict = evaluateTier1SpecialistSkip(
+        allMet({ filesChanged: ["docs/guide.md", file] }),
+      );
+      expect(verdict.canSkip, `expected ${file} to pin CQ5+CQ3 back on`).toBe(false);
+      expect(verdict.reason).toContain("(3)");
+      expect(verdict.reason).toContain(file);
+    }
+  });
+
+  it("criterion (4) alone unmet — non-skippable change class — denies the skip", () => {
+    const verdict = evaluateTier1SpecialistSkip(allMet({ changeClass: "feature" }));
+    expect(verdict.canSkip).toBe(false);
+    expect(verdict.reason).toContain('(4) change class "feature"');
+  });
+
+  it("enumerates every unmet criterion when several fail at once", () => {
+    const verdict = evaluateTier1SpecialistSkip({
+      changedLoc: 400,
+      hasNewDependencies: true,
+      filesChanged: ["src/auth/session.ts"],
+      changeClass: "feature",
+    });
+    expect(verdict.canSkip).toBe(false);
+    for (const marker of ["(1)", "(2)", "(3)", "(4)"]) {
+      expect(verdict.reason).toContain(marker);
+    }
+  });
+
+  it("fails safe on a non-finite LOC count (denies the skip)", () => {
+    expect(evaluateTier1SpecialistSkip(allMet({ changedLoc: Number.NaN })).canSkip).toBe(false);
+  });
+
+  it("path matching is case-insensitive and separator-agnostic", () => {
+    const windowsPath = "SRC\\Auth\\Login.ts";
+    const verdict = evaluateTier1SpecialistSkip(allMet({ filesChanged: [windowsPath] }));
+    expect(verdict.canSkip).toBe(false);
+    expect(verdict.reason).toContain("(3)");
   });
 });
 

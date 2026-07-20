@@ -22,21 +22,26 @@ import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { safeWriteFile, atomicWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
+  COMMUNICATION_STYLES,
+  DEFAULT_COMMUNICATION_STYLE,
   DEFAULT_FEATURES,
   DEFAULT_MATURITY_TIER,
   HATCH3R_DIR,
   HatchError,
   MATURITY_TIERS,
+  ORCHESTRATION_EFFORTS,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type CliToolId,
   type CliToolsConfig,
+  type CommunicationStyle,
   type ContentSelection,
   type ConventionConflict,
   type CustomizationManifest,
   type Features,
   type MaturityTier,
+  type OrchestrationEffort,
   type Platform,
   type RepoInfo,
   type Tool,
@@ -642,6 +647,23 @@ export interface RunInitOptions {
    */
   maturity?: MaturityTier;
   /**
+   * 2.8.0 additive scalar (flag-only — `--communication-style`; no
+   * interactive prompt, init stays at its 6-prompt ceiling per CONSTITUTION
+   * §6 row 32): how generated agents talk to the human operator. Persisted
+   * under `manifest.communicationStyle`; omission preserves an existing
+   * manifest's value, else writes no field (consumers default to "plain"
+   * via `readCommunicationStyle`).
+   */
+  communicationStyle?: CommunicationStyle;
+  /**
+   * 2.8.0 additive scalar (flag-only — `--default-effort`): persisted
+   * default orchestration intensity. Persisted under
+   * `manifest.defaultEffort`; omission preserves an existing manifest's
+   * value, else writes no field (absent ⇒ auto-tier; an explicit `--effort`
+   * run flag overrides — see `readDefaultEffort`).
+   */
+  defaultEffort?: OrchestrationEffort;
+  /**
    * D14-SA14.2-H1 (D14, P4/P1): opt-in for per-package monorepo emission.
    * When false/omitted (the default), `runInit` writes adapter output only to
    * the repo root even on a monorepo — per-package copying (`outputs ×
@@ -707,7 +729,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, perPackage, conflicts } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, communicationStyle, defaultEffort, perPackage, conflicts } = options;
   // D14-SA14.2-H1 (D14, P4/P1): per-package monorepo emission is opt-in.
   // `emitPerPackage` is the single gate the snapshot-path collection and the
   // write pass both read; the `manifest.packages` non-empty check is applied
@@ -887,6 +909,20 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     manifest.maturity = maturity;
   } else if (existingManifest?.maturity) {
     manifest.maturity = existingManifest.maturity;
+  }
+  // 2.8.0: persist the flag-only additive scalars with the same precedence
+  // as `maturity` — init-supplied value wins; otherwise preserve an existing
+  // manifest's field; absent everywhere ⇒ no field is written (absent fields
+  // stay absent on round-trip; consumers apply the documented fallbacks).
+  if (communicationStyle) {
+    manifest.communicationStyle = communicationStyle;
+  } else if (existingManifest?.communicationStyle) {
+    manifest.communicationStyle = existingManifest.communicationStyle;
+  }
+  if (defaultEffort) {
+    manifest.defaultEffort = defaultEffort;
+  } else if (existingManifest?.defaultEffort) {
+    manifest.defaultEffort = existingManifest.defaultEffort;
   }
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
@@ -2138,6 +2174,22 @@ export async function initCommand(
      */
     maturity?: string;
     /**
+     * 2.8.0: `--communication-style <plain|technical>` — flag-only additive
+     * scalar (no interactive prompt; init stays at its 6-prompt ceiling per
+     * CONSTITUTION §6 row 32). Persisted under
+     * `manifest.communicationStyle`; absent flag preserves an existing
+     * manifest's value or writes no field. Validated via `validateFlag`.
+     */
+    communicationStyle?: string;
+    /**
+     * 2.8.0: `--default-effort <light|standard|deep>` — flag-only additive
+     * scalar. Persisted under `manifest.defaultEffort`; absent flag
+     * preserves an existing manifest's value or writes no field (absent ⇒
+     * auto-tier; an explicit `--effort` run flag overrides). Validated via
+     * `validateFlag`.
+     */
+    defaultEffort?: string;
+    /**
      * D14-M6 (Cycle 10 rollover): role-bundle selector. Accepts one of
      * `KNOWN_ROLES`. When set, resolveSelection's role stage filters to
      * items tagged `role:<value>` (plus floor and protected items). Absent
@@ -2309,6 +2361,20 @@ export async function initCommand(
   if (opts.maturity !== undefined) {
     validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
   }
+  // 2.8.0: validate + resolve the flag-only additive scalars eagerly, before
+  // any prompt or detection work (fail-fast, same position as `--maturity`).
+  // `undefined` = flag not passed: runInit then preserves an existing
+  // manifest's field or writes none (consumers apply the documented
+  // fallbacks — "plain" / auto-tier). Invalid values throw
+  // HatchError(VALIDATION_ERROR) → exit 64 via ERROR_CODE_TO_EXIT_CODE.
+  const cliCommunicationStyle: CommunicationStyle | undefined =
+    opts.communicationStyle !== undefined
+      ? validateFlag(opts.communicationStyle, [...COMMUNICATION_STYLES], DEFAULT_COMMUNICATION_STYLE, "communication-style")
+      : undefined;
+  const cliDefaultEffort: OrchestrationEffort | undefined =
+    opts.defaultEffort !== undefined
+      ? validateFlag(opts.defaultEffort, [...ORCHESTRATION_EFFORTS], "standard", "default-effort")
+      : undefined;
   // D14-M6 (Cycle 10): validate `--role` against the known role set early.
   if (opts.role !== undefined) {
     validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role");
@@ -2607,7 +2673,7 @@ export async function initCommand(
     // manifest, no adapter output) and self-creates its target dir, so it runs
     // safely ahead of runInit.
     await runToolImport(rootDir, opts.import, true, opts.dryRun);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
     return;
   }
 
@@ -2916,7 +2982,7 @@ export async function initCommand(
   // preview + confirm now precede the generation spinner — acceptable per the
   // finding, since a declined confirm still leaves disk untouched before init.
   await runToolImport(rootDir, opts.import, false, opts.dryRun);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────
@@ -3074,7 +3140,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean; dryRun?: boolean },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; communicationStyle?: string; defaultEffort?: string; perPackage?: boolean; dryRun?: boolean },
   // D1-SA1.2-H1: the entry-point-parsed `--role` / `--facets` filters, passed
   // through so the workspace flow (headless + interactive) applies the same
   // selection filter as the single-repo flow instead of silently dropping them.
@@ -3421,6 +3487,18 @@ async function runWorkspaceInit(
 
   warnBoardPrerequisites(contentSelection);
 
+  // 2.8.0: resolve the flag-only additive scalars for the workspace-root
+  // manifest, mirroring the wsMaturity forwarding below (validated eagerly in
+  // initCommand already; re-validated here for direct callers).
+  const wsCommunicationStyle: CommunicationStyle | undefined =
+    opts.communicationStyle !== undefined
+      ? validateFlag(opts.communicationStyle, [...COMMUNICATION_STYLES], DEFAULT_COMMUNICATION_STYLE, "communication-style")
+      : undefined;
+  const wsDefaultEffort: OrchestrationEffort | undefined =
+    opts.defaultEffort !== undefined
+      ? validateFlag(opts.defaultEffort, [...ORCHESTRATION_EFFORTS], "standard", "default-effort")
+      : undefined;
+
   // Step 6: Create canonical .agents/ at workspace root (empty identity — workspace root is not a repo)
   await checkExisting(rootDir, headless, contentSelection, opts.dryRun);
   await runInit({
@@ -3443,6 +3521,9 @@ async function runWorkspaceInit(
     // to the workspace runInit call so the workspace root manifest
     // persists it.
     maturity: wsMaturity,
+    // 2.8.0: forward the flag-only additive scalars alongside maturity.
+    communicationStyle: wsCommunicationStyle,
+    defaultEffort: wsDefaultEffort,
     // D14-SA14.2-H1: forward the per-package opt-in to the workspace-root init.
     perPackage: opts.perPackage,
     // W5-bigfour: forward `--dry-run` so the workspace-root init previews

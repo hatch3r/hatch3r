@@ -3,26 +3,32 @@ import { access, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor, readCommunicationStyle, readDefaultEffort } from "../../manifest/hatchJson.js";
 import {
   ARCHIVE_DIR,
+  COMMUNICATION_STYLES,
   CONFIDENCE_FLOORS,
   DEFAULT_FEATURES,
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
   MATURITY_TIERS,
+  ORCHESTRATION_EFFORTS,
+  VALID_COMMUNICATION_STYLES,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
+  VALID_ORCHESTRATION_EFFORTS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type CliToolId,
   type CliToolsConfig,
+  type CommunicationStyle,
   type ConfidenceFloor,
   type ContentSelection,
   type Features,
   type HatchManifest,
   type MaturityTier,
+  type OrchestrationEffort,
   type Platform,
   type Tool,
 } from "../../types.js";
@@ -353,18 +359,23 @@ async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Pro
  * `hatch3r config set <key> <value>`. Each entry validates its input and
  * mutates the manifest in place; the caller persists with `writeManifest`.
  *
- * - `maturity`         — Decision 4 / #16 investment-calibration tier (does
- *                        not gate content admission; see docs/maturity-tiers.md).
- * - `confidence_floor` — D13-SA13.3-F13.3.3 agent-assertiveness floor
- *                        consumed by the core orchestrators when no explicit
- *                        `--confidence-floor` run flag is given.
+ * - `maturity`            — Decision 4 / #16 investment-calibration tier (does
+ *                           not gate content admission; see docs/maturity-tiers.md).
+ * - `confidence_floor`    — D13-SA13.3-F13.3.3 agent-assertiveness floor
+ *                           consumed by the core orchestrators when no explicit
+ *                           `--confidence-floor` run flag is given.
+ * - `communication_style` — 2.8.0: how generated agents talk to the human
+ *                           operator (plain|technical; absent ⇒ "plain").
+ * - `default_effort`      — 2.8.0: persisted default orchestration intensity
+ *                           (light|standard|deep; absent ⇒ auto-tier; an
+ *                           explicit `--effort` run flag overrides).
  *
  * The structure is shaped so further scalar keys (e.g. `costTracking.currency`)
  * can be added without changing the dispatch layer.
  */
-type ScalarConfigKey = "maturity" | "confidence_floor";
+type ScalarConfigKey = "maturity" | "confidence_floor" | "communication_style" | "default_effort";
 
-const SCALAR_CONFIG_KEYS = new Set<string>(["maturity", "confidence_floor"]);
+const SCALAR_CONFIG_KEYS = new Set<string>(["maturity", "confidence_floor", "communication_style", "default_effort"]);
 
 function isScalarConfigKey(key: string): key is ScalarConfigKey {
   return SCALAR_CONFIG_KEYS.has(key);
@@ -445,6 +456,37 @@ function applyScalarConfigWrite(
     manifest.confidenceFloor = value as ConfidenceFloor;
     return { previous, next: value };
   }
+  if (key === "communication_style") {
+    // 2.8.0: closed enum (plain|technical), same write-time rejection shape
+    // as `maturity` so a typo never persists a style adapters would ignore.
+    if (!VALID_COMMUNICATION_STYLES.has(value)) {
+      throw new HatchError(
+        `Invalid communication style: "${value}". Valid: ${[...COMMUNICATION_STYLES].join(", ")}`,
+        undefined,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...COMMUNICATION_STYLES].join(", ")}.`,
+      );
+    }
+    const previous = manifest.communicationStyle;
+    manifest.communicationStyle = value as CommunicationStyle;
+    return { previous, next: value };
+  }
+  if (key === "default_effort") {
+    // 2.8.0: closed enum (light|standard|deep). Absence means auto-tier, so
+    // there is no "unset" value to accept here — rejecting out-of-enum input
+    // keeps the persisted field always readable by `readDefaultEffort`.
+    if (!VALID_ORCHESTRATION_EFFORTS.has(value)) {
+      throw new HatchError(
+        `Invalid default effort: "${value}". Valid: ${[...ORCHESTRATION_EFFORTS].join(", ")}`,
+        undefined,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...ORCHESTRATION_EFFORTS].join(", ")}.`,
+      );
+    }
+    const previous = manifest.defaultEffort;
+    manifest.defaultEffort = value as OrchestrationEffort;
+    return { previous, next: value };
+  }
   // Exhaustive guard for future keys — the type system enforces this branch
   // is unreachable today.
   throw new HatchError(
@@ -470,6 +512,17 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
     // than empty, so `config get confidence_floor` is actionable and reflects
     // the floor the orchestrators will actually apply.
     return readConfidenceFloor(manifest);
+  }
+  if (key === "communication_style") {
+    // 2.8.0: absent field reads back as the documented "plain" default —
+    // the style adapters will actually stamp.
+    return readCommunicationStyle(manifest);
+  }
+  if (key === "default_effort") {
+    // 2.8.0: absent field reads back as the "auto-tier" sentinel (not a
+    // settable value) — the documented absent-field semantic: orchestrators
+    // derive intensity from task shape and adapters emit no directive line.
+    return readDefaultEffort(manifest) ?? "auto-tier";
   }
   throw new HatchError(
     `Unsupported config key: ${key}`,

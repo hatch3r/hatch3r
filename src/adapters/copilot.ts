@@ -18,6 +18,10 @@ import {
   maturityDirective,
   readConfidenceFloor,
   confidenceFloorDirective,
+  readCommunicationStyle,
+  communicationStyleDirective,
+  readDefaultEffort,
+  defaultEffortDirective,
 } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
@@ -551,14 +555,23 @@ export class CopilotAdapter extends BaseAdapter {
     // agent-assertiveness floor reaches copilot-instructions.md — pre-fix the
     // persisted floor reached no adapter output.
     const confidenceFloor = readConfidenceFloor(ctx.manifest);
+    // 2.8.0: resolved communication style (absence → "plain" — always
+    // stamped) and persisted default effort (absence → undefined = auto-tier
+    // — NO line emitted, keeping pre-2.8 no-field output byte-identical).
+    const communicationStyle = readCommunicationStyle(ctx.manifest);
+    const defaultEffort = readDefaultEffort(ctx.manifest);
     // D6-29 (Cycle 11 Wave 3): emit the shared directive payload (single source
     // in hatchJson.ts::maturityDirective) as a blockquote line — copilot's
     // native marker form, in contrast to the claude/cursor HTML-comment wrapper.
     // D1-17: the confidence-floor marker rides the same blockquote surface.
+    // 2.8.0: the communication-style + (conditional) default-effort markers
+    // ride the same blockquote surface.
     const innerContent = [
       "",
       `> ${maturityDirective(maturityTier)}`,
       `> ${confidenceFloorDirective(confidenceFloor)}`,
+      `> ${communicationStyleDirective(communicationStyle)}`,
+      ...(defaultEffort !== undefined ? [`> ${defaultEffortDirective(defaultEffort)}`] : []),
       "",
       "# Hatch3r Project Instructions",
       "",

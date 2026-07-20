@@ -807,6 +807,20 @@ export interface PhaseSkipCriteria {
   mandatoryMinimum: string[];
 }
 
+/**
+ * Release/2.8.0 Tier-1 relaxation for the Phase-4 CQ5 (testability) + CQ3
+ * (security) specialist waves, appended verbatim to the Phase-4
+ * `skipConditions` below. The text is the contract of record shared with the
+ * orchestration rule (`rules/hatch3r-agent-orchestration.md`, authored
+ * canonically in the same release) — keep the two byte-identical when either
+ * changes. {@link evaluateTier1SpecialistSkip} is this criterion's
+ * programmatic backing (same predicate-backing pattern as
+ * {@link isDocumentationOnly} / {@link isTrivialChange} for the
+ * documentation-only and trivial conditions).
+ */
+export const TIER1_SPECIALIST_SKIP_CRITERIA =
+  "Tier-1 may skip CQ5+CQ3 specialist waves only when ALL: (1) diff ≤50 changed LOC; (2) no new dependencies; (3) no files under security-adjacent paths (auth, crypto, secrets, input parsing/validation, permissions); (4) change class ∈ {docs-only, config-only, copy/comment-only, single-function fix with existing test coverage}. Any unmet criterion pins CQ5+CQ3 back on.";
+
 export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
   {
     phase: 1,
@@ -851,6 +865,10 @@ export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
       "Review loop (Phase 3) did not produce a clean verdict AND user chose to proceed manually",
       "Change is documentation-only with no code modifications",
       "All items are trivial AND quality checks pass (quick-change only)",
+      // 2.8.0 Tier-1 relaxation — programmatic backing:
+      // evaluateTier1SpecialistSkip (all four criteria met ⇒ skippable; any
+      // unmet criterion pins CQ5+CQ3 back on).
+      TIER1_SPECIALIST_SKIP_CRITERIA,
     ],
     mandatoryMinimum: [
       "testability and security specialists are always required for code changes regardless of command",
@@ -1802,6 +1820,113 @@ export function isTrivialChange(
     return { canSkip: false, reason: `${file} changed ${lines} lines (> ${TRIVIAL_MAX_LINES}); not trivial` };
   }
   return { canSkip: true, reason: `single file ${file} with ${lines} changed line(s)` };
+}
+
+// ── Tier-1 CQ5+CQ3 specialist-skip predicate (release/2.8.0) ────────
+
+/**
+ * Criterion (1) bound of {@link TIER1_SPECIALIST_SKIP_CRITERIA}: maximum
+ * added+removed LOC for a Tier-1 change to remain CQ5+CQ3-skippable.
+ */
+export const TIER1_SKIP_MAX_CHANGED_LOC = 50;
+
+/**
+ * Criterion (4) closed set of {@link TIER1_SPECIALIST_SKIP_CRITERIA}: the
+ * change classes eligible for the Tier-1 CQ5+CQ3 skip — machine ids for the
+ * prose set {docs-only, config-only, copy/comment-only, single-function fix
+ * with existing test coverage}. Any other class pins the specialists back on.
+ */
+export const TIER1_SKIPPABLE_CHANGE_CLASSES = [
+  "docs-only",
+  "config-only",
+  "copy-comment-only",
+  "single-function-fix-with-existing-test-coverage",
+] as const;
+
+export type Tier1SkippableChangeClass = (typeof TIER1_SKIPPABLE_CHANGE_CLASSES)[number];
+
+/**
+ * Criterion (3) path markers of {@link TIER1_SPECIALIST_SKIP_CRITERIA}: the
+ * five security-adjacent families (auth, crypto, secrets, input
+ * parsing/validation, permissions) as case-insensitive path substrings.
+ * Deliberately broad stems (`pars`, `valid`) so `parser`/`parsing` and
+ * `validate`/`validation`/`validator` all match — over-matching fails safe:
+ * a false hit only pins CQ5+CQ3 back ON, never skips them.
+ */
+const SECURITY_ADJACENT_PATH_MARKERS: readonly string[] = [
+  "auth",
+  "crypto",
+  "secret",
+  "pars",
+  "valid",
+  "permission",
+];
+
+/** Input for {@link evaluateTier1SpecialistSkip} — one field per criterion. */
+export interface Tier1SpecialistSkipInput {
+  /** Criterion (1): total added+removed LOC across the diff. */
+  changedLoc: number;
+  /** Criterion (2): whether the change introduces any new dependency. */
+  hasNewDependencies: boolean;
+  /** Criterion (3): every file path touched by the change. */
+  filesChanged: string[];
+  /**
+   * Criterion (4): the orchestrator's change-class verdict. Skippable only
+   * when it is one of {@link TIER1_SKIPPABLE_CHANGE_CLASSES}; any other
+   * string fails the criterion (fails safe toward running the specialists).
+   */
+  changeClass: Tier1SkippableChangeClass | (string & {});
+}
+
+/**
+ * Criterion (3) helper: does a path fall under a security-adjacent family?
+ * Matches {@link SECURITY_ADJACENT_PATH_MARKERS} case-insensitively against
+ * the normalized (backslash→slash) path.
+ */
+function isSecurityAdjacentPath(file: string): boolean {
+  const normalized = file.replace(/\\/g, "/").toLowerCase();
+  return SECURITY_ADJACENT_PATH_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+/**
+ * Programmatic backing for {@link TIER1_SPECIALIST_SKIP_CRITERIA}
+ * (release/2.8.0): may a Tier-1 change skip the Phase-4 CQ5 (testability) +
+ * CQ3 (security) specialist waves? `canSkip: true` ONLY when ALL four
+ * criteria hold; any unmet criterion pins CQ5+CQ3 back on, and the reason
+ * enumerates every unmet criterion by number so the orchestrator's iteration
+ * summary cites the exact pin cause (Charter directive 20).
+ *
+ * Same predicate-backing pattern as {@link isDocumentationOnly} /
+ * {@link isTrivialChange}: the orchestrator resolves the skip here instead of
+ * re-classifying the diff in prose. Tier 2/3 flows never consult this — the
+ * relaxation is Tier-1-only by contract. Pure function with no I/O; fails
+ * safe (a non-finite LOC count or unknown change class denies the skip).
+ */
+export function evaluateTier1SpecialistSkip(input: Tier1SpecialistSkipInput): SkipVerdict {
+  const unmet: string[] = [];
+  if (!(Number.isFinite(input.changedLoc) && input.changedLoc <= TIER1_SKIP_MAX_CHANGED_LOC)) {
+    unmet.push(`(1) diff ${input.changedLoc} changed LOC exceeds the ≤${TIER1_SKIP_MAX_CHANGED_LOC} bound`);
+  }
+  if (input.hasNewDependencies) {
+    unmet.push("(2) change introduces new dependencies");
+  }
+  const securityAdjacent = input.filesChanged.filter(isSecurityAdjacentPath);
+  if (securityAdjacent.length > 0) {
+    unmet.push(`(3) security-adjacent path(s) touched: ${securityAdjacent.slice(0, 5).join(", ")}`);
+  }
+  if (!(TIER1_SKIPPABLE_CHANGE_CLASSES as readonly string[]).includes(input.changeClass)) {
+    unmet.push(`(4) change class "${input.changeClass}" is not in {${TIER1_SKIPPABLE_CHANGE_CLASSES.join(", ")}}`);
+  }
+  if (unmet.length > 0) {
+    return {
+      canSkip: false,
+      reason: `Tier-1 CQ5+CQ3 skip denied — unmet criteria pin the specialist waves back on: ${unmet.join("; ")}`,
+    };
+  }
+  return {
+    canSkip: true,
+    reason: `all four Tier-1 criteria met (≤${TIER1_SKIP_MAX_CHANGED_LOC} LOC, no new dependencies, no security-adjacent paths, change class "${input.changeClass}") — CQ5+CQ3 specialist waves may be skipped`,
+  };
 }
 
 /**

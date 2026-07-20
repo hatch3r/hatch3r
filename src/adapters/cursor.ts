@@ -20,6 +20,10 @@ import { wrapManagedFor } from "../merge/managedBlocks.js";
 import {
   readMaturityTier,
   maturityDirective,
+  readCommunicationStyle,
+  communicationStyleDirective,
+  readDefaultEffort,
+  defaultEffortDirective,
   readConfidenceFloor,
   confidenceFloorDirective,
 } from "../manifest/hatchJson.js";
@@ -87,6 +91,29 @@ function cursorMaturityHeader(ctx: AdapterContext): string {
  */
 function cursorConfidenceFloorHeader(ctx: AdapterContext): string {
   return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
+}
+
+/**
+ * 2.8.0: per-rule communication-style marker, sibling of
+ * {@link cursorMaturityHeader}. Wraps the shared `communicationStyleDirective`
+ * payload (single source in hatchJson.ts) in an HTML comment — same
+ * invisible-render + greppable design. Absence resolves to "plain" via
+ * {@link readCommunicationStyle}, so the marker is always stamped.
+ */
+function cursorCommunicationStyleHeader(ctx: AdapterContext): string {
+  return `<!-- ${communicationStyleDirective(readCommunicationStyle(ctx.manifest))} -->`;
+}
+
+/**
+ * 2.8.0: per-rule default-effort marker. Conditional, unlike the three
+ * markers above: an ABSENT `defaultEffort` means auto-tier
+ * ({@link readDefaultEffort} returns undefined) and NO marker is emitted —
+ * returning "" keeps a no-field rule body byte-identical to pre-2.8 output
+ * (the emission site joins only non-empty header lines).
+ */
+function cursorDefaultEffortHeader(ctx: AdapterContext): string {
+  const effort = readDefaultEffort(ctx.manifest);
+  return effort === undefined ? "" : `<!-- ${defaultEffortDirective(effort)} -->`;
 }
 
 /**
@@ -489,7 +516,16 @@ export class CursorAdapter extends BaseAdapter {
         // across tiers before). D1-17 (D1, P1): also prepend the resolved
         // confidence-floor marker so the configured agent-assertiveness floor
         // reaches the generated artifact (was a write-only config key).
-        const content = `${cursorMaturityHeader(ctx)}\n${cursorConfidenceFloorHeader(ctx)}\n\n${substituted}`;
+        // 2.8.0: communication-style marker (always; absence → "plain") +
+        // default-effort marker (only when the field is persisted — absent =
+        // auto-tier = no line, keeping pre-2.8 no-field output byte-identical).
+        const headerLines = [
+          cursorMaturityHeader(ctx),
+          cursorConfidenceFloorHeader(ctx),
+          cursorCommunicationStyleHeader(ctx),
+          cursorDefaultEffortHeader(ctx),
+        ].filter((line) => line.length > 0);
+        const content = `${headerLines.join("\n")}\n\n${substituted}`;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;

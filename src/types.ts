@@ -66,6 +66,48 @@ export const VALID_CONFIDENCE_FLOORS = new Set<string>(CONFIDENCE_FLOORS);
 export const DEFAULT_CONFIDENCE_FLOOR: ConfidenceFloor = "any";
 
 /**
+ * Communication style (release/2.8.0) — how generated agents talk to the
+ * human operator. Additive optional manifest scalar; no schema-generation
+ * bump.
+ *
+ * - `plain`     — define jargon on first use; lead with outcomes. Default.
+ * - `technical` — precise domain terminology; lead with implementation
+ *                 detail.
+ *
+ * Persisted in `.hatch3r/hatch.json` under the `communicationStyle` field.
+ * Set via `hatch3r config communication_style=<style>` or the flag-only
+ * `hatch3r init --communication-style <style>` (no interactive prompt —
+ * init stays at its 6-prompt ceiling per CONSTITUTION §6 row 32). Absence
+ * is treated as `"plain"` by consumers — see `readCommunicationStyle` in
+ * `src/manifest/hatchJson.ts`.
+ */
+export const COMMUNICATION_STYLES = ["plain", "technical"] as const;
+export type CommunicationStyle = (typeof COMMUNICATION_STYLES)[number];
+export const VALID_COMMUNICATION_STYLES = new Set<string>(COMMUNICATION_STYLES);
+export const DEFAULT_COMMUNICATION_STYLE: CommunicationStyle = "plain";
+
+/**
+ * Persisted default orchestration intensity (release/2.8.0) — the
+ * light|standard|deep axis agents already declare as `efficiency_tier`
+ * frontmatter and users pass as the `--effort` run flag. Additive optional
+ * manifest scalar; no schema-generation bump.
+ *
+ * ABSENT ⇒ auto-tier: orchestrators derive intensity from task shape and
+ * adapters emit NO directive line (in contrast to `communicationStyle`,
+ * whose absence collapses to a default that IS emitted). An explicit
+ * `--effort` run flag always overrides the persisted default.
+ *
+ * Persisted in `.hatch3r/hatch.json` under the `defaultEffort` field.
+ * Set via `hatch3r config default_effort=<effort>` or the flag-only
+ * `hatch3r init --default-effort <effort>`. Distinct from
+ * {@link EFFORT_LEVELS} (the model reasoning-effort axis, low..max) —
+ * see `readDefaultEffort` in `src/manifest/hatchJson.ts`.
+ */
+export const ORCHESTRATION_EFFORTS = ["light", "standard", "deep"] as const;
+export type OrchestrationEffort = (typeof ORCHESTRATION_EFFORTS)[number];
+export const VALID_ORCHESTRATION_EFFORTS = new Set<string>(ORCHESTRATION_EFFORTS);
+
+/**
  * Model-class ladder (release/2.7.0): four capability classes authored on
  * canonical agents' `model:` frontmatter, ordered weakest -> strongest as
  * economy < standard < advanced < frontier. The CLASS_* constants are
@@ -425,6 +467,23 @@ export interface HatchManifest {
    * `src/manifest/hatchJson.ts`. Set via `hatch3r config confidence_floor=<floor>`.
    */
   confidenceFloor?: ConfidenceFloor;
+  /**
+   * 2.8.0 additive optional scalar: how generated agents talk to the human
+   * operator. Absence is treated as `"plain"` by consumers — see
+   * `readCommunicationStyle` in `src/manifest/hatchJson.ts`. Set via
+   * `hatch3r config communication_style=<style>` or the flag-only
+   * `hatch3r init --communication-style <style>`.
+   */
+  communicationStyle?: CommunicationStyle;
+  /**
+   * 2.8.0 additive optional scalar: persisted default orchestration
+   * intensity. ABSENT ⇒ auto-tier (orchestrators derive intensity from task
+   * shape; adapters emit no directive line) — see `readDefaultEffort` in
+   * `src/manifest/hatchJson.ts`. An explicit `--effort` run flag overrides
+   * the persisted default. Set via `hatch3r config default_effort=<effort>`
+   * or the flag-only `hatch3r init --default-effort <effort>`.
+   */
+  defaultEffort?: OrchestrationEffort;
   /** Detected project languages from repo analysis. */
   languages?: string[];
   /**

@@ -21,6 +21,10 @@ import {
   maturityDirective,
   readConfidenceFloor,
   confidenceFloorDirective,
+  readCommunicationStyle,
+  communicationStyleDirective,
+  readDefaultEffort,
+  defaultEffortDirective,
 } from "../manifest/hatchJson.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax, stripPrivateMcpFields, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
@@ -773,6 +777,30 @@ function claudeConfidenceFloorHeader(ctx: AdapterContext): string {
 }
 
 /**
+ * 2.8.0: communication-style marker for CLAUDE.md, sibling of
+ * {@link claudeMaturityHeader}. Emits the shared `communicationStyleDirective`
+ * payload (single source in hatchJson.ts) as a VISIBLE blockquote line —
+ * absence resolves to "plain" via {@link readCommunicationStyle}, so the line
+ * is always stamped (the default is itself a contract the agent must see).
+ */
+function claudeCommunicationStyleHeader(ctx: AdapterContext): string {
+  return `> ${communicationStyleDirective(readCommunicationStyle(ctx.manifest))}`;
+}
+
+/**
+ * 2.8.0: default-effort marker for CLAUDE.md. UNLIKE the three headers above,
+ * this one is conditional: an ABSENT `defaultEffort` means auto-tier
+ * ({@link readDefaultEffort} returns undefined) and NO line is emitted —
+ * returning "" keeps a no-field CLAUDE.md byte-identical to pre-2.8 output
+ * (callers spread the line in only when non-empty, mirroring the
+ * `claudeAgentsMdImport` conditional-spread pattern).
+ */
+function claudeDefaultEffortHeader(ctx: AdapterContext): string {
+  const effort = readDefaultEffort(ctx.manifest);
+  return effort === undefined ? "" : `> ${defaultEffortDirective(effort)}`;
+}
+
+/**
  * D9-12 (D9, P3): AGENTS.md interop for the Claude adapter. When the operator
  * opts in via `claude.agentsMdInterop: true` AND a repo-root `AGENTS.md` exists,
  * emit a Claude Code `@AGENTS.md` import line inside the CLAUDE.md managed block
@@ -911,6 +939,13 @@ export class ClaudeAdapter extends BaseAdapter {
     // marker so the configured agent-assertiveness floor travels with CLAUDE.md
     // (was a write-only config key that reached no adapter output).
     const confidenceFloorHeader = claudeConfidenceFloorHeader(ctx);
+    // 2.8.0: stamp the resolved communication style (absence → "plain") on the
+    // same blockquote surface; the default-effort marker is conditional —
+    // absent field = auto-tier = no line (conditional spread keeps a no-field
+    // CLAUDE.md byte-identical to pre-2.8 output).
+    const communicationStyleHeader = claudeCommunicationStyleHeader(ctx);
+    const defaultEffortHeader = claudeDefaultEffortHeader(ctx);
+    const defaultEffortHeaderParts = defaultEffortHeader ? [defaultEffortHeader] : [];
     // D9-12 (D9, P3): opt-in `@AGENTS.md` import line (empty unless the operator
     // set `claude.agentsMdInterop: true` AND a repo-root AGENTS.md exists). The
     // conditional spread keeps the default-off CLAUDE.md byte-identical to the
@@ -922,6 +957,8 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           maturityHeader,
           confidenceFloorHeader,
+          communicationStyleHeader,
+          ...defaultEffortHeaderParts,
           ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",
@@ -937,6 +974,8 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           maturityHeader,
           confidenceFloorHeader,
+          communicationStyleHeader,
+          ...defaultEffortHeaderParts,
           ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",

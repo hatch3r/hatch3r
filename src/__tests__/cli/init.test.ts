@@ -1300,8 +1300,12 @@ describe("init interactive ≤6-prompt ceiling (F10.3-2)", () => {
 describe("init interactive maturity prompt + inferred-default feedback (C/F, 2.1.0)", () => {
   let initCommand: (opts?: {
     tools?: string;
+    yes?: boolean;
     teamSize?: string;
     maturity?: string;
+    // 2.8.0 flag-only additive scalars.
+    communicationStyle?: string;
+    defaultEffort?: string;
     quiet?: boolean;
   }) => Promise<void>;
   let tempDir: string;
@@ -1399,6 +1403,83 @@ describe("init interactive maturity prompt + inferred-default feedback (C/F, 2.1
     expect(sawMaturityPrompt).toBe(false);
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.maturity).toBe("scaleup");
+  });
+
+  // ── 2.8.0: --communication-style / --default-effort (flag-only) ─────────
+  describe("--communication-style / --default-effort flags (2.8.0)", () => {
+    it("persists both fields on a headless run", async () => {
+      await initCommand({ yes: true, communicationStyle: "technical", defaultEffort: "deep" });
+
+      const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+      expect(manifest.communicationStyle).toBe("technical");
+      expect(manifest.defaultEffort).toBe("deep");
+      // Additive fields — schema generation untouched.
+      expect(manifest.version).toBe("3.0.0");
+    });
+
+    it("writes NEITHER field when the flags are absent (round-trip no-op)", async () => {
+      await initCommand({ yes: true });
+
+      const raw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
+      expect(raw).not.toContain("communicationStyle");
+      expect(raw).not.toContain("defaultEffort");
+    });
+
+    it("rejects an invalid --communication-style with VALIDATION_ERROR exit 64 before any side-effect", async () => {
+      try {
+        await initCommand({ yes: true, communicationStyle: "shouty" });
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map — never
+        // a bare numeric exit 1.
+        expect((e as HatchError).exitCode).toBe(64);
+        expect((e as HatchError).message).toContain("communication-style");
+      }
+    });
+
+    it("rejects an invalid --default-effort with VALIDATION_ERROR exit 64", async () => {
+      try {
+        // "max" is a model reasoning-effort level, not an orchestration effort.
+        await initCommand({ yes: true, defaultEffort: "max" });
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).exitCode).toBe(64);
+        expect((e as HatchError).message).toContain("default-effort");
+      }
+    });
+
+    it("adds NO interactive prompt — the flags ride the 5-prompt --maturity flow unchanged (6-prompt ceiling holds)", async () => {
+      const inq = vi.mocked(inquirer.prompt);
+      inq.mockResolvedValueOnce({ platform: "github" });
+      inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+      inq.mockResolvedValueOnce({ preset: "minimal" });
+      inq.mockResolvedValueOnce({ tools: ["claude"] });
+      inq.mockResolvedValueOnce({ tools: [] });
+
+      await initCommand({
+        teamSize: "team",
+        maturity: "scaleup",
+        communicationStyle: "plain",
+        defaultEffort: "light",
+      });
+
+      // Same 5 prompts as the bare --maturity run above — the 2.8.0 flags
+      // must not add a prompt (init is at its 6-prompt ceiling; flag-only).
+      expect(inq.mock.calls.length).toBe(5);
+      const promptNames = inq.mock.calls.flatMap((call) =>
+        (call[0] as unknown as Array<{ name?: string }>).map((q) => q.name),
+      );
+      expect(promptNames).not.toContain("communicationStyle");
+      expect(promptNames).not.toContain("defaultEffort");
+
+      const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+      expect(manifest.communicationStyle).toBe("plain");
+      expect(manifest.defaultEffort).toBe("light");
+    });
   });
 
   it("emits the inferred default-branch + maturity feedback lines in human mode", async () => {

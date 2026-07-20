@@ -64,6 +64,19 @@ vi.mock("../../manifest/hatchJson.js", () => ({
       m?.maturity && ["solo", "team", "scaleup", "enterprise"].includes(m.maturity) ? m.maturity : "solo";
     return tier === "scaleup" || tier === "enterprise" ? "high" : "any";
   }),
+  // 2.8.0: scalar config `get communication_style` consults
+  // `readCommunicationStyle` — valid persisted value pass-through, else "plain".
+  readCommunicationStyle: vi.fn((m: { communicationStyle?: string } | null | undefined) => {
+    const value = m?.communicationStyle;
+    return value && ["plain", "technical"].includes(value) ? value : "plain";
+  }),
+  // 2.8.0: scalar config `get default_effort` consults `readDefaultEffort` —
+  // valid persisted value pass-through, else undefined (auto-tier; the config
+  // layer renders the "auto-tier" sentinel).
+  readDefaultEffort: vi.fn((m: { defaultEffort?: string } | null | undefined) => {
+    const value = m?.defaultEffort;
+    return value && ["light", "standard", "deep"].includes(value) ? value : undefined;
+  }),
   isValidGitBranchName: vi.fn(() => true),
 }));
 
@@ -2772,6 +2785,160 @@ describe("config command", () => {
         tempDir,
         expect.objectContaining({ confidenceFloor: "high" }),
       );
+    });
+  });
+
+  // 2.8.0: `hatch3r config communication_style=<style>` — non-interactive
+  // scalar setter mirroring the `maturity` contract: closed enum
+  // (plain|technical), HatchError(VALIDATION_ERROR) → exit 64 on bad input,
+  // absent field reads back as the documented "plain" default.
+  describe("communication_style scalar (2.8.0)", () => {
+    it("sets communication_style=technical via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("communication_style=technical");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.communicationStyle).toBe("technical");
+    });
+
+    it("sets communication_style=plain via `set` verb form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "communication_style plain");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.communicationStyle).toBe("plain");
+    });
+
+    it("rejects an invalid style with HatchError(VALIDATION_ERROR) exit 64 and no write", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand("communication_style=shouty");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map — never
+        // a bare numeric exit 1.
+        expect((e as HatchError).exitCode).toBe(64);
+        const msg = (e as HatchError).message;
+        expect(msg).toContain("plain");
+        expect(msg).toContain("technical");
+      }
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("prints the persisted value via `get communication_style`", async () => {
+      const manifest = makeManifest({ communicationStyle: "technical" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "communication_style");
+
+      expect(logSpy).toHaveBeenCalledWith("technical");
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("`get communication_style` defaults to 'plain' when the field is absent", async () => {
+      const manifest = makeManifest();
+      expect((manifest as unknown as Record<string, unknown>).communicationStyle).toBeUndefined();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "communication_style");
+
+      expect(logSpy).toHaveBeenCalledWith("plain");
+    });
+  });
+
+  // 2.8.0: `hatch3r config default_effort=<effort>` — closed enum
+  // (light|standard|deep). Absence means auto-tier, so `get` renders the
+  // "auto-tier" sentinel rather than a settable value.
+  describe("default_effort scalar (2.8.0)", () => {
+    it("sets default_effort=deep via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("default_effort=deep");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.defaultEffort).toBe("deep");
+    });
+
+    it("sets default_effort=light via `set` verb + `=`-joined form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "default_effort=light");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.defaultEffort).toBe("light");
+    });
+
+    it("rejects an invalid effort with HatchError(VALIDATION_ERROR) exit 64 and no write", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        // "max" is a model reasoning-effort level, not an orchestration effort.
+        await configCommand("default_effort=max");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).exitCode).toBe(64);
+        const msg = (e as HatchError).message;
+        expect(msg).toContain("light");
+        expect(msg).toContain("standard");
+        expect(msg).toContain("deep");
+      }
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("rejects empty default_effort value with HatchError and no write", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("default_effort=")).rejects.toThrow(HatchError);
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("prints the persisted value via `get default_effort`", async () => {
+      const manifest = makeManifest({ defaultEffort: "standard" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "default_effort");
+
+      expect(logSpy).toHaveBeenCalledWith("standard");
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("`get default_effort` renders the auto-tier sentinel when the field is absent", async () => {
+      const manifest = makeManifest();
+      expect((manifest as unknown as Record<string, unknown>).defaultEffort).toBeUndefined();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "default_effort");
+
+      expect(logSpy).toHaveBeenCalledWith("auto-tier");
     });
   });
 
