@@ -1,7 +1,7 @@
 ---
 id: hatch3r-iteration-summary
 type: rule
-description: "Recap-contract iteration summary — every orchestrator command and meaningful skill run closes with a 1-2 line recap (status, outcome, files/sub-agents/gates/cost-delta telemetry) plus exception lines that fire on non-default outcomes with one always-emitted exception — the `Not done:` line appears on every recap (`Not done: none — full scope completed` when empty) — and a Remaining Work terminal block closes the run when scope items remain; silence asserts the default for every other line."
+description: "Recap-contract iteration summary — every orchestrator command and meaningful skill run closes with a 1-2 line recap (status, outcome, files/sub-agents/gates/cost-delta telemetry) plus exception lines that fire on non-default outcomes with one always-emitted exception — the `Not done:` line appears on every recap (`Not done: none — full scope completed` when empty) — and a Remaining Work terminal block closes the run when scope items remain, each item carrying a `disposition:` suffix recorded via the single bundled Deferred-Items Disposition Gate ASK; silence asserts the default for every other line."
 tags: [iteration, summary, telemetry, floor:content-quality]
 precedence: high
 alwaysApply: true
@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with at most two sanctioned trailers after it: the Plan-Execution Handoff block (see §Plan-Execution Handoff below), then the Remaining Work block (§Remaining Work (terminal block)), which when it fires is the run's very last output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 37 (2.7.1; Replaces: 28 — the recap contract that superseded the former sectioned template 2026-07-06).
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output — with at most two sanctioned trailers after it: the Plan-Execution Handoff block (see §Plan-Execution Handoff below), then the Remaining Work block (§Remaining Work (terminal block)), which when it fires is the run's very last output — with the Deferred-Items Disposition Gate ASK (§Deferred-Items Disposition Gate) as the one sanctioned interposition before that final block. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 37 (2.7.1; Replaces: 28 — the recap contract that superseded the former sectioned template 2026-07-06).
 
 ## Pre-Execution Cost Preview
 
@@ -38,7 +38,7 @@ Below the recap, a line appears ONLY when its firing condition holds. An absent 
 | Not done | `Not done: <item> [— deferred: <why> \| unverified: <what>]; …` or `Not done: none — full scope completed` | always (the empty form is the positive assertion of full completion) | charter honesty; handoff Work Remaining | never — always emitted |
 | Blockers | `Blockers: <blocker or open question>; …` | any open blocker | old §8; handoff Blockers | none open |
 | Open findings | `Open findings: <finding_id> <sev> — <disposition>; …` | any findings-ledger row folds non-terminal, or terminal as `escalated`/`surfaced`, at recap time | findings-ledger run-exit invariant (`rules/hatch3r-findings-ledger.md`) | no ledger file for this run, or every row folds to done/deferred/declined/accepted-risk/already-resolved |
-| Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default | ASK default exercised | **P8 B1** | no default taken |
+| Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default; disposition-gate non-interactive form: `Default applied: kept deferred (non-interactive)` | ASK default exercised (incl. the disposition gate's non-interactive default) | **P8 B1** | no default taken |
 | Gates failed | `Gates failed: <gate>: <one-line cause>; …` | recap gates shows failure | P1 actionability | all gates passed |
 | Cost | `Cost: flagged_for_review: true` + fenced cost_actuals/delta YAML (the one multi-line exception) | any delta > 25% absolute | **Decision 29** / cost-visibility AC5 | deltas within ±25% (recap Δ facet suffices; telemetry persists regardless) |
 | Confidence | `Confidence: <high\|medium\|low> — <basis>[. <D13 action string verbatim>]` | review loop ran OR confidence < high OR status ≠ SUCCESS | D13 mapping; reviewer-calibration; anti-inflation | SUCCESS + high + direct measurement + no loop |
@@ -96,17 +96,32 @@ Absence of the line on a recorded bypass is a P5 gate failure.
 
 ## Validation Gate
 
-A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. A `plan_handoff: true` run that ends at the plan seam (stop/defer, `--auto`, `--review-only`, non-interactive — §Plan-Execution Handoff) and closes without the Plan-Execution Handoff block fails the gate identically; a run that continued through the Execute-Now Continuation is exempt — emitting the block there is itself the violation. A recap missing the `Not done:` line fails the gate — the line is always-emitted, never a silent default. A run whose `Not done:` line carries ≥1 item but that does not close with the `## Remaining Work` terminal block (§Remaining Work (terminal block)) fails the gate. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
+A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. A `plan_handoff: true` run that ends at the plan seam (stop/defer, `--auto`, `--review-only`, non-interactive — §Plan-Execution Handoff) and closes without the Plan-Execution Handoff block fails the gate identically; a run that continued through the Execute-Now Continuation is exempt — emitting the block there is itself the violation. A recap missing the `Not done:` line fails the gate — the line is always-emitted, never a silent default. A run whose `Not done:` line carries ≥1 item but that does not close with the `## Remaining Work` terminal block (§Remaining Work (terminal block)) fails the gate. A `## Remaining Work` item line missing its `disposition:` suffix fails the gate, as does a disposition-eligible run (≥1 deferred item, unresolved follow-up, or punted human decision) that emitted neither the bundled disposition ASK nor the `Default applied: kept deferred (non-interactive)` line (§Deferred-Items Disposition Gate). Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
 
 ## Plan-Execution Handoff (plan_handoff: true)
 
 Commands whose frontmatter declares `plan_handoff: true` MUST append the Plan-Execution Handoff block immediately after the recap. Format, shapes (A direct / B chain), Tier-1 carve-out, and suppression rule are owned by `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block) — this rule points there and restates nothing. The block and the Remaining Work block (§Remaining Work (terminal block)) are the two sanctioned post-recap trailers; when both fire, the handoff block renders first and Remaining Work renders last. A run firing neither closes with the recap itself. The block is required when the run ends at the plan seam (stop/defer, `--auto`, `--review-only`, non-interactive); a producer run that continued through the Execute-Now Continuation (`commands/shared/orchestration-frame.md` → Execute-Now Continuation) closes with the execution recap and emits no handoff block.
 
+## Deferred-Items Disposition Gate
+
+Fires when the end-of-run Remaining Work set contains ≥1 deferred item, unresolved follow-up, or punted human decision. Zero such items ⇒ the gate passes silently — no ASK, no block (an empty ASK is itself a violation). Purpose: deferred items otherwise accumulate silently across runs, letting a run read as done while decisions pile up unrecorded — the gate converts each item into one recorded human decision before the run may close.
+
+Protocol — BEFORE emitting the final `## Remaining Work` block, the orchestrator asks ONE bundled question via the platform question tool per `agents/shared/user-question-protocol.md`:
+
+- The question body lists every deferred item, numbered. When >4 items, group them under ≤4 labels (by file, domain, or theme) and number the groups so the ASK stays within one screen.
+- Options (fixed): `1. Keep deferred (default)` · `2. Follow up now in this session` · `3. Queue as a new workflow/plan`. The reply may split by item/group number (e.g., "2 for items 1 and 3, 1 for the rest"); every item not explicitly assigned takes the default.
+- One ASK total per run — never one per item, and never a second ASK after a follow-up pass.
+- Non-interactive/headless runs skip the ASK, apply option 1 to every item, and emit the registered exception line `Default applied: kept deferred (non-interactive)`.
+- Option 2 items re-enter execution BEFORE the summary re-emits: run the follow-up work, then re-emit the Iteration Summary — completed items drop off `Not done:`; items still open carry `disposition: followed-up` in the re-emitted Remaining Work block, with no second ASK.
+- Option 3 items record `disposition: queued:<ref>` where `<ref>` names the created artifact (plan file, issue id, or board item).
+
+Disposition suffix: every item line in the `## Remaining Work` block carries a mandatory `disposition: kept | followed-up | queued:<ref>` suffix. An item line without one is a gate failure (§Validation Gate) — no deferred item may appear without a recorded human decision (or the recorded non-interactive default).
+
 ## Remaining Work (terminal block)
 
-Fires when the `Not done:` line carries ≥1 item (not the `none — full scope completed` form) (Decision 37). Position: the VERY LAST output of the run — after the recap, its exception lines, and the Plan-Execution Handoff block when both fire.
+Fires when the `Not done:` line carries ≥1 item (not the `none — full scope completed` form) (Decision 37). Position: the VERY LAST output of the run — after the recap, its exception lines, and the Plan-Execution Handoff block when both fire. The Deferred-Items Disposition Gate ASK (§Deferred-Items Disposition Gate) is the only element permitted between the run-closing sequence — End-of-Turn Delegation Attestation (`rules/hatch3r-agent-orchestration.md`), recap, trailers — and this final block; the block itself stays last.
 
-Format: the heading `## Remaining Work`, then the `Not done:` line copied verbatim, then the `Blockers:` and `Open findings:` lines copied verbatim only when those recap lines fired — zero new bookkeeping; the block re-surfaces recap data for end-of-run prominence.
+Format: the heading `## Remaining Work`, then the `Not done:` line copied verbatim with each item gaining the mandatory `disposition: kept | followed-up | queued:<ref>` suffix (§Deferred-Items Disposition Gate), then the `Blockers:` and `Open findings:` lines copied verbatim only when those recap lines fired — the disposition suffix is the block's one bookkeeping addition beyond re-surfaced recap data.
 
 Scope clause: the block reflects THIS run's scope gaps only — a plan-producing run whose deliverable is the plan does not list plan execution as not-done.
 
@@ -116,5 +131,6 @@ The Validation Gate asserts recap presence per run; no automated cross-run emiss
 
 ## Pillar Service
 - P1 — the always-emitted `Not done:` line plus the Remaining Work terminal block make incompleteness un-missable at run end (actionability)
+- P8 — the disposition gate routes every deferred item through one bundled B1 ASK (`agents/shared/user-question-protocol.md`), so run-end deferral is a recorded human decision, never silent accumulation
 - P5 — one standardised recap plus an auditable exception-line registry prevents drift across orchestrators
 - P7 — the recap cost facet surfaces token + duration deltas per Decision 29 at a fraction of the former template's token footprint
