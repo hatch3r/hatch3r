@@ -20,6 +20,7 @@ Skills are grouped below by capability area. Each is invoked inside your coding 
 | **maintainability-verify** | Maintainability gate -- jscpd duplication index, pattern-reuse ratio, cyclomatic complexity, expand-contract migrations, API breaking-change discipline. |
 | **observability-verify** | Service-done gate -- OTel span coverage on the request path, log + trace-id correlation, SLO definition, error-tracking integration, GenAI semconv. |
 | **perf-audit** | Profile and optimize against defined performance budgets with before/after measurements for every change. |
+| **qa-path** | Human-QA test path for an existing PR -- 7-column manual test table ordered by risk, automated-coverage mapping per row, and a ship sign-off block (all High rows pass; Medium failures need a filed follow-up). |
 | **qa-validation** | E2E validation workflow producing a structured pass/fail report with evidence and ship/hold recommendations. |
 | **reliability-verify** | Service-done gate -- SLO defined, kill switch, timeouts, retries, liveness/readiness probes, runbook, staged rollout. |
 | **scalability-verify** | Scalability gate -- stateless-handler ratio, back-pressure, idempotency-key adoption, queue offloading, pool sizing, bulkheads, load-test pass at target scale. |
