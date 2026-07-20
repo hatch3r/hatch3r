@@ -1,7 +1,7 @@
 ---
 id: shared-triage-vocabulary
 type: reference
-description: Canonical Light/Standard/Deep triage-tier vocabulary — maps the three effort tiers to severity, complexity, effort, sub-agent count, and research depth so every triage-first workflow shares one calibration.
+description: Canonical Light/Standard/Deep triage-tier vocabulary — maps the three effort tiers to complexity, effort, sub-agent count, research depth, and per-tier pipeline pruning, and binds the tier-selection contract (mandatory auto-tier emission + --effort/defaultEffort precedence) so every triage-first workflow shares one calibration.
 tags: [reference]
 ---
 
@@ -26,6 +26,20 @@ The sub-agent counts are calibration anchors, not caps. P8 (`rules/hatch3r-fan-o
 
 ---
 
+## Pipeline pruning per tier
+
+The tier is a pipeline-shaping input, not a label: each tier prunes the four-phase pipeline (`rules/hatch3r-agent-orchestration.md`) to the shape below. Pruning is tier-derived — it follows from task decomposition (module span, decision class), never from token cost; skipping or serializing independent work to save tokens remains a P8 violation.
+
+| Tier | Phase 1 Research | Phase 2 Implement | Phase 3 Review Loop | Phase 4 Final Quality |
+|------|------------------|-------------------|---------------------|-----------------------|
+| **Light** (`1`) | Research + plan collapse into one pass: single `hatch3r-researcher` at `quick` depth; no separate plan artifact; no ADR. | Single `hatch3r-implementer`. | Max 1 reviewer→fixer iteration; findings remaining after it re-tier the task to Standard instead of extending the loop. | Always-mode floor only (CQ5 testability + CQ3 security at `quick` depth); the floor itself is skippable solely under the four-criteria Tier-1 relaxation in `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria. |
+| **Standard** (`2`) | All task-type researcher modes in parallel; ADR on demand. | One implementer per independent module. | Full review-loop cap per the invoking command. | Always-mode floor at `standard` depth + each triggered conditional specialist at `quick` depth; a triggered mandatory-on-match specialist spawns as its own dedicated instance. |
+| **Deep** (`3`) | Deep research, all researcher modes, mandatory ADR, scope confirmation before writes. | One implementer per independent module, dependency-ordered. | Full review-loop cap per the invoking command. | Every applicable specialist at `deep` depth. |
+
+Pruning collapses phase depth; it never removes the delegation mandate — a Tier-1 run still spawns its single implementer per `rules/hatch3r-agent-orchestration.md` → Mandatory Delegation Directives, and fan-out within any phase still tracks the true count of independent units (P8).
+
+---
+
 ## Auto-tiering inputs
 
 A triage-first orchestrator classifies a task by reading these three signals before delegating, then picks the highest tier any signal selects:
@@ -33,6 +47,10 @@ A triage-first orchestrator classifies a task by reading these three signals bef
 1. **Module span** — count of distinct modules the change touches: 1 → Light, 2–5 → Standard, >5 → Deep.
 2. **Decision class** — additive/reversible → Light or Standard; introduces an architectural decision, a new integration, or a breaking change → Deep.
 3. **Acceptance-criteria clarity** — a single clear AC keeps a task Light or Standard; missing/ambiguous AC fires the P8 B1 clarification gate (`rules/hatch3r-clarification-default.md`) before tiering, since an unclassifiable task cannot be tiered.
+
+Tier selection is mandatory at task start: run this classification before the first delegation and emit a one-line rationale — `tier: <1|2|3> — <signal summary>` (e.g. `tier: 1 — 1 module, additive, clear AC`). When the signals are absent (no modules identifiable yet, no decision class inferable), select Tier 2 (Standard) — absent signals never default to Deep; Deep is entered only when a signal affirmatively selects it.
+
+**Tier-source precedence:** explicit `--effort` flag > persisted default effort (`defaultEffort` scalar in `.hatch3r/hatch.json`) > auto-tier classification. A higher-precedence source sets the tier; the emitted rationale line still records the auto-derived tier when the two differ (e.g. `tier: 2 (defaultEffort) — auto: 1`), so overrides and escalations stay visible.
 
 Auto-tiering can misclassify (a single-module task scored Deep, or a cross-cutting task scored Light). The `--effort` flag is the documented recovery path; record the chosen tier in the Iteration Summary recap's tier facet (`rules/hatch3r-iteration-summary.md`).
 
