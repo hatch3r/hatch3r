@@ -13,6 +13,7 @@ import {
   addGitWorktree,
   ensureWorktreesIgnored,
   isValidBranchName,
+  resolveWorktreeBranchPlan,
   WORKTREES_DIR,
 } from "../../worktree/index.js";
 import {
@@ -20,6 +21,7 @@ import {
   findMainWorktree,
 } from "../../worktree/resolve.js";
 import type {
+  WorktreeBranchPlan,
   WorktreeSkipReason,
   WorktreeSkippedEntry,
 } from "../../worktree/types.js";
@@ -117,6 +119,14 @@ interface SetupOptions {
   format?: string;
   /** W5: `--quiet`: suppress stdout chrome (banner, spinner, boxes). */
   quiet?: boolean;
+  /**
+   * release/2.8.0 attach mode: consent to reuse an existing branch <name>.
+   * `true` (`--use-existing`) attaches/tracks without prompting; `false`
+   * (`--no-use-existing`) refuses with a rename hint; `undefined` (no flag)
+   * prompts on an interactive human-mode TTY and fails VALIDATION_ERROR
+   * with the exact `--use-existing` rerun command everywhere else.
+   */
+  useExisting?: boolean;
 }
 
 async function readIncludeOrThrow(mainRoot: string): Promise<string> {
@@ -168,12 +178,105 @@ async function confirmSecretsOrAbort(
   }
 }
 
+/**
+ * release/2.8.0 attach mode: consent gate for reusing an existing branch.
+ * No-op for a `create` plan. Consent tokens, in precedence order:
+ * - `--no-use-existing` → VALIDATION_ERROR with a rename hint (never prompts).
+ * - `--use-existing` → proceed without prompting (one info line).
+ * - No flag + interactive human-mode TTY → one confirm prompt (default yes);
+ *   decline → VALIDATION_ERROR with a rename hint.
+ * - No flag + (non-TTY or json mode) → VALIDATION_ERROR whose recoveryHint
+ *   names the exact `--use-existing` rerun command (json is a single-document
+ *   stdout contract, so it never opens the prompt).
+ */
+async function confirmBranchPlanOrThrow(
+  name: string,
+  plan: WorktreeBranchPlan,
+  opts: SetupOptions,
+  format: CliOutputFormat,
+): Promise<void> {
+  if (plan.mode === "create") return;
+  const state =
+    plan.mode === "attach"
+      ? `Branch '${name}' already exists locally`
+      : `Branch '${name}' exists on origin but not locally`;
+  const action =
+    plan.mode === "attach"
+      ? "attach it to the new worktree"
+      : `create a local branch tracking origin/${name} in the new worktree`;
+
+  if (opts.useExisting === false) {
+    throw new HatchError(
+      `${state}, and --no-use-existing refuses to reuse it.`,
+      undefined,
+      "VALIDATION_ERROR",
+      `Pick a different worktree name (the branch is named after it), or drop --no-use-existing to ${action}.`,
+    );
+  }
+  if (opts.useExisting === true) {
+    info(`${state} — will ${action} (--use-existing).`);
+    return;
+  }
+  if (!process.stdin.isTTY || format === "json") {
+    throw new HatchError(
+      `${state}. Reusing it needs explicit consent, and this session cannot prompt for it.`,
+      undefined,
+      "VALIDATION_ERROR",
+      `Re-run with the consent flag: \`hatch3r worktree-setup ${name} --use-existing\` (or pick a different name).`,
+    );
+  }
+  const { attachExisting } = await inquirer.prompt<{ attachExisting: boolean }>([
+    {
+      type: "confirm",
+      name: "attachExisting",
+      message:
+        plan.mode === "attach"
+          ? `Branch '${name}' exists — attach it to the new worktree?`
+          : `Branch '${name}' exists on origin — create a local tracking branch in the new worktree?`,
+      default: true,
+    },
+  ]);
+  if (!attachExisting) {
+    throw new HatchError(
+      `${state}, and reusing it was declined.`,
+      undefined,
+      "VALIDATION_ERROR",
+      `Pick a different worktree name (e.g. \`hatch3r worktree-setup ${name}-2\`) to create a fresh branch.`,
+    );
+  }
+}
+
+/**
+ * Dry-run Action label: the exact `git worktree add` argv that WOULD run for
+ * the resolved branch plan.
+ */
+function planActionArgv(name: string, mode: WorktreeBranchPlan["mode"]): string {
+  if (mode === "attach") return `git worktree add <target> ${name}`;
+  if (mode === "track") return `git worktree add --track -b ${name} <target> origin/${name}`;
+  return `git worktree add -b ${name} <target>`;
+}
+
+/**
+ * Dry-run Branch label: hyphenated plan id (kept as one word so boxen's
+ * word-wrap never splits it) + reuse/consent note.
+ */
+function planBranchNote(name: string, mode: WorktreeBranchPlan["mode"]): string {
+  if (mode === "attach") {
+    return `attach-existing-local (reuses branch '${name}'; consent: --use-existing or prompt)`;
+  }
+  if (mode === "track") {
+    return `track-remote-only (tracks origin/${name}; consent: --use-existing or prompt)`;
+  }
+  return "create-new (branches off HEAD)";
+}
+
 function printDryRun(
   includeContent: string,
   mainRoot: string,
   targetRoot: string,
   mode: "name" | "from-path",
   name?: string,
+  plan?: WorktreeBranchPlan,
 ): void {
   const entries = parseWorktreeInclude(includeContent);
   const summaryLines = entries.map((e) => {
@@ -186,7 +289,9 @@ function printDryRun(
     label("Target", targetRoot),
   ];
   if (mode === "name") {
-    header.push(label("Action", `git worktree add -b ${name} <target>`));
+    const planMode = plan?.mode ?? "create";
+    header.push(label("Action", planActionArgv(name ?? "", planMode)));
+    header.push(label("Branch", planBranchNote(name ?? "", planMode)));
   }
   header.push(label("Entries", `${entries.length}`), "");
   printBox("Worktree setup (dry run)", [...header, ...summaryLines], "info");
@@ -195,6 +300,8 @@ function printDryRun(
 /**
  * W5: json twin of {@link printDryRun} — one envelope document describing the
  * planned worktree population (mode, source/target, per-entry strategy).
+ * `branchPlan` reports the resolved branch action (`create`/`attach`/`track`)
+ * for name-mode previews; null in from-path mode (no branch is created there).
  */
 function emitDryRunJson(
   format: CliOutputFormat,
@@ -203,6 +310,7 @@ function emitDryRunJson(
   targetRoot: string,
   mode: "name" | "from-path",
   name?: string,
+  plan?: WorktreeBranchPlan,
 ): void {
   const entries = parseWorktreeInclude(includeContent);
   finishCommand(format, {
@@ -214,6 +322,7 @@ function emitDryRunJson(
       dryRun: true,
       mode,
       name: name ?? null,
+      branchPlan: mode === "name" ? (plan?.mode ?? "create") : null,
       source: mainRoot,
       target: targetRoot,
       entries: entries.map((e) => ({ pattern: e.pattern, strategy: e.strategy })),
@@ -415,14 +524,25 @@ async function runByName(
     );
   }
 
+  // release/2.8.0 attach mode: resolve how the branch will be materialized
+  // BEFORE creating anything. Real runs may fetch origin/<name> (transport
+  // failure → NETWORK_ERROR, exit 75); --dry-run stays offline (allowFetch:
+  // false) and derives the plan from local refs only.
+  const plan = resolveWorktreeBranchPlan(mainRoot, name, {
+    allowFetch: opts.dryRun !== true,
+  });
+  if (opts.dryRun !== true) {
+    await confirmBranchPlanOrThrow(name, plan, opts, format);
+  }
+
   const includeContent = await readIncludeOrThrow(mainRoot);
   await confirmSecretsOrAbort(includeContent, mainRoot, targetRoot, opts);
 
   if (opts.dryRun) {
     if (format === "json") {
-      emitDryRunJson(format, includeContent, mainRoot, targetRoot, "name", name);
+      emitDryRunJson(format, includeContent, mainRoot, targetRoot, "name", name, plan);
     } else {
-      printDryRun(includeContent, mainRoot, targetRoot, "name", name);
+      printDryRun(includeContent, mainRoot, targetRoot, "name", name, plan);
     }
     return;
   }
@@ -432,10 +552,16 @@ async function runByName(
   const added = await ensureWorktreesIgnored(mainRoot);
   if (added) info(`Added ${WORKTREES_DIR}/ to ${chalk.dim(".git/info/exclude")} (per-clone)`);
 
-  const sCreate = createSpinner(`Creating worktree on new branch '${name}'...`);
+  const spinnerText =
+    plan.mode === "attach"
+      ? `Attaching existing branch '${name}' to a new worktree...`
+      : plan.mode === "track"
+        ? `Creating worktree tracking origin/${name}...`
+        : `Creating worktree on new branch '${name}'...`;
+  const sCreate = createSpinner(spinnerText);
   sCreate.start();
   try {
-    addGitWorktree(mainRoot, name, targetRoot);
+    addGitWorktree(mainRoot, name, targetRoot, { mode: plan.mode });
     sCreate.succeed(`Created worktree: ${chalk.dim(targetRoot)}`);
   } catch (err) {
     sCreate.fail("git worktree add failed");

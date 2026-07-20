@@ -25,7 +25,11 @@ vi.mock("../../worktree/resolve.js", () => ({
 }));
 
 // Partial-mock worktree/index: replace git wrappers + ignore helper + name
-// validator, but keep setupWorktree / parseWorktreeInclude / WORKTREES_DIR real.
+// validator + branch-plan resolver, but keep setupWorktree /
+// parseWorktreeInclude / WORKTREES_DIR real. resolveWorktreeBranchPlan MUST be
+// mocked here: the real one shells out via the globally-mocked execFileSync
+// (which "succeeds" on every call), so it would misreport every branch as
+// existing locally.
 vi.mock("../../worktree/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../worktree/index.js")>();
   return {
@@ -34,6 +38,7 @@ vi.mock("../../worktree/index.js", async (importOriginal) => {
     removeGitWorktree: vi.fn(),
     ensureWorktreesIgnored: vi.fn(async () => true),
     isValidBranchName: vi.fn(() => true),
+    resolveWorktreeBranchPlan: vi.fn(() => ({ mode: "create" })),
   };
 });
 
@@ -54,6 +59,7 @@ describe("worktreeSetupCommand", () => {
   let addGitWorktree: ReturnType<typeof vi.fn>;
   let ensureWorktreesIgnored: ReturnType<typeof vi.fn>;
   let isValidBranchName: ReturnType<typeof vi.fn>;
+  let resolveWorktreeBranchPlan: ReturnType<typeof vi.fn>;
   let copyToClipboard: ReturnType<typeof vi.fn>;
   let inquirerPrompt: ReturnType<typeof vi.fn>;
   let execFileSyncMock: ReturnType<typeof vi.fn>;
@@ -72,9 +78,11 @@ describe("worktreeSetupCommand", () => {
     addGitWorktree = indexModule.addGitWorktree as ReturnType<typeof vi.fn>;
     ensureWorktreesIgnored = indexModule.ensureWorktreesIgnored as ReturnType<typeof vi.fn>;
     isValidBranchName = indexModule.isValidBranchName as ReturnType<typeof vi.fn>;
+    resolveWorktreeBranchPlan = indexModule.resolveWorktreeBranchPlan as ReturnType<typeof vi.fn>;
     addGitWorktree.mockReset();
     ensureWorktreesIgnored.mockReset().mockResolvedValue(true);
     isValidBranchName.mockReset().mockReturnValue(true);
+    resolveWorktreeBranchPlan.mockReset().mockReturnValue({ mode: "create" });
 
     const clipboardModule = await import("../../cli/shared/clipboard.js");
     copyToClipboard = clipboardModule.copyToClipboard as ReturnType<typeof vi.fn>;
@@ -304,5 +312,196 @@ describe("worktreeSetupCommand", () => {
 
     await expect(worktreeSetupCommand("feat-cancel")).rejects.toThrow("Worktree setup cancelled");
     expect(addGitWorktree).not.toHaveBeenCalled();
+  });
+
+  // ── Existing-branch attach/track consent (release/2.8.0) ─────
+
+  describe("existing-branch consent flow", () => {
+    const writeInclude = async (): Promise<void> => {
+      const includeContent = [MANAGED_BLOCK_START, ".env", MANAGED_BLOCK_END].join("\n");
+      await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    };
+
+    it("create plan passes mode 'create' through to addGitWorktree", async () => {
+      await writeInclude();
+      await worktreeSetupCommand("feat-new");
+      expect(addGitWorktree.mock.calls[0][3]).toEqual({ mode: "create" });
+    });
+
+    it("--use-existing attaches a local branch without prompting", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      await writeInclude();
+
+      await worktreeSetupCommand("feat-exist", { useExisting: true });
+
+      expect(inquirerPrompt).not.toHaveBeenCalled();
+      expect(addGitWorktree).toHaveBeenCalledTimes(1);
+      expect(addGitWorktree.mock.calls[0][3]).toEqual({ mode: "attach" });
+    });
+
+    it("--use-existing tracks a remote-only branch without prompting", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "track" });
+      await writeInclude();
+
+      await worktreeSetupCommand("feat-remote", { useExisting: true });
+
+      expect(inquirerPrompt).not.toHaveBeenCalled();
+      expect(addGitWorktree.mock.calls[0][3]).toEqual({ mode: "track" });
+    });
+
+    it("non-TTY without --use-existing → VALIDATION_ERROR exit 64 naming the exact rerun command", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      await writeInclude();
+      // beforeEach sets process.stdin.isTTY = false.
+
+      let caught: unknown;
+      try {
+        await worktreeSetupCommand("feat-exist", {});
+      } catch (e) {
+        caught = e;
+      }
+      // Name-based check: vi.resetModules() gives the command module a fresh
+      // types.js instance, so cross-module instanceof would false-negative.
+      const err = caught as HatchError;
+      expect(err.name).toBe("HatchError");
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.exitCode).toBe(64);
+      expect(err.recoveryHint).toContain("hatch3r worktree-setup feat-exist --use-existing");
+      expect(addGitWorktree).not.toHaveBeenCalled();
+    });
+
+    it("interactive TTY prompts once (default yes) and attaches on accept", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = true;
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      inquirerPrompt.mockResolvedValueOnce({ attachExisting: true });
+      await writeInclude();
+
+      await worktreeSetupCommand("feat-exist", {});
+
+      expect(inquirerPrompt).toHaveBeenCalledTimes(1);
+      const question = (inquirerPrompt.mock.calls[0][0] as Array<Record<string, unknown>>)[0];
+      expect(question.name).toBe("attachExisting");
+      expect(question.default).toBe(true);
+      expect(String(question.message)).toContain("attach it to the new worktree");
+      expect(addGitWorktree.mock.calls[0][3]).toEqual({ mode: "attach" });
+    });
+
+    it("prompt decline → VALIDATION_ERROR with a different-name hint, nothing created", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = true;
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      inquirerPrompt.mockResolvedValueOnce({ attachExisting: false });
+      await writeInclude();
+
+      let caught: unknown;
+      try {
+        await worktreeSetupCommand("feat-exist", {});
+      } catch (e) {
+        caught = e;
+      }
+      const err = caught as HatchError;
+      expect(err.name).toBe("HatchError");
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.exitCode).toBe(64);
+      expect(err.recoveryHint).toMatch(/different worktree name/i);
+      expect(addGitWorktree).not.toHaveBeenCalled();
+    });
+
+    it("--no-use-existing declines without prompting → VALIDATION_ERROR + rename hint", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = true; // flag wins even on a TTY
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      await writeInclude();
+
+      let caught: unknown;
+      try {
+        await worktreeSetupCommand("feat-exist", { useExisting: false });
+      } catch (e) {
+        caught = e;
+      }
+      const err = caught as HatchError;
+      expect(err.name).toBe("HatchError");
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.exitCode).toBe(64);
+      expect(err.recoveryHint).toMatch(/different worktree name/i);
+      expect(inquirerPrompt).not.toHaveBeenCalled();
+      expect(addGitWorktree).not.toHaveBeenCalled();
+    });
+
+    it("dry-run previews the attach action offline — no prompt, no fetch, no worktree", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      await writeInclude();
+
+      await worktreeSetupCommand("feat-exist", { dryRun: true });
+
+      expect(addGitWorktree).not.toHaveBeenCalled();
+      expect(inquirerPrompt).not.toHaveBeenCalled();
+      // --dry-run stays offline: allowFetch:false.
+      expect(resolveWorktreeBranchPlan).toHaveBeenCalledWith(tempDir, "feat-exist", {
+        allowFetch: false,
+      });
+      // Hyphenated plan ids are single words, so boxen's word-wrap cannot
+      // split them — wrap-proof assertions.
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("attach-existing-local");
+      expect(output).not.toContain("create-new");
+    });
+
+    it("dry-run previews the remote-track action with the --track argv", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "track" });
+      await writeInclude();
+
+      await worktreeSetupCommand("feat-remote", { dryRun: true });
+
+      expect(addGitWorktree).not.toHaveBeenCalled();
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("track-remote-only");
+      expect(output).toContain("origin/feat-remote");
+    });
+
+    it("dry-run json reports branchPlan for the attach path", async () => {
+      resolveWorktreeBranchPlan.mockReturnValue({ mode: "attach" });
+      await writeInclude();
+
+      // emitJson writes the single document via process.stdout.write.
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      try {
+        await worktreeSetupCommand("feat-exist", { dryRun: true, format: "json" });
+        const jsonCall = stdoutSpy.mock.calls
+          .map((c) => String(c[0]))
+          .find((s) => s.trimStart().startsWith("{"));
+        expect(jsonCall).toBeDefined();
+        const doc = JSON.parse(jsonCall as string) as Record<string, unknown>;
+        expect(doc.dryRun).toBe(true);
+        expect(doc.branchPlan).toBe("attach");
+        expect(doc.command).toBe("worktree-setup");
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+
+    it("NETWORK_ERROR from branch detection propagates with exit 75, nothing created", async () => {
+      resolveWorktreeBranchPlan.mockImplementation(() => {
+        throw new HatchError(
+          "git fetch origin feat-exist failed: Could not resolve host",
+          undefined,
+          "NETWORK_ERROR",
+          "Check connectivity and the origin URL (`git remote -v`), then re-run worktree-setup.",
+        );
+      });
+      await writeInclude();
+
+      let caught: unknown;
+      try {
+        await worktreeSetupCommand("feat-exist", {});
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      const err = caught as HatchError;
+      expect(err.errorCode).toBe("NETWORK_ERROR");
+      expect(err.exitCode).toBe(75);
+      expect(addGitWorktree).not.toHaveBeenCalled();
+    });
   });
 });

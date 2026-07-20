@@ -25,10 +25,15 @@ import {
   removeGitWorktree,
   ensureWorktreesIgnored,
   isValidBranchName,
+  localBranchExists,
+  remoteBranchExists,
+  hasOriginRemote,
+  fetchOriginBranch,
+  resolveWorktreeBranchPlan,
   WORKTREES_DIR,
 } from "../../worktree/index.js";
 import { readFileSync, existsSync } from "node:fs";
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import { MANAGED_BLOCK_START, MANAGED_BLOCK_END, HatchError } from "../../types.js";
 import { setVerbose } from "../../cli/shared/ui.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -251,6 +256,16 @@ describe("findMainWorktree", () => {
     expect(() => findMainWorktree(tempDir)).toThrow(
       /Unable to parse .git file/,
     );
+    // release/2.8.0 exit-code drift fix: ERROR_CODE_TO_EXIT_CODE governs
+    // (FS_ERROR → 74), no hard-coded exit 1.
+    try {
+      findMainWorktree(tempDir);
+      expect.unreachable("findMainWorktree should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      expect((e as HatchError).errorCode).toBe("FS_ERROR");
+      expect((e as HatchError).exitCode).toBe(74);
+    }
   });
 
   it("throws when .git file does not exist", () => {
@@ -574,10 +589,56 @@ describe("addGitWorktree / removeGitWorktree", () => {
     expect(branches).toContain("feat-add");
   });
 
-  it("throws VALIDATION_ERROR on existing-branch collision", () => {
+  // release/2.8.0: replaces the old message-only collision test with the
+  // exit-code contract — ERROR_CODE_TO_EXIT_CODE governs (VALIDATION_ERROR →
+  // 64), never a hard-coded exit 1, and the hint steers to --use-existing.
+  it("create-mode existing-branch collision → VALIDATION_ERROR, exit 64, --use-existing hint", () => {
     execFileSync("git", ["-C", mainRoot, "branch", "dup"], { stdio: "ignore" });
     const wtPath = join(mainRoot, WORKTREES_DIR, "dup");
-    expect(() => addGitWorktree(mainRoot, "dup", wtPath)).toThrow(/already exists/i);
+    try {
+      addGitWorktree(mainRoot, "dup", wtPath);
+      expect.unreachable("addGitWorktree should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      const err = e as HatchError;
+      expect(err.message).toMatch(/already exists/i);
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.exitCode).toBe(64);
+      expect(err.recoveryHint).toContain("--use-existing");
+    }
+  });
+
+  it("attach mode reuses the existing local branch (no -b): worktree HEAD is that branch", () => {
+    execFileSync("git", ["-C", mainRoot, "branch", "feat-attach"], { stdio: "ignore" });
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-attach");
+    // `worktree add -b feat-attach` would refuse (branch exists) — success
+    // here proves the attach argv shape (no -b) was used.
+    addGitWorktree(mainRoot, "feat-attach", wtPath, { mode: "attach" });
+    expect(existsSync(wtPath)).toBe(true);
+    const head = execFileSync(
+      "git",
+      ["-C", wtPath, "rev-parse", "--abbrev-ref", "HEAD"],
+      { encoding: "utf-8" },
+    ).trim();
+    expect(head).toBe("feat-attach");
+  });
+
+  // Branch checked out in another worktree: 'main' is held by the main
+  // worktree itself, so attaching it must refuse — classified via REAL
+  // `git worktree list --porcelain` output, naming the holder's path.
+  it("branch checked out elsewhere → VALIDATION_ERROR 64 naming the other worktree's path", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "main-again");
+    try {
+      addGitWorktree(mainRoot, "main", wtPath, { mode: "attach" });
+      expect.unreachable("addGitWorktree should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      const err = e as HatchError;
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.exitCode).toBe(64);
+      expect(err.message).toContain(mainRoot); // porcelain-derived holder path
+      expect(err.recoveryHint).toMatch(/worktree-cleanup/);
+    }
   });
 
   it("removes a worktree and preserves the branch", () => {
@@ -589,6 +650,124 @@ describe("addGitWorktree / removeGitWorktree", () => {
       encoding: "utf-8",
     });
     expect(branches).toContain("feat-rm");
+  });
+
+  // release/2.8.0 exit-code drift fix sweep: remove failures map FS_ERROR → 74.
+  it("removeGitWorktree failure → FS_ERROR, exit 74 (no hard-coded 1)", () => {
+    try {
+      removeGitWorktree(mainRoot, join(mainRoot, "no-such-worktree"));
+      expect.unreachable("removeGitWorktree should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      expect((e as HatchError).errorCode).toBe("FS_ERROR");
+      expect((e as HatchError).exitCode).toBe(74);
+    }
+  });
+});
+
+// ─── Branch detection + plan (release/2.8.0 attach mode) ─────────────────────
+
+describe("branch detection + resolveWorktreeBranchPlan (real git)", () => {
+  let originRoot: string;
+  let consumerRoot: string;
+
+  beforeEach(() => {
+    // originRoot plays the remote: a plain local repo addressed by path.
+    originRoot = makeTempGitRepo();
+    commitInitial(originRoot);
+    execFileSync("git", ["-C", originRoot, "branch", "remote-only"], { stdio: "ignore" });
+
+    consumerRoot = makeTempGitRepo();
+    commitInitial(consumerRoot);
+    execFileSync("git", ["-C", consumerRoot, "remote", "add", "origin", originRoot], {
+      stdio: "ignore",
+    });
+  });
+
+  afterEach(() => {
+    rmSync(originRoot, { recursive: true, force: true });
+    rmSync(consumerRoot, { recursive: true, force: true });
+  });
+
+  it("localBranchExists: true for a real local branch, false otherwise", () => {
+    expect(localBranchExists(consumerRoot, "main")).toBe(true);
+    expect(localBranchExists(consumerRoot, "nope")).toBe(false);
+  });
+
+  it("hasOriginRemote: true when origin is configured, false when not", () => {
+    expect(hasOriginRemote(consumerRoot)).toBe(true);
+    expect(hasOriginRemote(originRoot)).toBe(false);
+  });
+
+  it("fetchOriginBranch materializes refs/remotes/origin/<name> for remoteBranchExists", () => {
+    expect(remoteBranchExists(consumerRoot, "remote-only")).toBe(false);
+    fetchOriginBranch(consumerRoot, "remote-only");
+    expect(remoteBranchExists(consumerRoot, "remote-only")).toBe(true);
+  });
+
+  it("fetchOriginBranch is soft when the branch is absent upstream (no throw)", () => {
+    expect(() => fetchOriginBranch(consumerRoot, "no-such-branch")).not.toThrow();
+  });
+
+  it("fetchOriginBranch → NETWORK_ERROR, exit 75, when origin is unreachable", () => {
+    execFileSync(
+      "git",
+      ["-C", consumerRoot, "remote", "set-url", "origin", join(consumerRoot, "no-such-origin.git")],
+      { stdio: "ignore" },
+    );
+    try {
+      fetchOriginBranch(consumerRoot, "remote-only");
+      expect.unreachable("fetchOriginBranch should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      const err = e as HatchError;
+      expect(err.errorCode).toBe("NETWORK_ERROR");
+      expect(err.exitCode).toBe(75);
+      expect(err.recoveryHint).toMatch(/git remote -v/);
+    }
+  });
+
+  it("plan: existing local branch → attach", () => {
+    expect(resolveWorktreeBranchPlan(consumerRoot, "main")).toEqual({ mode: "attach" });
+  });
+
+  it("plan: remote-only branch → track (fetch performed)", () => {
+    expect(resolveWorktreeBranchPlan(consumerRoot, "remote-only")).toEqual({ mode: "track" });
+  });
+
+  it("plan: unknown name → create (missing upstream ref is soft)", () => {
+    expect(resolveWorktreeBranchPlan(consumerRoot, "brand-new")).toEqual({ mode: "create" });
+  });
+
+  it("plan with allowFetch:false (dry-run shape) stays offline: create without a cached ref, track with one", () => {
+    // Unreachable origin proves no fetch is attempted when allowFetch:false.
+    execFileSync(
+      "git",
+      ["-C", consumerRoot, "remote", "set-url", "origin", join(consumerRoot, "no-such-origin.git")],
+      { stdio: "ignore" },
+    );
+    expect(
+      resolveWorktreeBranchPlan(consumerRoot, "remote-only", { allowFetch: false }),
+    ).toEqual({ mode: "create" });
+  });
+
+  it("plan with allowFetch:false honors an already-fetched tracking ref → track", () => {
+    fetchOriginBranch(consumerRoot, "remote-only");
+    expect(
+      resolveWorktreeBranchPlan(consumerRoot, "remote-only", { allowFetch: false }),
+    ).toEqual({ mode: "track" });
+  });
+
+  it("track mode creates the worktree on a local branch tracking origin/<name>", () => {
+    fetchOriginBranch(consumerRoot, "remote-only");
+    const wtPath = join(consumerRoot, WORKTREES_DIR, "remote-only");
+    addGitWorktree(consumerRoot, "remote-only", wtPath, { mode: "track" });
+    const upstream = execFileSync(
+      "git",
+      ["-C", wtPath, "rev-parse", "--abbrev-ref", "remote-only@{upstream}"],
+      { encoding: "utf-8" },
+    ).trim();
+    expect(upstream).toBe("origin/remote-only");
   });
 });
 
