@@ -30,6 +30,7 @@ sub_agents_spawned:
 | Stage | Agent(s) | Parallel | Required |
 |-------|----------|----------|----------|
 | 1. Identify PR | Orchestrator (inline) | No | Yes |
+| 1.6. Base-branch sync gate | Orchestrator (inline) + `hatch3r-fixer` | Per conflicted file | When PR branch is behind or conflicted with base |
 | 2. Fetch comments | Orchestrator (inline, platform CLI) | Per scope | Yes |
 | 3. Normalize | Orchestrator (inline) | No | Yes |
 | 4. Evaluate (rigor contract) | Orchestrator (inline) | Per finding | Yes |
@@ -90,7 +91,7 @@ If no `.hatch3r/hatch.json` exists, fall back to GitHub and proceed — the comm
 ## Token-Saving Directives
 
 1. **One fetch per comment scope per round.** Issue exactly one paginated request per scope in Step 2; cache and reuse for Steps 3, 4, and 8. Step 9.5b poll attempts are the one sanctioned re-fetch path (max 5 per poll).
-2. **One diff computation per round.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input). A Step 9.5 round re-entry refreshes it once against the new HEAD.
+2. **One diff computation per round.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input). A Step 9.5 round re-entry refreshes it once against the new HEAD; a completed Step 1.6 sync merge refreshes it once as well.
 3. **Targeted file reads.** In Step 4, read only the files referenced by a comment's `path`/`line` — not the full codebase.
 4. **No re-reading shared rules.** `scope: always` rules from `rules/` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
 5. **Per-platform reference cache.** Load the matching `commands/board/shared-{platform}.md` once at run start (Shared Context). Step 8 reads templates from the cache, not from disk.
@@ -121,6 +122,10 @@ run_cache:
     head_ref: <string>
     url: <string>
     linked_issues: [<int>, ...]
+  sync_gate:
+    outcome: <passed | synced | declined | not-run>   # Step 1.6 + Step 9 pre-push re-check
+    behind_n: <int>
+    conflicts: [{file, kind, resolution, risk}, ...]  # empty when the 1.6a probe is clean
   raw_comments:
     inline: [<comment>, ...]
     review_summaries: [<review>, ...]
@@ -152,7 +157,7 @@ run_cache:
 
 ## Workflow
 
-Execute these steps in order. **Do not skip any step.** Two ASK gate classes bound the run: Step 5 (triage routing, once per round) and Step 9.5 (re-poll consent, after each push). After the user accepts triage, each round runs autonomously through Step 9; Step 9.5 bounds the loop; Step 10 closes the run.
+Execute these steps in order. **Do not skip any step.** Three ASK gate classes bound the run: Step 1.6 (sync consent, only when the base probe finds drift or conflicts), Step 5 (triage routing, once per round), and Step 9.5 (re-poll consent, after each push). After the user accepts triage, each round runs autonomously through Step 9 (the pre-push re-check re-opens the Step 1.6 sync ASK only when base moved mid-run); Step 9.5 bounds the loop; Step 10 closes the run.
 
 ---
 
@@ -168,7 +173,7 @@ Tier assignment is recomputed after Step 4 (when severity is known). If the init
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
-Before the Step 5 ASK gate (the only mutation gate, after which fan-out begins in Step 6), surface the cost preview so a large comment-resolution run is never approved blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 tier (recomputed in Step 4e once severities are known). A PR with zero unresolved comments short-circuits at Step 2d and spawns nothing, so `expected_sa_count: 0` is correct for that case.
+Before the Step 5 ASK gate (the comment-resolution mutation gate, after which fan-out begins in Step 6), surface the cost preview so a large comment-resolution run is never approved blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 tier (recomputed in Step 4e once severities are known). A PR with zero unresolved comments short-circuits at Step 2d and spawns nothing, so `expected_sa_count: 0` is correct for that case.
 
 ```yaml
 cost_estimate:
@@ -243,6 +248,50 @@ Exit code 2 (usage error).
 #### 1e. Diff Computation
 
 Compute and cache the full diff once: `git diff {pr.baseRefName}...{pr.headRefName} > /tmp/pr-resolve-{N}.diff`. Reuse for Step 4 outdated detection and Step 7a review loop input.
+
+---
+
+## Step 1.6: Base-Branch Sync Gate
+
+Runs after Step 1e, before any comment analysis. Detects whether the PR branch is behind or in conflict with its base and — with the same consent UX as comment triage (one consolidated table, one bundled ASK per round, per `agents/shared/user-question-protocol.md`) — resolves merge conflicts in-run. Step 5 stays the mutation gate for comment-resolution routing; this gate consents only to sync-merge edits. Two re-entry points cite this gate instead of duplicating it: the Step 9 pre-push re-check and the `git push`-rejected row in Error Handling.
+
+#### 1.6a. Detection Recipe
+
+The comparison ref `{ref}` defaults to `origin/{pr.baseRefName}`; the push-rejected re-entry runs the identical recipe with `origin/{pr.headRefName}`.
+
+1. `git fetch origin {pr.baseRefName}` — one fetch per gate entry (the re-entry fetches `{pr.headRefName}` instead).
+2. `behind_n=$(git rev-list --count HEAD..{ref})`. `0` → record `sync_gate.outcome: passed`; continue with no table and no ASK.
+3. Conflict probe (Git ≥ 2.38): `git merge-tree --write-tree --name-only HEAD {ref}` — exit 0 = auto-mergeable (behind, zero conflicts); exit 1 = conflicted, conflicted paths listed after the tree OID. Fallback for older Git: `git merge --no-commit --no-ff {ref}`, collect `git diff --name-only --diff-filter=U` plus `git ls-files -u`, then `git merge --abort` — the probe never leaves a half-merged tree on disk when the ASK is presented.
+4. Auto-mergeable case (`behind_n > 0`, exit 0): skip the 1.6b table; the 1.6c ASK collapses to two options — `sync` (merge `{ref}`, zero conflicts) / `skip`.
+
+#### 1.6b. Per-Conflict Triage Table
+
+One consolidated table mirroring the Step 5b pattern (that section owns the grouped-table + numbered-row spec; only the columns differ here). Row shape:
+
+`[#] {file} • {kind} • ours: {one line} / theirs: {one line} • proposed: {take-ours | take-theirs | blend} — {rationale} • risk {H|M|L}`
+
+- `kind` ∈ `content | rename | delete | binary`, classified from the probe: overlapping stages in `git ls-files -u` → content; `CONFLICT (rename/...)` messages → rename; missing stage 2 or 3 → delete; a `Binary files` differ marker → binary.
+- ours = the PR branch (HEAD); theirs = `{ref}`. One line per side via `git log -1 --format='%h %s' {side} -- {file}`.
+- Every `proposed:` value carries a one-phrase rationale (e.g., `take-ours — theirs touches only import order`).
+- **Halt-plus-human scope cap:** binary conflicts, and conflicts in files outside the PR's own diff (the Step 1e cache), are surfaced as rows but fixed at risk H with `proposed: halt + human` — no auto-resolution proposal for either class. Consented rows still resolve; halt rows carry into the decline warning below and the Step 10 `Blockers:` line.
+
+#### 1.6c. ASK (sync consent, one bundled prompt per round)
+
+> PR #{N} is {behind_n} commits behind {ref} with {conflict_n} conflicts (table above). Options:
+> - `sync` — apply every proposed resolution (default)
+> - `sync only N,M` — resolve only the listed rows
+> - `override N take-ours|take-theirs|blend` — change row N's resolution, then apply
+> - `skip` — decline all; continue comment resolution on the unsynced branch
+
+One bundled prompt covers every conflict group in the round — 2–4 numbered options per group, default = the proposed resolution, per `agents/shared/user-question-protocol.md`.
+
+#### 1.6d. Resolution Delegation + Verification
+
+On consent: cache `pre_sync_sha=$(git rev-parse HEAD)`, open the merge (`git merge --no-commit --no-ff {ref}`), and delegate each conflicted-file edit to the `hatch3r-fixer` sub-agent via the Task tool — per-file prompt carrying the consented resolution, both sides' conflict hunks, and the row rationale; each spawn returns the structured Fix Result with its `Delegation proof ID` (`delegation_proof_id`), the same contract the Step 7b review loop uses — quote every id in the End-of-Turn Delegation Attestation. Then `git add` the resolved paths, complete the merge commit (`pr-resolve: sync {branch} with {ref}`), refresh the Step 1e diff once against the new HEAD, record `sync_gate.outcome: synced`, and run the project build command plus the tests targeting the resolved files before proceeding to Step 2. A build or test failure re-opens the 1.6c ASK with the failure output attached (`override N ...` / `skip`) after `git reset --hard {pre_sync_sha}` restores the pre-sync state.
+
+On `skip`: `git merge --abort` if a probe merge is open, record `sync_gate.outcome: declined`, continue comment resolution on the unsynced branch, and print this warning verbatim — once now, again on the Step 10 `Blockers:` line:
+
+`WARNING: sync declined — {behind_n} commits behind {ref}, {conflict_n} conflicts unresolved; push will fail until synced.`
 
 ---
 
@@ -611,6 +660,8 @@ Reply failures do NOT abort the run. The final state surfaces in the Step 10 Ite
 
 When `run_cache.fix_results.files_changed` is non-empty, stage, commit, and push.
 
+**Pre-push re-check.** Immediately before `git push`, re-run the Step 1.6a detection recipe against `origin/{pr.baseRefName}`. Drift or new conflicts (base moved during the run) route back into the Step 1.6 flow — 1.6b table, 1.6c bundled ASK, 1.6d fixer delegation + verification — then return here and push. Step 1.6 owns the table spec and consent UX; this re-check adds no second copy.
+
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
@@ -671,7 +722,7 @@ There is no automatic round cap — the 9.5a ASK is the bound; every round is us
 
 Reconcile the findings ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`): zero rows may fold `pending`/`in-fix`; open Critical/Warning force an ASK; unattended runs record them as `escalated` and exit PARTIAL.
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line. Recap facets include `rounds {n}` (from `round.index`); when rounds > 1, a `Rounds:` exception line enumerates per-round counts sourced from `round.comments_per_round`. Worked example:
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line; a declined Step 1.6 sync gate puts its warning line on the `Blockers:` line. Recap facets include `rounds {n}` (from `round.index`); when rounds > 1, a `Rounds:` exception line enumerates per-round counts sourced from `round.comments_per_round`. Worked example:
 
 ```markdown
 ## Iteration Summary
@@ -699,9 +750,9 @@ Status decision rules:
 
 ## Resumability (Decision 27/30)
 
-pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), commit + push (Step 9), and the Step 9.5 re-poll gate, which can add further full rounds. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
+pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), the base-branch sync gate (Step 1.6), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the comment-resolution mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), commit + push (Step 9), and the Step 9.5 re-poll gate, which can add further full rounds. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range Step 0 → Step 10 with a Step 9.5 loop-back to Step 2; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log; checkpoint meta gains `roundIndex` + `roundStartedAt`. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions and the Tier >= 2 plan-gate artifact path + approval persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), after Step 9 commit + push, and after each Step 9.5 decision (round counter + `roundStartedAt` persist; the `postedCommentIds` filter carries across rounds).
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range Step 0 → Step 10 with a Step 9.5 loop-back to Step 2; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log; checkpoint meta gains `roundIndex` + `roundStartedAt`. Write points: after Step 1 PR identity resolves, after a Step 1.6 sync gate resolves (`sync_gate` outcome + per-file resolutions and proof ids persist), after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (comment-resolution mutation gate — confirmed routing decisions and the Tier >= 2 plan-gate artifact path + approval persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), after Step 9 commit + push, and after each Step 9.5 decision (round counter + `roundStartedAt` persist; the `postedCommentIds` filter carries across rounds).
 
 ---
 
@@ -725,7 +776,7 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
-- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6). Each Step 9.5 re-poll round re-emits it before that round's Step 5 ASK — re-entry passes through Step 4e → Step 5, so the per-round estimate fires on the same path.
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the comment-resolution mutation gate; fan-out begins in Step 6). Each Step 9.5 re-poll round re-emits it before that round's Step 5 ASK — re-entry passes through Step 4e → Step 5, so the per-round estimate fires on the same path.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
 Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (one specialist, no review loop); Tier 2 ≈ 4 (FIX NOW fix group + review loop); Tier 3 up to 10 (full pipeline including the parallel Tier-3 final-quality specialist mandate and both mandatory-on-match specialists when triggered). A no-comment short-circuit (Step 2d) emits `actual_sa_count: 0`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
@@ -745,7 +796,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Reply POST persistently fails (Step 8c) | Continue run; record in `run_cache.reply_post_results`; surface in Step 10. |
 | Review loop hits 3 iterations with findings remaining | ASK the user how to proceed — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`) on exit. |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
-| `git push` rejected (e.g., upstream changed mid-run) | Halt at Step 9 with: "Remote branch changed during run. Run `git pull --rebase`, resolve conflicts, then re-run /hatch3r-pr-resolve to repost any failed replies." |
+| `git push` rejected (e.g., upstream changed mid-run) | Route into the Step 1.6 gate flow: re-run the 1.6a recipe with `origin/{pr.headRefName}` as the comparison ref, present the 1.6b table + 1.6c bundled ASK, resolve via 1.6d, then retry the push once. A second rejection halts with `Status: BLOCKED` and the recorded `sync_gate` state. |
 | Step 9.5 poll budget exhausted (5 × 60s) with zero new comments | Report "No new comments after 300s."; re-ask 9.5a (keep polling / done). |
 | GraphQL `reviewThreads` query fails (GitHub resolution state) | Fall back to evaluating every inline comment (no resolution filter); record a Low-confidence note in `run_cache.errors`. |
 
@@ -753,7 +804,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Guardrails
 
-1. **Two ASK gate classes.** Step 5 (triage routing, once per round) and Step 9.5 (re-poll consent, after each push) are the only user-facing checkpoints. Within a round, after `accept` Steps 6–9 run without further prompting (per user decision).
+1. **Three ASK gate classes.** Step 1.6 (sync consent, only when the 1.6a probe detects drift or conflicts), Step 5 (triage routing, once per round), and Step 9.5 (re-poll consent, after each push) are the only user-facing checkpoints. Within a round, after `accept` Steps 6–9 run without further prompting (per user decision); the Step 9 pre-push re-check re-opens the Step 1.6 ASK only when base moved mid-run.
 2. **No thread closure.** Never mark a thread resolved (`isResolved: true`, Azure `status: fixed`, GitLab `resolved: true`). Thread resolution is reviewer-owned semantics.
 3. **No review verdicts.** Never approve, dismiss, or request changes on a PR review. Reply-only.
 4. **No labels or status checks.** PR labels and status checks are out of scope (handled by `hatch3r-board-fill` and CI integrations).
@@ -766,6 +817,6 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## References
 
-- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus the Step 5 ASK gate per Finding D7-M14)
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus the Step 1.6 sync ASK and Step 5 ASK gates per Finding D7-M14)
 - `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
 - `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)
