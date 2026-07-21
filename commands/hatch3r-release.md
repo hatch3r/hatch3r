@@ -107,9 +107,11 @@ Execute these steps in order. **Do not skip any step.** The only ASK gates are �
 
 Classify the release before delegating:
 
-- **Tier 1** (patch — docs/dependency/single bug fix, no public-surface change): reduced pipeline — Steps 1-6, skip the Step 7a review loop, still run Step 7b mandatory specialists, Steps 8-10.
+- **Tier 1** (patch — docs/dependency/single bug fix, no public-surface change): reduced pipeline — Steps 1-6, skip the Step 7a review loop, still run Step 7b mandatory specialists (sole exception: the criteria-gated Tier-1 relaxation, `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria), Steps 8-10.
 - **Tier 2** (minor — new content/CLI/adapter, no breaking change): standard pipeline — Steps 1-6, 7a (review loop, max 3 iterations), 7b mandatory + 7c when triggered, Steps 8-10.
 - **Tier 3** (major OR any breaking adapter/canonical-format change OR cross-cutting release): full pipeline + an explicit breaking-change migration-note check in Step 3 and a release-readiness assessment in Step 9.
+
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 

@@ -52,7 +52,7 @@ Framework fault, not application code? If the problem is the hatch3r install its
 | 4. Root Cause Analysis | `hatch3r-researcher` (mode: `root-cause`) | No | Yes |
 | 5a. Fix | `hatch3r-implementer` | No | Yes |
 | 5b. Review Loop | `hatch3r-reviewer` → `hatch3r-fixer` (max 3) | No | Yes |
-| 5c. Final Quality | `hatch3r-testability` + `hatch3r-security` | Yes | Yes |
+| 5c. Final Quality | `hatch3r-testability` + `hatch3r-security` | Yes | Yes (code changes; Tier-1 relaxation per `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria) |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
@@ -118,7 +118,7 @@ Execute these stages in order. **Do not skip any stage.** Ask the user at every 
 
 ## Triage
 
-Classify the debug request before delegating:
+Classify the debug request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single-file bug with one obvious instrumentation point and known reproduction; reduced researcher depth (`quick`) and minimal logging.
 - **Tier 2 (standard)**: bug spanning 2–4 files with multiple instrumentation points; standard pipeline with researcher (`symptom-trace`) and implementer for logging and fix.
@@ -147,7 +147,7 @@ Auto-tiering can misclassify — a single-file bug scored as Deep, or an intermi
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Triage auto-classification (which sets researcher depth and mode breadth).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Triage auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Triage auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ---
 
@@ -422,7 +422,7 @@ Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean 
 
 #### 5d. Final Quality (Parallel)
 
-After the review loop completes clean (or the user proceeds), spawn these two sub-agents **in parallel** via the Task tool (`subagent_type: "generalPurpose"`):
+After the review loop completes clean (or the user proceeds), spawn these two sub-agents **in parallel** via the Task tool (`subagent_type: "generalPurpose"`) — required for every code change except under the criteria-gated Tier-1 relaxation in `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria:
 
 1. **`hatch3r-testability`** (CQ5) — confirm regression tests for the fix meet the mandate map / coverage floor and represent the failure mode. The prompt MUST include:
    - The bug context from Stage 1c (what was broken).

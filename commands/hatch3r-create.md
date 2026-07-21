@@ -41,7 +41,7 @@ The command runs in three phases. Phase 1 collects every input upfront. Phase 2 
 
 ## Step 0: Triage
 
-Classify the artifact-authoring request before delegating:
+Classify the artifact-authoring request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: small rule, snippet command, or single-event hook with clear scope; inline frontmatter assembly with minimal type-specific prompts.
 - **Tier 2 (standard)**: standard agent, skill, or orchestrator command with frontmatter and body skeleton; standard pipeline with `hatch3r-creator` delegation and full strict-gate funnel.
@@ -74,7 +74,7 @@ Auto-tiering can misclassify — a snippet rule scored as Deep, or a tool-allowl
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which controls Phase 1 dimension-probing depth).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Step 0 auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ## Confidence Propagation Contract
 

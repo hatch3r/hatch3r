@@ -71,6 +71,8 @@ Classify the roadmap request before delegating:
 
 If Tier 1, run the reduced researcher set and skip Step 7 (AGENTS.md) unless requested. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with deep research, surface market-timing intelligence, and confirm phased plan with the user before file writes.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 3 parallel researchers), surface the cost preview so a deep-research roadmap run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
@@ -92,7 +94,7 @@ Auto-tiering can misclassify — a focused single-dimension roadmap scored as De
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which controls researcher count and web-research depth).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- **Tier-source precedence** per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs: explicit `--effort` flag > persisted `defaultEffort` scalar in `.hatch3r/hatch.json` > Step 0 auto-classification; neither flag nor `defaultEffort` present → the Step 0 auto-classification stands.
 
 ---
 

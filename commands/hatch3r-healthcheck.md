@@ -49,6 +49,8 @@ Classify the healthcheck request before fan-out:
 
 Tier is derived from Module Discovery output (Step 2). Tier 1 is not supported — single-target QA fixes belong to `hatch3r-quick-change`.
 
+Emit the `tier: <2|3> — <module-count summary>` rationale line at classification; per-tier pipeline depth inside the declared tier set defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 4 module audit-authoring fan-out), surface the cost preview so a wide module fan-out is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Tier derived from module count:
@@ -70,7 +72,7 @@ Auto-tiering derives from discovered module count, which can misclassify — a m
 
 - `--effort=standard|deep` forces the named tier, bypassing the module-count auto-classification. `--effort=light` is rejected — Tier 1 is unsupported here (single-target QA fixes route to `hatch3r-quick-change`).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the module-count auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`; `light` rejected here likewise) stands next, else the module-count auto-classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs.
 
 ## Confidence Propagation Contract
 

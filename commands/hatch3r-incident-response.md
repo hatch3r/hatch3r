@@ -80,6 +80,8 @@ Classify the incident before delegating, using the `skills/hatch3r-incident-resp
 
 Severity-to-tier is recomputed as blast radius is confirmed: an unconfirmed blast radius classifies upward (P3→P2, P2→P1), never downward.
 
+Emit the `tier: <1|2|3> — <severity + blast-radius summary>` rationale line at classification; per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 1), surface the cost preview so a delegated incident response is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 tier:
@@ -102,7 +104,7 @@ Auto-tiering can misclassify — a contained nuisance scored Deep, or a creeping
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both so the cost estimate block reports the budget delta.
 - The override does NOT suppress the severity-upgrade safety rule: a `--effort=light` run whose blast radius confirms P0/P1 still runs the Tier-3 incident-command discipline (no autonomous mutation on P0; human gate on mitigation). Safety dominates the cost override.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) stands next, else the Step 0 auto-classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (the severity-upgrade safety rule above still dominates).
 
 ---
 

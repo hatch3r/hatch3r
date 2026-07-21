@@ -68,7 +68,7 @@ Classify the install before delegating, calibrated to pack-install against the L
 - **Tier 2 (Standard)** — a marketplace or git-URL pack, a moderate write set, a declared capability set inside the authorized envelope, signature present: the full trust gate plus a capability/tool-footprint cross-check, then install.
 - **Tier 3 (Deep)** — any of: an unsigned source, an `--allow-untrusted` request, a capability set that escalates the declared tool footprint, or a pack writing >20 files or touching multiple adapter surfaces: the full pipeline run under the sandbox-install posture (trust model §1.3, https://docs.hatch3r.com/docs/reference/trust-model) with an explicit irreversibility confirmation at the Step 3 gate.
 
-**Classify upward on uncertainty:** an unverifiable signature or an undeclared capability classifies at Tier 3, never down — the missing signal is treated as the higher-risk reading.
+**Fail-closed classification:** an unverifiable signature or an undeclared capability is an affirmative Tier-3 signal (per the Tier 3 triggers above), never rounded down — signal-selected Deep per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs, not an absent-signals default (absent task-shape signals still select Tier 2). Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification; per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 

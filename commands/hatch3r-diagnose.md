@@ -89,6 +89,8 @@ Triage tier (calibrates fan-out and the Step 0.5 cost preview):
 - **Tier 2** — single domain, multiple files, root cause not obvious from the state bundle alone. One researcher at `standard` depth.
 - **Tier 3** — two or more independent symptom domains. One researcher per domain in parallel (per the Parallel-safety conditions above).
 
+Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the Step 4 ASK gate (the only mutation gate), surface the cost preview so a multi-domain diagnosis is never approved blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 2 tier.
@@ -106,7 +108,7 @@ Post-execution actuals + delta land in the Step 6 Iteration Summary recap (cost 
 
 ### Effort Override (Decision 17)
 
-`--effort=light|standard|deep` forces the named tier, bypassing the Step 2 auto-classification. The override wins; record both the auto-detected tier and the override so the cost block reports the budget delta. No override passed → the auto-classification stands.
+`--effort=light|standard|deep` forces the named tier, bypassing the Step 2 auto-classification. The override wins; record both the auto-detected tier and the override so the cost block reports the budget delta. No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) stands next, else the auto-classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs.
 
 ---
 

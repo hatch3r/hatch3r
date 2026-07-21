@@ -73,6 +73,8 @@ Classify the test-planning request before delegating:
 
 If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation for testing infrastructure decisions and confirm scope with the user before writing files.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher test-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
@@ -582,7 +584,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Test cases must follow the convention hierarchy.** Fakes > stubs > mocks, as specified in `hatch3r-testing` rule. If the codebase uses a different convention, note the divergence and recommend gradual alignment.
 - **Do not prescribe implementation details.** The test plan specifies what to test, not how to implement the tests. Implementation details are the implementer's responsibility, gated by `hatch3r-testability` (CQ5). Test case outlines include behavior descriptions and acceptance criteria, not code.
 - **Property-based and mutation testing are opt-in.** Only include these in the plan if the user opts in during Step 1b or the codebase already uses them.
-- **All 5 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
+- **All researchers dispatched for the selected tier must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **todo.md must be compatible with board-fill format** -- markdown checklist with bold titles, grouped by priority, referencing source specs.
 - **ADRs use the same format as `hatch3r-project-spec`** -- Status, Date, Context, Decision, Alternatives, Consequences.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.

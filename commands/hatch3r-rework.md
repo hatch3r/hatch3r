@@ -98,6 +98,8 @@ Classify the rework request before delegating:
 - **Tier 2 (standard)**: standard user feedback with a mix of critical/important/cleanup findings; standard pipeline with researcher enrichment at `quick` depth (Step 6.pre) and the reviewer validation pass (Step 6a).
 - **Tier 3 (deep)**: critical findings, architectural concerns, or board-deferred follow-ups; full pipeline with `codebase-impact` research at `deep` depth (Step 6.pre) and the plan-readiness gate in Step 9 confirmed with the user before the plan write.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 6 validation pass), surface the cost preview so a multi-finding rework session is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier. A Tier 1 cleanup-only session skips Step 6, so `expected_sa_count: 0` is correct for it.

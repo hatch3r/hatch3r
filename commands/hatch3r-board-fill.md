@@ -80,7 +80,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the board-fill request before delegating:
+Classify the board-fill request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: 1–3 todo items, all clear scope, no decomposition needed; inline issue creation with minimal triage questioning.
 - **Tier 2 (standard)**: standard batch (4–15 items) with mixed clarity and grouping decisions; standard pipeline with item-level triage (Step 2.5) and full readiness assessment.
@@ -109,7 +109,7 @@ Auto-tiering can misclassify — a 3-item todo scored as Tier 3, or a 20-item gr
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which gates whether Steps 5.5/5.6/7.9 run).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Step 0 auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ---
 

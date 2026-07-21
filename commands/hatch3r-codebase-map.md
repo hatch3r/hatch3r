@@ -63,7 +63,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the codebase analysis request before delegating:
+Classify the codebase analysis request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single-module spec or scoped reverse-engineering of one subsystem; reduced fanout (1–2 analyzers), no AGENTS.md regeneration unless requested.
 - **Tier 2 (standard)**: standard scope (full repo, < 5K files) with both technical and business specs; standard pipeline with all 6 parallel analyzers and AGENTS.md generation.

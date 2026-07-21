@@ -75,6 +75,8 @@ Classify the feature-planning request before delegating:
 
 If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation and confirm spec scope explicitly before writing files.
 
+Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 3), surface the cost preview so a multi-researcher feature-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
@@ -96,7 +98,7 @@ Auto-tiering can misclassify — a single-module feature scored as Deep, or a cr
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) stands next, else the Step 0 auto-classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs.
 
 ---
 

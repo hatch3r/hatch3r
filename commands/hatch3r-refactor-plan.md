@@ -80,6 +80,8 @@ Classify the refactor-planning request before delegating:
 
 If Tier 1, run the reduced researcher set and skip ADR generation unless decisions are obvious. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation and confirm phasing with the user before writing files.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher refactor-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
@@ -491,7 +493,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Behavioral invariants are non-negotiable.** Every invariant listed in the spec must have a verification strategy. If an invariant cannot be verified (no test, no assertion), add a prerequisite to create the verification first.
 - **Phase ordering must respect dependencies.** The migration path planner's output is the source of truth for execution order. Do not reorder phases without updating dependency analysis.
 - **Do not over-specify.** Keep the spec at the right level of detail for board-fill to create actionable issues. Avoid implementation details that belong in code.
-- **All 4 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
+- **All researchers dispatched for the selected tier must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.
 - **Preserve existing todo.md content.** Never overwrite or reorganize existing items without explicit user approval.
 - **Distinguish refactoring from new features.** If the "refactoring" introduces new external behavior or capabilities, flag this to the user and recommend using `hatch3r-feature-plan` for the new behavior, with the refactoring as a prerequisite.

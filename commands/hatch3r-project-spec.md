@@ -80,6 +80,8 @@ Classify the project-spec request before delegating:
 
 If Tier 1, run the reduced researcher set and skip Sub-Agents 6–7 unless the user opts in. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including the production-blueprint and confirm scope with the user before generating ADRs.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher project-spec run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
@@ -1239,7 +1241,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **todo.md must match the canonical Todo Grammar** in `hatch3r-board-shared` — the single source of truth `hatch3r-board-fill` Step 1 parses (`## P{N} — {Label}` headers; `- [ ] **[BIZ|TECH|BOTH] {title}**: {description}. Ref: {path}.` items referencing source specs).
 - **Do not over-specify.** Keep specs at the right level of detail for the project's stage. Avoid implementation details that belong in code, not documentation.
 - **Stage-adaptive recommendations.** Never recommend enterprise-tier (per CONSTITUTION §6 Decision 4) solutions for solo-tier pre-revenue startups. Never recommend MVP shortcuts for scaleup-tier or enterprise-tier companies. Calibrate all recommendations to the company stage from Step 1c.
-- **All 7 researchers must complete before proceeding to Step 3.** Do not generate specs from partial research.
+- **All researchers dispatched for the selected tier must complete before proceeding to Step 3.** Do not generate specs from partial research.
 - **Sub-agents must not create files.** They return structured text results to the orchestrator. Only the orchestrator writes files in Step 7.
 - **Never overwrite `AGENTS.md`** without explicit user confirmation.
 ---

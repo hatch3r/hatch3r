@@ -49,6 +49,8 @@ Classify the security-audit request before fan-out:
 
 Tier is derived from Module Discovery output (Step 2). Tier 1 is not supported — single-target security fixes belong to `hatch3r-quick-change` with a `hatch3r-security` Phase 4 gate.
 
+Emit the mandatory tier-rationale line when Module Discovery (Step 2) resolves the tier, before fan-out — `tier: <2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Pre-Execution Cost Preview
 
 Before the first sub-agent dispatch (Step 4 module audit-authoring fan-out), surface the cost preview so a wide module fan-out is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Tier derived from module count:
@@ -70,7 +72,7 @@ Auto-tiering derives from discovered module count, which can misclassify — a m
 
 - `--effort=standard|deep` forces the named tier, bypassing the module-count auto-classification. `--effort=light` is rejected — Tier 1 is unsupported here (single-target security fixes route to `hatch3r-quick-change`).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the module-count auto-classification stands.
+- **Tier-source precedence** per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs: explicit `--effort` flag > persisted `defaultEffort` scalar in `.hatch3r/hatch.json` > module-count auto-classification. A persisted `light` default is rejected here exactly like `--effort=light`; neither flag nor `defaultEffort` present → the module-count auto-classification stands.
 
 ## Confidence Propagation Contract
 

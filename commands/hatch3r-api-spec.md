@@ -69,7 +69,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the request before delegating:
+Classify the request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single-endpoint documentation update or schema tweak; inline execution, no sub-agent fanout.
 - **Tier 2 (standard)**: feature-scoped spec generation or validate mode for an existing API; standard pipeline including review loop.

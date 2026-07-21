@@ -66,7 +66,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the benchmark request before delegating:
+Classify the benchmark request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single benchmark with `none` baseline or quick re-run of an existing suite; inline execution, no `hatch3r-performance` fanout.
 - **Tier 2 (standard)**: standard suite with `previous-run` or git-ref baseline; standard pipeline including statistical analysis and reporting.
@@ -96,7 +96,7 @@ Auto-tiering can misclassify — a quick re-run scored as Deep, or a full cross-
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
 - The override does NOT lower the minimum-3-iterations statistical-validity floor (Guardrails) — measurement rigor is independent of effort tier.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Step 0 auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ---
 
