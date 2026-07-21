@@ -270,7 +270,10 @@ One consolidated table mirroring the Step 5b pattern (that section owns the grou
 
 `[#] {file} • {kind} • ours: {one line} / theirs: {one line} • proposed: {take-ours | take-theirs | blend} — {rationale} • risk {H|M|L}`
 
-- `kind` ∈ `content | rename | delete | binary`, classified from the probe: overlapping stages in `git ls-files -u` → content; `CONFLICT (rename/...)` messages → rename; missing stage 2 or 3 → delete; a `Binary files` differ marker → binary.
+- `kind` ∈ `content | rename | delete | binary`, derived from whichever 1.6a probe ran:
+  - Primary probe (`git merge-tree`): classify from the probe's own output, re-read in full form — `git merge-tree --write-tree HEAD {ref}` without `--name-only` (zero index/worktree writes) — using the stage entries in its conflicted-file info section plus its `CONFLICT (...)` informational lines: overlapping stages → content; `CONFLICT (rename/...)` → rename; missing stage 2 or 3 → delete; `CONFLICT (binary)` → binary.
+  - Fallback probe (`git merge --no-commit` ran): classify from the output captured in 1.6a before its `git merge --abort` — overlapping stages in `git ls-files -u` → content; `CONFLICT (rename/...)` stderr messages → rename; missing stage 2 or 3 → delete; a `Binary files` differ marker → binary.
+  - Invariant: classification never assumes an unmerged index exists unless the fallback probe ran — the primary probe touches neither index nor worktree.
 - ours = the PR branch (HEAD); theirs = `{ref}`. One line per side via `git log -1 --format='%h %s' {side} -- {file}`.
 - Every `proposed:` value carries a one-phrase rationale (e.g., `take-ours — theirs touches only import order`).
 - **Halt-plus-human scope cap:** binary conflicts, and conflicts in files outside the PR's own diff (the Step 1e cache), are surfaced as rows but fixed at risk H with `proposed: halt + human` — no auto-resolution proposal for either class. Consented rows still resolve; halt rows carry into the decline warning below and the Step 10 `Blockers:` line.
