@@ -588,6 +588,20 @@ describe("PHASE_SKIP_CRITERIA", () => {
       "Tier-1 may skip CQ5+CQ3 specialist waves only when ALL: (1) diff ≤50 changed LOC; (2) no new dependencies; (3) no files under security-adjacent paths (auth, crypto, secrets, input parsing/validation, permissions); (4) change class ∈ {docs-only, config-only, copy/comment-only, single-function fix with existing test coverage}. Any unmet criterion pins CQ5+CQ3 back on.",
     );
   });
+
+  // PR #142 Bugbot (finding 2): the Phase-4 mandatoryMinimum must state the
+  // criteria-gated exception rather than an unconditional "always required"
+  // floor that contradicts the Tier-1 relaxation in skipConditions above.
+  it("Phase 4 mandatoryMinimum states the criteria-gated Tier-1 exception, not an unconditional floor (PR #142)", () => {
+    const phase4 = PHASE_SKIP_CRITERIA.find((p) => p.phase === 4)!;
+    const floorRow = phase4.mandatoryMinimum.find((m) =>
+      m.includes("testability and security specialists"),
+    );
+    expect(floorRow).toBeDefined();
+    expect(floorRow).toContain("unless all four Tier-1 CQ5+CQ3 relaxation criteria hold");
+    expect(floorRow).toContain("TIER1_SPECIALIST_SKIP_CRITERIA");
+    expect(floorRow).not.toContain("always required");
+  });
 });
 
 // ── evaluateTier1SpecialistSkip (2.8.0) ──────────────────────────
@@ -1482,6 +1496,125 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     expect(result.complete).toBe(false);
     expect(result.mandatoryFloorsSatisfied).toBe(false);
     expect(result.incompletionReason).toContain("mandatory floor specialist");
+  });
+
+  // ── Tier-1 CQ5+CQ3 floor carve-out (release/2.8.0, PR #142) ─────
+
+  /** Change profile meeting all four TIER1_SPECIALIST_SKIP_CRITERIA. */
+  function tier1SkipContext(
+    overrides: Partial<Tier1SpecialistSkipInput> = {},
+  ): Tier1SpecialistSkipInput {
+    return {
+      changedLoc: 8,
+      hasNewDependencies: false,
+      filesChanged: ["src/render/banner.ts"],
+      changeClass: "single-function-fix-with-existing-test-coverage",
+      ...overrides,
+    };
+  }
+
+  /** Phase 4 ran WITHOUT the CQ5+CQ3 waves: no floor results, validation green. */
+  function tier1QualityResults(): QualityResults {
+    return {
+      specialists: [],
+      validationPass: { testsPass: true, typecheckPass: true, fixAttempts: 0, regressionsPersist: false },
+    };
+  }
+
+  it("reports satisfied-by-skip floors under a valid Tier-1 skip context — recorded, not plain success (PR #142)", () => {
+    // The CQ5+CQ3 waves were skipped per TIER1_SPECIALIST_SKIP_CRITERIA, so no
+    // floor SpecialistResult exists. Pre-fix this returned complete:false
+    // ("mandatory floor specialist ... did not return SUCCESS") — the
+    // completion authority contradicted the skip layer it documents.
+    const result = evaluatePhase4Completion(tier1QualityResults(), {
+      tier1SpecialistSkip: tier1SkipContext(),
+    });
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe("skipped-tier1");
+    expect(result.mandatoryFloorsSatisfied).not.toBe(true); // distinguishable from floor success
+    expect(result.floorSkipReason).toContain("all four Tier-1 criteria met");
+    expect(result.floorSkipReason).toContain("CQ5+CQ3 specialist waves may be skipped");
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("pins the floors back on when any one Tier-1 criterion is unmet — both specialists stay required (PR #142)", () => {
+    // The verdict is re-derived in-gate from the change profile, so a caller
+    // cannot assert a skip its diff does not earn — one probe per criterion.
+    const violations: Array<[string, Partial<Tier1SpecialistSkipInput>]> = [
+      ["(1) LOC bound exceeded", { changedLoc: TIER1_SKIP_MAX_CHANGED_LOC + 1 }],
+      ["(2) new dependency", { hasNewDependencies: true }],
+      ["(3) security-adjacent path", { filesChanged: ["src/auth/session.ts"] }],
+      ["(4) non-skippable change class", { changeClass: "feature" }],
+    ];
+    for (const [label, overrides] of violations) {
+      const result = evaluatePhase4Completion(tier1QualityResults(), {
+        tier1SpecialistSkip: tier1SkipContext(overrides),
+      });
+      expect(result.complete, label).toBe(false);
+      expect(result.mandatoryFloorsSatisfied, label).toBe(false);
+      expect(result.floorSkipReason, label).toBeUndefined();
+      expect(result.incompletionReason, label).toContain(
+        "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+      );
+      // The pin cause is appended so the orchestrator can cite the exact
+      // unmet criterion (Charter directive 20).
+      expect(result.incompletionReason, label).toContain("Tier-1 CQ5+CQ3 skip denied");
+    }
+  });
+
+  it("keeps mandatoryFloorsSatisfied:true when the floors actually ran and passed — no skip recorded (PR #142)", () => {
+    // A skip is only recorded when it did the satisfying: with both floors
+    // SUCCESS, a supplied (even valid) Tier-1 profile changes nothing.
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      tier1SpecialistSkip: tier1SkipContext(),
+    });
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe(true);
+    expect(result.floorSkipReason).toBeUndefined();
+  });
+
+  it("a valid Tier-1 skip cannot mask a floor specialist that ran and failed — the status sweep still blocks (PR #142)", () => {
+    // Fail-closed composition: the carve-out covers ABSENT floor results (the
+    // waves were not dispatched); a floor that ran and TIMEOUTed is caught by
+    // the clause-4 status sweep regardless of the granted skip.
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.status = "TIMEOUT";
+    const result = evaluatePhase4Completion(q, { tier1SpecialistSkip: tier1SkipContext() });
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe("skipped-tier1");
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-security (TIMEOUT)",
+    );
+  });
+
+  it("a granted skip travels on failure results too — a validation failure still records the floor skip (PR #142)", () => {
+    // A green-skip + red-tests run must report the tests failure AND keep the
+    // floor state honest ("skipped-tier1" with its reason attached), never a
+    // bare false/true floor claim.
+    const q = tier1QualityResults();
+    q.validationPass.testsPass = false;
+    const result = evaluatePhase4Completion(q, { tier1SpecialistSkip: tier1SkipContext() });
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.testsPass === false");
+    expect(result.mandatoryFloorsSatisfied).toBe("skipped-tier1");
+    expect(result.floorSkipReason).toContain("all four Tier-1 criteria met");
+  });
+
+  it("phase4Skipped (docs-only) short-circuit is unchanged and wins over a Tier-1 context (D7-SA7.3-03 regression)", () => {
+    // The pre-existing docs-only carve-out keeps its exact contract — "n/a"
+    // floors, no floorSkipReason — even when an (invalid) Tier-1 profile is
+    // also supplied: the short-circuit returns before the Tier-1 evaluation.
+    const result = evaluatePhase4Completion(
+      {
+        specialists: [],
+        validationPass: { testsPass: false, typecheckPass: false, fixAttempts: 0, regressionsPersist: true },
+      },
+      { phase4Skipped: true, tier1SpecialistSkip: tier1SkipContext({ changedLoc: 999 }) },
+    );
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe("n/a");
+    expect(result.floorSkipReason).toBeUndefined();
+    expect(result.incompletionReason).toBeUndefined();
   });
 });
 

@@ -261,7 +261,11 @@ export interface QualityResults {
  *    Phase 4 Validation Pass; see `VALIDATION_PASS_CALIBRATION` for the basis).
  * 3. `mandatoryFloorsSatisfied === true` (always-mode floor specialists —
  *    `hatch3r-security` and `hatch3r-testability` — returned `SUCCESS` per
- *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria).
+ *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria) OR
+ *    `=== "skipped-tier1"` (release/2.8.0: the run's change profile met all
+ *    four {@link TIER1_SPECIALIST_SKIP_CRITERIA}, re-derived in-gate from
+ *    `options.tier1SpecialistSkip` via {@link evaluateTier1SpecialistSkip};
+ *    recorded with `floorSkipReason`, never reported as plain floor success).
  * 4. Every dispatched specialist completed (Finding D7-SA7.3-01): each
  *    `SpecialistResult` in `qualityResults.specialists` — conditional and
  *    mandatory-on-match specialists included — has `status: "SUCCESS"`, or
@@ -285,10 +289,23 @@ export interface Phase4CompletionContract {
    * `"n/a"` when Phase 4 was skipped for a documentation-only change
    * (`options.phase4Skipped`, Finding D7-SA7.3-03): the floors never ran, so
    * neither boolean is honest — per {@link isDocumentationOnly} the
-   * mandatory-minimum does not apply to a docs-only change. Consumers must
-   * compare against `true`/`false` explicitly, never truthiness.
+   * mandatory-minimum does not apply to a docs-only change.
+   * `"skipped-tier1"` when Phase 4 ran but the CQ5+CQ3 specialist waves were
+   * skipped under the release/2.8.0 Tier-1 relaxation — all four
+   * {@link TIER1_SPECIALIST_SKIP_CRITERIA} re-verified in-gate via
+   * {@link evaluateTier1SpecialistSkip}, with the verdict recorded in
+   * `floorSkipReason` (PR #142 Bugbot finding: satisfied-by-skip is never
+   * reported as plain floor success). Consumers must compare against
+   * `true`/`false` explicitly, never truthiness — both skip strings are truthy.
    */
-  mandatoryFloorsSatisfied: boolean | "n/a";
+  mandatoryFloorsSatisfied: boolean | "n/a" | "skipped-tier1";
+  /**
+   * Justification recorded when `mandatoryFloorsSatisfied === "skipped-tier1"`:
+   * the {@link evaluateTier1SpecialistSkip} verdict reason naming all four met
+   * criteria (Charter directive 20 — a floor skip is never silent). Absent in
+   * every other floor state.
+   */
+  floorSkipReason?: string;
   /** Number of lightweight reviewer re-reviews after specialist code fixes. */
   reReviewIterations: number;
   /** Critical findings still unresolved after the fixer pass. */
@@ -358,6 +375,24 @@ export interface Phase4CompletionContract {
  * {@link shouldSkipPhase}(4, ...) — asserting it for a change that touches
  * code is a caller contract violation, exactly as an unbacked
  * `phase3Skipped` would be.
+ *
+ * Release/2.8.0 Tier-1 carve-out (PR #142 Bugbot finding): the Phase-4 skip
+ * table also lists {@link TIER1_SPECIALIST_SKIP_CRITERIA} — a floor-scoped
+ * relaxation narrower than `phase4Skipped`: Phase 4 still runs (validation
+ * pass + conditional specialists), only the CQ5 (testability) + CQ3
+ * (security) waves are skipped. Without a matching carve-out here, a valid
+ * Tier-1 skip left this completion authority demanding SUCCESS from
+ * specialists the skip layer said not to dispatch, so typed completion
+ * stayed failed. Callers pass the change profile as
+ * `options.tier1SpecialistSkip`; the gate re-derives the verdict via
+ * {@link evaluateTier1SpecialistSkip} (never trusts a caller-asserted
+ * boolean) and, when the floors did not both return SUCCESS AND the verdict
+ * grants the skip, reports `mandatoryFloorsSatisfied: "skipped-tier1"` with
+ * `floorSkipReason` — recorded, distinguishable from floor success. Any
+ * unmet criterion pins the floors back on (the denial reason is appended to
+ * the floor `incompletionReason`), and the clause-4 status sweep still
+ * blocks on a floor specialist that actually ran and failed — the skip
+ * covers absent results; it never masks a failed run.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,
@@ -372,6 +407,17 @@ export function evaluatePhase4Completion(
      * reports complete-by-skip and `qualityResults` is ignored.
      */
     phase4Skipped?: boolean;
+    /**
+     * Change profile for the release/2.8.0 Tier-1 CQ5+CQ3 relaxation
+     * ({@link TIER1_SPECIALIST_SKIP_CRITERIA}). Unlike `phase4Skipped` this
+     * is not caller-asserted: {@link evaluateTier1SpecialistSkip} re-derives
+     * the verdict from this input in-gate, so an unmet criterion pins the
+     * security+testability floor back on regardless of what the caller
+     * concluded. Not read when `phase4Skipped` is set (the docs-only
+     * short-circuit returns first); recorded as a skip only when the floors
+     * did not both return SUCCESS (honest floor success needs no skip).
+     */
+    tier1SpecialistSkip?: Tier1SpecialistSkipInput;
   } = {},
 ): Phase4CompletionContract {
   // Finding D7-SA7.3-03: documentation-only carve-out — the skip layer
@@ -408,8 +454,34 @@ export function evaluatePhase4Completion(
   const testabilitySpec = qualityResults.specialists.find(
     (s) => s.specialist === "hatch3r-testability",
   );
-  const mandatoryFloorsSatisfied =
+  const floorsSucceeded =
     securitySpec?.status === "SUCCESS" && testabilitySpec?.status === "SUCCESS";
+
+  // Release/2.8.0 Tier-1 carve-out (PR #142 Bugbot finding): when the floors
+  // did not both return SUCCESS but the caller supplied the change profile,
+  // re-derive the TIER1_SPECIALIST_SKIP_CRITERIA verdict in-gate. Granted ⇒
+  // the floor requirement is satisfied-by-skip, recorded as "skipped-tier1"
+  // + floorSkipReason (never plain success). Denied ⇒ the floors bind
+  // exactly as without the option, with the pin cause appended to the floor
+  // incompletionReason. Floors that genuinely succeeded stay `true` — a skip
+  // is only recorded when it did the satisfying.
+  let mandatoryFloorsSatisfied: boolean | "skipped-tier1" = floorsSucceeded;
+  let floorSkipReason: string | undefined;
+  let tier1PinReason: string | undefined;
+  if (!floorsSucceeded && options.tier1SpecialistSkip !== undefined) {
+    const tier1Verdict = evaluateTier1SpecialistSkip(options.tier1SpecialistSkip);
+    if (tier1Verdict.canSkip) {
+      mandatoryFloorsSatisfied = "skipped-tier1";
+      floorSkipReason = tier1Verdict.reason;
+    } else {
+      tier1PinReason = tier1Verdict.reason;
+    }
+  }
+  // Spread-carrier so `floorSkipReason` appears on results only when the skip
+  // was recorded (matches the present-only-when-applicable style of
+  // `incompletionReason`); it travels on failure results too, so a granted
+  // floor skip is never silently dropped from the contract.
+  const floorSkip = floorSkipReason === undefined ? {} : { floorSkipReason };
 
   // Finding D7-SA7.3-01 (Cycle 12): triggered-specialist status sweep — every
   // dispatched specialist must terminate in SUCCESS, or SKIPPED with the skip
@@ -435,6 +507,7 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason: "validationPass.testsPass === false",
     };
   }
@@ -445,6 +518,7 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason: "validationPass.typecheckPass === false",
     };
   }
@@ -455,10 +529,14 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason: "validationPass.regressionsPersist === true",
     };
   }
-  if (!mandatoryFloorsSatisfied) {
+  // Explicit === false: "skipped-tier1" is truthy AND satisfies the floor
+  // clause, so a truthiness check would be wrong in both directions once the
+  // union carries skip strings (contract JSDoc: never compare by truthiness).
+  if (mandatoryFloorsSatisfied === false) {
     return {
       complete: false,
       mandatoryFloorsSatisfied,
@@ -466,7 +544,8 @@ export function evaluatePhase4Completion(
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
       incompletionReason:
-        "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+        "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS" +
+        (tier1PinReason === undefined ? "" : `; ${tier1PinReason}`),
     };
   }
   if (incompleteSpecialists.length > 0) {
@@ -476,6 +555,7 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason: `dispatched specialist(s) did not complete: ${incompleteSpecialists
         .map(
           (s) =>
@@ -493,6 +573,7 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason:
         "Phase 4 Validation Pass re-review exceeded max 1 iteration (rules/hatch3r-agent-orchestration.md)",
     };
@@ -504,6 +585,7 @@ export function evaluatePhase4Completion(
       reReviewIterations,
       unresolvedCriticalFindings,
       codeMutatingSpecialists,
+      ...floorSkip,
       incompletionReason: `${unresolvedCriticalFindings} Critical finding(s) unresolved after Phase 4 fixer pass`,
     };
   }
@@ -514,6 +596,7 @@ export function evaluatePhase4Completion(
     reReviewIterations,
     unresolvedCriticalFindings,
     codeMutatingSpecialists,
+    ...floorSkip,
   };
 }
 
@@ -871,7 +954,10 @@ export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
       TIER1_SPECIALIST_SKIP_CRITERIA,
     ],
     mandatoryMinimum: [
-      "testability and security specialists are always required for code changes regardless of command",
+      // PR #142 Bugbot (finding 2): criteria-gated, not "always required" —
+      // an unconditional floor here would contradict the Tier-1 relaxation
+      // carried in skipConditions above.
+      "testability and security specialists are required for code changes unless all four Tier-1 CQ5+CQ3 relaxation criteria hold (see TIER1_SPECIALIST_SKIP_CRITERIA)",
       "Quality checks must pass before completion",
     ],
   },
