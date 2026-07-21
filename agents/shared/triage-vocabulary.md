@@ -36,7 +36,7 @@ The tier is a pipeline-shaping input, not a label: each tier prunes the four-pha
 | **Standard** (`2`) | All task-type researcher modes in parallel; ADR on demand. | One implementer per independent module. | Full review-loop cap per the invoking command. | Always-mode floor at `standard` depth + each triggered conditional specialist at `quick` depth; a triggered mandatory-on-match specialist spawns as its own dedicated instance. |
 | **Deep** (`3`) | Deep research, all researcher modes, mandatory ADR, scope confirmation before writes. | One implementer per independent module, dependency-ordered. | Full review-loop cap per the invoking command. | Every applicable specialist at `deep` depth. |
 
-Pruning collapses phase depth; it never removes the delegation mandate — a Tier-1 run still spawns its single implementer per `rules/hatch3r-agent-orchestration.md` → Mandatory Delegation Directives, and fan-out within any phase still tracks the true count of independent units (P8).
+Pruning collapses phase depth; the Tier-1 row above is the default delegated shape, not a spawn mandate. A command body MAY declare a further-collapsed inline Tier-1 lane ("inline execution, no sub-agent fan-out") as sanctioned further pruning — the declared-carve-out class that `rules/hatch3r-agent-orchestration.md` → Mandatory Delegation Directives already models for `hatch3r-quick-change`. Outside a declared inline lane, a Tier-1 run spawns its single implementer per that directive, and fan-out within any phase still tracks the true count of independent units (P8).
 
 ---
 
