@@ -67,7 +67,7 @@ Authoritative contract: hatch3r's universal `--effort` override ("User overridab
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the command's Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost Estimate block reports the budget delta.
-- No override passed → the auto-classification stands.
+- No flag passed → the persisted `defaultEffort` manifest scalar (`.hatch3r/hatch.json`) applies when set; absent both, the auto-classification stands. Full chain: `--effort` flag > `defaultEffort` > auto-tier (`agents/shared/triage-vocabulary.md` → Pipeline pruning per tier).
 
 Per-command slot: a one-line misclassification example in the command's own domain (e.g. "a single-endpoint doc tweak scored as Deep").
 

@@ -37,6 +37,8 @@ sub_agents_spawned:
 
 Take a test planning scope (feature, module, or codebase area) and produce a complete test plan specification (`docs/specs/`), architectural decision records (`docs/adr/`) when significant testing infrastructure decisions are involved, and structured `todo.md` entries (epic + sub-items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization) to analyze the testing landscape from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Supports two modes: feature-scoped test planning (plan tests for a specific feature) and module/codebase-level coverage auditing (assess and improve test coverage across an area). Optionally chains into `hatch3r-testability` for CQ5 mandate verification or `hatch3r-board-fill` to create tracking issues.
 
+Scope boundary: this command plans the automated test STRATEGY; for a manual human-run QA walk-through of an existing PR or diff (a risk-ordered table the human executes to judge shippability), use the `hatch3r-qa-path` skill (`skills/hatch3r-qa-path/SKILL.md`).
+
 ---
 
 ## Shared Context
@@ -70,6 +72,8 @@ Classify the test-planning request before delegating:
 - **Tier 3 (deep)**: full-suite restructure, mutation-testing rollout, contract testing, or coverage uplift across the whole codebase; full pipeline with deep research and confirm test plan scope with the user before writing files.
 
 If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation for testing infrastructure decisions and confirm scope with the user before writing files.
+
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
@@ -580,7 +584,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Test cases must follow the convention hierarchy.** Fakes > stubs > mocks, as specified in `hatch3r-testing` rule. If the codebase uses a different convention, note the divergence and recommend gradual alignment.
 - **Do not prescribe implementation details.** The test plan specifies what to test, not how to implement the tests. Implementation details are the implementer's responsibility, gated by `hatch3r-testability` (CQ5). Test case outlines include behavior descriptions and acceptance criteria, not code.
 - **Property-based and mutation testing are opt-in.** Only include these in the plan if the user opts in during Step 1b or the codebase already uses them.
-- **All 5 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
+- **All researchers dispatched for the selected tier must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **todo.md must be compatible with board-fill format** -- markdown checklist with bold titles, grouped by priority, referencing source specs.
 - **ADRs use the same format as `hatch3r-project-spec`** -- Status, Date, Context, Decision, Alternatives, Consequences.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.

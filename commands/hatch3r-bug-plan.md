@@ -68,7 +68,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the bug investigation before delegating:
+Classify the bug investigation and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: clear root cause, single module, reproduction known; route to `hatch3r-bug-fix` skill instead of running this full investigation.
 - **Tier 2 (standard)**: ambiguous symptoms across one subsystem with 2–3 plausible hypotheses; standard pipeline with the 5 parallel researcher modes.

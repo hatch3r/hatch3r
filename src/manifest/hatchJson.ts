@@ -1,14 +1,17 @@
 import { access, mkdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_COMMUNICATION_STYLE,
   DEFAULT_CONFIDENCE_FLOOR,
   DEFAULT_MATURITY_TIER,
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
   MATURITY_TIER_RANK,
+  VALID_COMMUNICATION_STYLES,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
+  VALID_ORCHESTRATION_EFFORTS,
   VALID_TEAMMATE_MODES,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
@@ -16,6 +19,7 @@ import {
   type BoardConfig,
   type ClaudeConfig,
   type CliToolsConfig,
+  type CommunicationStyle,
   type ConfidenceFloor,
   type ContentSelection,
   type ConventionConflict,
@@ -26,6 +30,7 @@ import {
   type LearningsConfig,
   type MaturityTier,
   type ModelConfig,
+  type OrchestrationEffort,
   type PackageEntry,
   type Platform,
   type RepoEntry,
@@ -416,6 +421,15 @@ export function collectManifestErrors(data: unknown): string[] {
   // hand-edited into hatch.json is rejected on read rather than silently
   // mis-driving the orchestrator assertiveness gate.
   validateStringUnion(obj.confidenceFloor, VALID_CONFIDENCE_FLOORS, "confidenceFloor", errors);
+
+  // 2.8.0: validate the additive optional `communicationStyle` +
+  // `defaultEffort` scalars at the persistence boundary via the same shared
+  // helper. Both are additive (manifest `version` stays "3.0.0"); absence is
+  // valid and stays absent on round-trip — consumers apply the documented
+  // fallbacks (`readCommunicationStyle` → "plain"; `readDefaultEffort` →
+  // undefined = auto-tier).
+  validateStringUnion(obj.communicationStyle, VALID_COMMUNICATION_STYLES, "communicationStyle", errors);
+  validateStringUnion(obj.defaultEffort, VALID_ORCHESTRATION_EFFORTS, "defaultEffort", errors);
 
   // #108: board sub-schema
   if (obj.board !== undefined) {
@@ -1363,4 +1377,75 @@ export function confidenceFloorDirective(floor: ConfidenceFloor): string {
     high: "force a second review pass on any verdict below high confidence",
   };
   return `hatch3r: confidence floor=${floor}. Core orchestrators ${effect[floor]} before a clean verdict; the floor never relaxes the Critical/Warning fail gates. Set via \`hatch3r config confidence_floor=<any|medium|high>\`.`;
+}
+
+/**
+ * Read the manifest's communication style (release/2.8.0). Absence collapses
+ * to `DEFAULT_COMMUNICATION_STYLE` ("plain") so pre-2.8 manifests stay valid
+ * without a schema-generation bump — the exact `readMaturityTier` shape.
+ *
+ * An out-of-enum persisted `communicationStyle` is rejected at the
+ * persistence boundary by `validateManifest`; the membership re-check here is
+ * defense-in-depth for `null`/`undefined` and corrupt-manifest callers,
+ * mirroring `readMaturityTier`. The `config communication_style=<style>`
+ * setter and the `init --communication-style` flag also reject invalid input
+ * at write time.
+ */
+export function readCommunicationStyle(m: HatchManifest | null | undefined): CommunicationStyle {
+  const value = m?.communicationStyle;
+  if (value && VALID_COMMUNICATION_STYLES.has(value)) {
+    return value;
+  }
+  return DEFAULT_COMMUNICATION_STYLE;
+}
+
+/**
+ * Single-source communication-style directive payload shared by all three
+ * adapters (release/2.8.0), the operator-communication analog of
+ * {@link maturityDirective}: each adapter keeps its native wrapper (claude and
+ * copilot emit a visible blockquote; cursor wraps it in an HTML comment on
+ * each rule body) while the payload bytes stay identical —
+ * `efficiencyParity.test.ts` asserts the cross-adapter parity. The style
+ * semantics live in the generated `rules/hatch3r-communication-style.md`
+ * (authored canonically, cited here — not created by this module).
+ */
+export function communicationStyleDirective(style: CommunicationStyle): string {
+  const effect: Record<CommunicationStyle, string> = {
+    plain: "define jargon on first use; lead with outcomes",
+    technical: "use precise domain terminology; lead with implementation detail",
+  };
+  return `Communication style: ${style} — ${effect[style]}; per rules/hatch3r-communication-style.md`;
+}
+
+/**
+ * Read the manifest's persisted default orchestration intensity
+ * (release/2.8.0). UNLIKE {@link readCommunicationStyle}, absence returns
+ * `undefined` — the documented "auto-tier" semantic: orchestrators derive
+ * intensity from task shape and adapters emit NO directive line. There is
+ * deliberately no `DEFAULT_*` constant to collapse to.
+ *
+ * An out-of-enum persisted `defaultEffort` is rejected at the persistence
+ * boundary by `validateManifest`; the membership re-check here is
+ * defense-in-depth for `null`/`undefined` and corrupt-manifest callers
+ * (a corrupt value reads as absent → auto-tier, failing safe).
+ */
+export function readDefaultEffort(m: HatchManifest | null | undefined): OrchestrationEffort | undefined {
+  const value = m?.defaultEffort;
+  if (value && VALID_ORCHESTRATION_EFFORTS.has(value)) {
+    return value;
+  }
+  return undefined;
+}
+
+/**
+ * Single-source default-effort directive payload shared by all three adapters
+ * (release/2.8.0), sibling of {@link communicationStyleDirective}. Emitted
+ * ONLY when the manifest carries a persisted `defaultEffort`
+ * ({@link readDefaultEffort} returns a value) — the absent case emits no line
+ * at all, keeping pre-2.8 adapter output byte-identical. The precedence the
+ * payload states is the contract: an explicit `--effort` run flag overrides
+ * the persisted field; neither flag nor field ⇒ auto-tier.
+ */
+export function defaultEffortDirective(effort: OrchestrationEffort): string {
+  return `Default effort: ${effort} — explicit --effort flag overrides; absent flag+field ⇒ auto-tier`;
 }

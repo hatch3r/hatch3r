@@ -17,8 +17,14 @@ import {
 import { PROVENANCE_FILE } from "../manifest/provenance.js";
 import { BREAKER_STATE_FILE } from "../pipeline/circuitBreaker.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
-import type { WorktreeEntry, WorktreeSetupResult, WorktreeSkipReason } from "./types.js";
-import { resolvePatterns, findMainWorktree } from "./resolve.js";
+import type {
+  WorktreeAddMode,
+  WorktreeBranchPlan,
+  WorktreeEntry,
+  WorktreeSetupResult,
+  WorktreeSkipReason,
+} from "./types.js";
+import { resolvePatterns, findMainWorktree, listWorktrees } from "./resolve.js";
 import { verbose } from "../cli/shared/ui.js";
 
 /**
@@ -888,37 +894,208 @@ async function cleanupFromPatterns(worktreeRoot: string): Promise<void> {
 // ─── Git worktree wrappers ───────────────────────────────────────────────────
 
 /**
- * Runs `git -C <mainRoot> worktree add -b <name> <targetPath>` to create a new
- * worktree on a fresh branch off the current HEAD of the main repo.
+ * Probes `git rev-parse --verify --quiet refs/heads/<name>` — exit 0 means the
+ * local branch exists. Non-zero exit IS the "absent" signal; does not throw.
+ */
+export function localBranchExists(mainRoot: string, name: string): boolean {
+  try {
+    execFileSync(
+      "git",
+      ["-C", mainRoot, "rev-parse", "--verify", "--quiet", `refs/heads/${name}`],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return true;
+  } catch (err) {
+    recordWorktreeProbeFailure(`localBranchExists(${name}) — no local ref`, err);
+    return false;
+  }
+}
+
+/**
+ * Probes `git rev-parse --verify --quiet refs/remotes/origin/<name>` — exit 0
+ * means a remote-tracking ref for origin exists (fetched at some point).
+ * Non-zero exit IS the "absent" signal; does not throw.
+ */
+export function remoteBranchExists(mainRoot: string, name: string): boolean {
+  try {
+    execFileSync(
+      "git",
+      ["-C", mainRoot, "rev-parse", "--verify", "--quiet", `refs/remotes/origin/${name}`],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return true;
+  } catch (err) {
+    recordWorktreeProbeFailure(`remoteBranchExists(${name}) — no origin ref`, err);
+    return false;
+  }
+}
+
+/**
+ * True when a remote named `origin` is configured (`git remote get-url origin`
+ * exits 0). Gates the fetch in {@link resolveWorktreeBranchPlan} so a repo
+ * without an origin never pays a fetch attempt — and never hits the ambiguous
+ * "'origin' does not appear to be a git repository" fetch stderr.
+ */
+export function hasOriginRemote(mainRoot: string): boolean {
+  try {
+    execFileSync("git", ["-C", mainRoot, "remote", "get-url", "origin"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return true;
+  } catch (err) {
+    recordWorktreeProbeFailure("hasOriginRemote — no origin remote", err);
+    return false;
+  }
+}
+
+/**
+ * Runs `git -C <mainRoot> fetch origin <name>` so the remote-only-branch probe
+ * ({@link remoteBranchExists}) sees a current `refs/remotes/origin/<name>`.
  *
- * Throws HatchError(VALIDATION_ERROR) on existing-branch collision so the CLI
- * can offer a name change; throws FS_ERROR for any other git failure (path
- * collision, missing parent, permission, etc.) with git's stderr verbatim.
+ * Failure contract (release/2.8.0 attach mode):
+ * - "couldn't find remote ref" — the branch is absent upstream. Soft: returns
+ *   normally; the caller's rev-parse probe then routes to the plain-create path.
+ * - Any other fetch failure (unresolvable host, unreachable/broken origin URL,
+ *   refused connection) throws HatchError(NETWORK_ERROR) → exit 75 EX_TEMPFAIL
+ *   via ERROR_CODE_TO_EXIT_CODE, with git's stderr verbatim — never an
+ *   unclassified crash.
+ */
+export function fetchOriginBranch(mainRoot: string, name: string): void {
+  try {
+    execFileSync("git", ["-C", mainRoot, "fetch", "origin", name], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
+    const stderr = e.stderr?.toString() ?? "";
+    if (/couldn'?t find remote ref/i.test(stderr)) {
+      recordWorktreeProbeFailure(
+        `fetchOriginBranch(${name}) — branch absent on origin, create path stays open`,
+        err,
+      );
+      return;
+    }
+    throw new HatchError(
+      `git fetch origin ${name} failed: ${stderr.trim() || (err as Error).message}`,
+      undefined,
+      "NETWORK_ERROR",
+      "Check connectivity and the origin URL (`git remote -v`), then re-run worktree-setup.",
+    );
+  }
+}
+
+/**
+ * Resolves how `worktree-setup <name>` should materialize the branch, BEFORE
+ * any `git worktree add` runs:
+ *
+ * 1. `refs/heads/<name>` exists → `attach` (reuse the local branch, no `-b`).
+ * 2. Otherwise, when `allowFetch` (default true) and an `origin` remote is
+ *    configured: `git fetch origin <name>` (missing upstream ref is soft;
+ *    transport failure throws NETWORK_ERROR per {@link fetchOriginBranch}),
+ *    then `refs/remotes/origin/<name>` exists → `track`.
+ * 3. Otherwise → `create` (fresh branch off HEAD).
+ *
+ * `allowFetch: false` is the `--dry-run` shape: the preview stays offline and
+ * derives the plan from local refs only (an already-fetched
+ * `refs/remotes/origin/<name>` still yields `track`).
+ */
+export function resolveWorktreeBranchPlan(
+  mainRoot: string,
+  name: string,
+  options: { allowFetch?: boolean } = {},
+): WorktreeBranchPlan {
+  if (localBranchExists(mainRoot, name)) return { mode: "attach" };
+  const allowFetch = options.allowFetch ?? true;
+  if (allowFetch) {
+    if (!hasOriginRemote(mainRoot)) return { mode: "create" };
+    fetchOriginBranch(mainRoot, name);
+  }
+  return remoteBranchExists(mainRoot, name) ? { mode: "track" } : { mode: "create" };
+}
+
+/**
+ * Names the worktree that has `refs/heads/<name>` checked out, by parsing
+ * `git worktree list --porcelain` (via {@link listWorktrees}). Returns
+ * undefined when no worktree holds the branch or the porcelain probe fails —
+ * the caller then falls back to the path quoted in git's own stderr.
+ */
+function findWorktreePathForBranch(mainRoot: string, name: string): string | undefined {
+  try {
+    return listWorktrees(mainRoot).find((w) => w.branch === `refs/heads/${name}`)?.path;
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `findWorktreePathForBranch(${name}) — porcelain lookup failed`,
+      err,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Runs `git -C <mainRoot> worktree add ...` to create a worktree, with the
+ * branch materialized per `options.mode` ({@link WorktreeAddMode}):
+ * - `"create"` (default): `worktree add -b <name> <targetPath>` — new branch off HEAD.
+ * - `"attach"`: `worktree add <targetPath> <name>` — reuse the existing local branch.
+ * - `"track"`: `worktree add --track -b <name> <targetPath> origin/<name>` —
+ *   local branch tracking the remote-only `origin/<name>`.
+ *
+ * Failure classification (exit codes govern via ERROR_CODE_TO_EXIT_CODE — no
+ * hard-coded exit 1):
+ * - Branch checked out in another worktree (git: "already used by worktree" /
+ *   "already checked out") → VALIDATION_ERROR (64) naming the other worktree's
+ *   path from `git worktree list --porcelain`, recoveryHint offering
+ *   `hatch3r worktree-cleanup` or cd-ing there.
+ * - Existing-branch collision in create mode → VALIDATION_ERROR (64) with a
+ *   `--use-existing` attach hint.
+ * - Any other git failure (path collision, missing parent, permission) →
+ *   FS_ERROR (74) with git's stderr verbatim.
  */
 export function addGitWorktree(
   mainRoot: string,
   name: string,
   targetPath: string,
+  options: { mode?: WorktreeAddMode } = {},
 ): void {
+  const mode = options.mode ?? "create";
+  const args = ["-C", mainRoot, "worktree", "add"];
+  if (mode === "attach") {
+    args.push(targetPath, name);
+  } else if (mode === "track") {
+    args.push("--track", "-b", name, targetPath, `origin/${name}`);
+  } else {
+    args.push("-b", name, targetPath);
+  }
   try {
-    execFileSync(
-      "git",
-      ["-C", mainRoot, "worktree", "add", "-b", name, targetPath],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    execFileSync("git", args, { stdio: ["ignore", "pipe", "pipe"] });
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
     const stderr = e.stderr?.toString() ?? "";
+    // git refuses to attach a branch that another worktree already holds.
+    // Phrasing varies by git version: "is already checked out at '<path>'"
+    // (git-worktree(1)) vs "is already used by worktree at '<path>'".
+    if (/is already (?:used by worktree|checked out) at/i.test(stderr)) {
+      const otherPath =
+        findWorktreePathForBranch(mainRoot, name) ??
+        stderr.match(/at '([^']+)'/)?.[1] ??
+        "another worktree";
+      throw new HatchError(
+        `Branch '${name}' is already checked out in another worktree at '${otherPath}' — git allows a branch in only one worktree at a time.`,
+        undefined,
+        "VALIDATION_ERROR",
+        `cd '${otherPath}' to work there, or run \`hatch3r worktree-cleanup\` to remove that worktree first.`,
+      );
+    }
     if (/already exists/i.test(stderr) && /branch/i.test(stderr)) {
       throw new HatchError(
-        `Branch '${name}' already exists. Pick a different name or delete the branch first.`,
-        1,
+        `Branch '${name}' already exists. Attach it with --use-existing, or pick a different name.`,
+        undefined,
         "VALIDATION_ERROR",
+        `Attach the existing branch: \`hatch3r worktree-setup ${name} --use-existing\`.`,
       );
     }
     throw new HatchError(
       `git worktree add failed: ${stderr.trim() || (err as Error).message}`,
-      1,
+      undefined,
       "FS_ERROR",
     );
   }
@@ -953,7 +1130,7 @@ export function removeGitWorktree(
     const stderr = e.stderr?.toString() ?? "";
     throw new HatchError(
       `git worktree remove failed for ${worktreePath}: ${stderr.trim() || (err as Error).message}`,
-      1,
+      undefined,
       "FS_ERROR",
     );
   }

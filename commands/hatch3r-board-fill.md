@@ -37,7 +37,7 @@ All issue operations MUST follow the Board Sync Enforcement rules defined in `ha
 
 # Board Fill -- Create Epics & Issues from todo.md + Board Reorganization
 
-Create epics (with sub-issues) or standalone issues/work items from items in `todo.md`, using the platform's CLI and MCP tools against **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). The `platform` field determines whether to use GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Before creating anything, board-fill **triages each item through interactive questioning** to extract scope, intent, unknowns, and acceptance criteria from the user -- ensuring issues are genuinely ready for implementation, not just structurally complete. On every run, board-fill also performs a **full board reorganization**: grouping standalone issues into epics, decomposing oversized items, analyzing dependencies, setting implementation order, identifying parallel work, and marking issues as `status:ready` when all readiness criteria (structural + substantive) are met. AI proposes groupings, dependencies, and ordering; user confirms before anything is created or updated. Duplicate topics are detected and skipped.
+Create epics (with sub-issues) or standalone issues/work items from items in `todo.md`, using the platform's CLI and MCP tools against **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). The `platform` field determines whether to use GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Before creating anything, board-fill **triages each item through interactive questioning** to extract scope, intent, unknowns, and acceptance criteria from the user -- ensuring issues are genuinely ready for implementation, not just structurally complete. On every run, board-fill also performs a **full board reorganization**: refreshing stale board state against the shared Staleness Detection Criteria (Step 1.6), grouping standalone issues into epics, decomposing oversized items, analyzing dependencies, setting implementation order, identifying parallel work, and marking issues as `status:ready` when all readiness criteria (structural + substantive) are met. AI proposes groupings, dependencies, and ordering; user confirms before anything is created or updated. Duplicate topics are detected and skipped.
 
 ---
 
@@ -80,7 +80,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the board-fill request before delegating:
+Classify the board-fill request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: 1–3 todo items, all clear scope, no decomposition needed; inline issue creation with minimal triage questioning.
 - **Tier 2 (standard)**: standard batch (4–15 items) with mixed clarity and grouping decisions; standard pipeline with item-level triage (Step 2.5) and full readiness assessment.
@@ -109,7 +109,7 @@ Auto-tiering can misclassify — a 3-item todo scored as Tier 3, or a 20-item gr
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which gates whether Steps 5.5/5.6/7.9 run).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Step 0 auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ---
 
@@ -168,7 +168,41 @@ Board Health:
   Potential epic grouping candidates: #N + #M (shared theme) ...
 ```
 
-**ASK:** "Here is the current board state. I will process the selected todo.md items AND reorganize existing issues. Before I continue: are there any items on the board that are stale, misprioritized, or missing context I should know about? Continue?"
+**ASK:** "Here is the current board state. I will process the selected todo.md items AND reorganize existing issues. Staleness is detected automatically in Step 1.6 next — you will confirm flagged items there rather than enumerating them from memory. Before I continue: are there any items that are misprioritized or missing context I should know about? Continue?"
+
+---
+
+### Step 1.6: Staleness Refresh (automatic)
+
+Apply the **Staleness Detection Criteria** (S1-S6) from `hatch3r-board-shared` to every entry cached by the Step 1.5 scan, BEFORE any fill logic (Step 2 onward) runs. Detection reads the cached inventory, local git state, and one PR/MR-state fetch — no per-issue re-fetch.
+
+1. **Fetch PR/MR state once** (feeds S2):
+   - **GitHub:** `gh pr list -R {owner}/{repo} --state all --limit 200 --json number,state,mergedAt,body` — parse bodies for `Closes #{N}`.
+   - **Azure DevOps:** `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status all` — check work item relations.
+   - **GitLab:** `glab mr list -R {namespace}/{project} --state all` — parse descriptions for `Closes #{N}`.
+2. **Detect:** evaluate every cached entry against S1-S6, recording each hit as `(entry, criterion, disposition class)` in the run cache under `staleness_refresh`. For S4, run one closed-item keyword search per entry not already flagged by S1-S3 (`gh search issues -R {owner}/{repo} --state closed "{title keywords}"`, or the platform search from Step 2a).
+3. **Auto-refresh (non-destructive):** apply every automatic-class disposition immediately — forward label/column re-syncs (S2 merged-PR case, S5 drift) and annotation comments (S1 missing-path notes, S3 newer-commit notes). Record each mutation in the run cache so Steps 2-7.5 operate on refreshed state and the Step 7.5 dashboard regeneration reflects it.
+4. **Emit the refresh summary** — one table covering every hit, automatic and pending:
+
+```
+Staleness Refresh:
+
+| Entry | Criterion hit | Action taken |
+|-------|---------------|--------------|
+| #{N} | S2 — PR #{P} merged, column not Done | status:done + column Done (auto) |
+| #{M} | S1 — cites src/legacy/adapter.ts (absent from tree) | annotated missing path + rename target (auto) |
+| #{K} | S4 — duplicate of merged #{J} | flag-for-close (pending confirmation) |
+| #{Q} | S2 — status:in-review, PR #{R} closed unmerged | downgrade to status:ready (pending confirmation) |
+| #{T} | S6 — status:ready, updatedAt 34 days old | archive candidate (pending confirmation) |
+```
+
+If zero criteria fire, emit `Staleness Refresh: 0 hits — board is current.` and continue to Step 2 without the ASK below.
+
+5. **Bundle every confirm-first candidate into ONE ASK** — flag-for-close (S1 total-loss, S4 duplicate), archive nominations (S6), and status downgrades (S2 in-review with no open PR/MR). Never prompt per item; never apply one silently (irreversible-action trigger per `rules/hatch3r-clarification-default.md`).
+
+**ASK:** "Staleness refresh: {A} automatic re-syncs/annotations applied; {D} flagged dispositions need your confirmation (rows marked 'pending confirmation' above). Decide per entry: close / downgrade to {status} / keep — e.g., '#K close, #Q keep'. 'confirm all' applies every flagged disposition EXCEPT entries at `status:in-progress`, which must be named individually. Kept entries proceed through the normal fill pipeline."
+
+6. **Apply confirmed dispositions.** Closes get the comment `Closed during board-fill staleness refresh — {criterion}: {evidence}. Reopen if still relevant.` before closing. Confirmed downgrades are applied and board-synced — the only status-downgrade path in this command (see Guardrails). Kept entries drop their flag and proceed. Record all mutations in the run cache.
 
 ---
 
@@ -792,7 +826,7 @@ Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. Thi
 1. Search the cached board inventory for an open issue labeled `meta:board-overview`.
 2. Compute Implementation Lanes using the **Lane Computation Algorithm** (steps 1-12) from `hatch3r-board-shared`. Use the cached dependency DAG from Step 5.5 as input. This includes inter-lane dependency computation, lane phasing, and the Lane Dependency Map.
 3. Assign models to all open issues using the **Model Selection Heuristic (Quality-First)** from `hatch3r-board-shared`.
-4. **If found:** Regenerate the dashboard body using the **Board Overview Issue Format** template from `hatch3r-board-shared`, populated with cached board data updated with mutations from Step 7. Update the issue body using platform CLI (fall back to MCP):
+4. **If found:** Regenerate the dashboard body using the **Board Overview Issue Format** template from `hatch3r-board-shared`, populated with cached board data updated with mutations from Steps 1.6 and 7. Update the issue body using platform CLI (fall back to MCP):
    - **GitHub:** `gh issue edit {N} --body "..."` (fall back to `issue_write` MCP).
    - **Azure DevOps:** `az boards work-item update --id {N} --description "..."`.
    - **GitLab:** `glab issue update {N} --description "..."`.
@@ -827,7 +861,7 @@ If yes, edit `todo.md` to remove lines for created issues. Preserve skipped/excl
 
 board-fill is long-running — a Tier 3 batch can span 15+ items with per-issue reviewer/fixer loops (Step 7.9) and dozens of platform mutations (Step 7). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-creating issues.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.board-fill-workspace/`; step range the command's step progression; `wave` = batch index when items are processed in dependency levels; snapshot/rollback paths the command's output paths. Write points: after each ASK checkpoint is confirmed and after each Step 7 mutation phase (epics created, sub-issues linked, board synced) so created-issue numbers and `link_results` survive a crash and are not re-created on resume.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.board-fill-workspace/`; step range the command's step progression; `wave` = batch index when items are processed in dependency levels; snapshot/rollback paths the command's output paths. Write points: after each ASK checkpoint is confirmed, after the Step 1.6 auto-refresh batch (so applied re-syncs and annotations are not re-applied on resume), and after each Step 7 mutation phase (epics created, sub-issues linked, board synced) so created-issue numbers and `link_results` survive a crash and are not re-created on resume.
 
 ---
 
@@ -855,6 +889,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Search failure** (GitHub `search_issues` / Azure DevOps `az boards query` / GitLab `glab issue list --search`): retry once, then warn and proceed without dedup.
 - **Issue/work item creation failure** (GitHub `issue_write` / Azure DevOps `az boards work-item create` / GitLab `glab issue create`): report, skip that issue, continue. Summarize failures at end.
 - **Sub-issue linking failure** (GitHub `sub_issue_write` / Azure DevOps relation add / GitLab issue link): report but do not delete the created issue.
+- **Staleness refresh mutation failure** (Step 1.6 label edit / comment / close): retry once, then fall back to MCP. If both fail, keep the entry's row in the refresh summary with `action taken: FAILED — {reason}` and continue; never abort the run for a refresh failure.
 - Never create an issue without user confirmation in Step 6.
 
 ## Guardrails
@@ -864,7 +899,8 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Use correct labels** from the label taxonomy defined in `.hatch3r/hatch.json` (type, priority, area, risk, executor, status, has-dependencies, meta labels).
 - **Keep issue bodies concise.** Acceptance criteria must be grounded in user-stated requirements from triage, not fabricated from the todo text alone.
 - **No dependency cycles.** Flag and resolve before proceeding.
-- **Never downgrade issue status.** Only upgrade `status:triage` → `status:ready`.
-- **Always perform the full board scan** in Step 1.5.
+- **Never downgrade issue status.** Only upgrade `status:triage` → `status:ready`. Sole exception: a Step 1.6 confirm-first disposition the user explicitly confirmed in the bundled staleness ASK.
+- **Staleness closes are never automatic.** Step 1.6 auto-applies only non-destructive re-syncs and annotations; every flag-for-close, archive, or downgrade candidate waits for the single bundled Step 1.6 ASK.
+- **Always perform the full board scan** in Step 1.5 and the Step 1.6 staleness refresh on its cached inventory before any fill logic.
 - **Preserve existing issue body content** when appending sections.
 - **Board Overview is auto-maintained.** Exclude it from all analysis. One board overview issue at a time.

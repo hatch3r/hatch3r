@@ -14,18 +14,25 @@ import {
   readCliToolsConfig,
   readMaturityTier,
   readConfidenceFloor,
+  readCommunicationStyle,
+  readDefaultEffort,
+  communicationStyleDirective,
+  defaultEffortDirective,
   isValidGitBranchName,
   validateManifest,
   collectManifestErrors,
 } from "../../manifest/hatchJson.js";
 import {
+  DEFAULT_COMMUNICATION_STYLE,
   DEFAULT_CONFIDENCE_FLOOR,
   DEFAULT_MATURITY_TIER,
   HatchError,
   type BoardConfig,
+  type CommunicationStyle,
   type ConfidenceFloor,
   type HatchManifest,
   type MaturityTier,
+  type OrchestrationEffort,
 } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
@@ -905,6 +912,128 @@ describe("hatchJson", () => {
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
       expect(result!.confidenceFloor).toBe("high");
+    });
+
+    // ── 2.8.0: `communicationStyle` + `defaultEffort` additive scalars ──
+    // Same persistence-boundary contract as `maturity`/`confidenceFloor`:
+    // out-of-enum values are rejected on read with HatchError(CONFIG_ERROR);
+    // valid values and ABSENT fields pass; manifest `version` stays "3.0.0"
+    // (additive fields, not a schema-generation bump).
+    function baseManifestJson(extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        version: "3.0.0",
+        hatch3rVersion: "2.8.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        ...extra,
+      };
+    }
+
+    it("rejects an invalid communicationStyle value with CONFIG_ERROR (2.8.0)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson({ communicationStyle: "shouty" }));
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid communicationStyle");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/Invalid manifest/);
+        expect((e as Error).message).toMatch(/communicationStyle/);
+      }
+    });
+
+    it("rejects an invalid defaultEffort value with CONFIG_ERROR (2.8.0)", async () => {
+      const rootDir = await setup();
+      // "max" is a valid EFFORT_LEVELS member (model reasoning axis) but NOT a
+      // valid ORCHESTRATION_EFFORTS member — the two axes must not blur.
+      await writeManifestJson(rootDir, baseManifestJson({ defaultEffort: "max" }));
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid defaultEffort");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/Invalid manifest/);
+        expect((e as Error).message).toMatch(/defaultEffort/);
+      }
+    });
+
+    it("rejects non-string communicationStyle / defaultEffort values (2.8.0)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson({ communicationStyle: 7 }));
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+      await writeManifestJson(rootDir, baseManifestJson({ defaultEffort: true }));
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+    });
+
+    it("accepts valid communicationStyle + defaultEffort values (2.8.0)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson({ communicationStyle: "technical", defaultEffort: "deep" }));
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.communicationStyle).toBe("technical");
+      expect(result!.defaultEffort).toBe("deep");
+    });
+
+    it("accepts a manifest with neither 2.8.0 field (pre-2.8 shape) and keeps version 3.0.0", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson());
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.communicationStyle).toBeUndefined();
+      expect(result!.defaultEffort).toBeUndefined();
+      expect(result!.version).toBe("3.0.0");
+    });
+
+    it("round-trips persisted communicationStyle + defaultEffort through read + write + read (2.8.0)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson({ communicationStyle: "plain", defaultEffort: "light" }));
+      const first = await readManifest(rootDir);
+      expect(first!.communicationStyle).toBe("plain");
+      expect(first!.defaultEffort).toBe("light");
+      await writeManifest(rootDir, first!);
+      const second = await readManifest(rootDir);
+      expect(second!.communicationStyle).toBe("plain");
+      expect(second!.defaultEffort).toBe("light");
+      expect(second!.version).toBe("3.0.0");
+    });
+
+    it("absent 2.8.0 fields stay absent on round-trip — migration is a no-op (2.8.0)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, baseManifestJson());
+      const first = await readManifest(rootDir);
+      expect(first!.communicationStyle).toBeUndefined();
+      expect(first!.defaultEffort).toBeUndefined();
+      // Write-back must NOT invent the fields: the on-disk JSON carries
+      // neither key after a full read → write cycle.
+      await writeManifest(rootDir, first!);
+      const raw = await readFile(join(rootDir, ".hatch3r", "hatch.json"), "utf-8");
+      expect(raw).not.toContain("communicationStyle");
+      expect(raw).not.toContain("defaultEffort");
+      const second = await readManifest(rootDir);
+      expect(second!.communicationStyle).toBeUndefined();
+      expect(second!.defaultEffort).toBeUndefined();
+    });
+
+    it("migrateManifest passes the 2.8.0 fields through untouched and never invents them", () => {
+      const withFields = baseManifestJson({ communicationStyle: "technical", defaultEffort: "standard" });
+      const migratedWith = migrateManifest(withFields);
+      expect(migratedWith.communicationStyle).toBe("technical");
+      expect(migratedWith.defaultEffort).toBe("standard");
+      expect(migratedWith.version).toBe("3.0.0");
+
+      const withoutFields = baseManifestJson();
+      const migratedWithout = migrateManifest(withoutFields);
+      expect("communicationStyle" in migratedWithout).toBe(false);
+      expect("defaultEffort" in migratedWithout).toBe(false);
+      expect(migratedWithout.version).toBe("3.0.0");
     });
   });
 
@@ -2510,6 +2639,96 @@ describe("hatchJson", () => {
     });
   });
 
+  // ── 2.8.0: readCommunicationStyle — absence collapses to "plain" (the
+  // readMaturityTier shape: named-constant fallback, defense-in-depth
+  // membership re-check for corrupt in-memory manifests).
+  describe("readCommunicationStyle (2.8.0)", () => {
+    it("returns DEFAULT_COMMUNICATION_STYLE ('plain') for null / undefined manifests", () => {
+      expect(readCommunicationStyle(null)).toBe(DEFAULT_COMMUNICATION_STYLE);
+      expect(readCommunicationStyle(undefined)).toBe(DEFAULT_COMMUNICATION_STYLE);
+      expect(DEFAULT_COMMUNICATION_STYLE).toBe("plain");
+    });
+
+    it("returns 'plain' when the field is absent", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      expect(manifest.communicationStyle).toBeUndefined();
+      expect(readCommunicationStyle(manifest)).toBe("plain");
+    });
+
+    it("returns the persisted style when set to a valid value", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const styles: CommunicationStyle[] = ["plain", "technical"];
+      for (const style of styles) {
+        manifest.communicationStyle = style;
+        expect(readCommunicationStyle(manifest)).toBe(style);
+      }
+    });
+
+    it("falls back to 'plain' when a corrupt manifest carries an out-of-enum style", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as { communicationStyle: string }).communicationStyle = "shouty";
+      expect(readCommunicationStyle(manifest)).toBe("plain");
+    });
+  });
+
+  // ── 2.8.0: readDefaultEffort — absence returns undefined (auto-tier; no
+  // directive line emitted), NOT a default value. A corrupt value reads as
+  // absent (fails safe toward auto-tier).
+  describe("readDefaultEffort (2.8.0)", () => {
+    it("returns undefined for null / undefined manifests (auto-tier)", () => {
+      expect(readDefaultEffort(null)).toBeUndefined();
+      expect(readDefaultEffort(undefined)).toBeUndefined();
+    });
+
+    it("returns undefined when the field is absent (auto-tier)", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      expect(manifest.defaultEffort).toBeUndefined();
+      expect(readDefaultEffort(manifest)).toBeUndefined();
+    });
+
+    it("returns the persisted effort when set to a valid value", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const efforts: OrchestrationEffort[] = ["light", "standard", "deep"];
+      for (const effort of efforts) {
+        manifest.defaultEffort = effort;
+        expect(readDefaultEffort(manifest)).toBe(effort);
+      }
+    });
+
+    it("reads a corrupt out-of-enum value as absent (auto-tier, fails safe)", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      // "high" is a model reasoning-effort level, not an orchestration effort.
+      (manifest as unknown as { defaultEffort: string }).defaultEffort = "high";
+      expect(readDefaultEffort(manifest)).toBeUndefined();
+    });
+  });
+
+  // ── 2.8.0: single-source directive payloads. These strings are the
+  // cross-adapter contract (efficiencyParity.test.ts asserts each adapter
+  // emits them verbatim), so pin the exact bytes here at the source.
+  describe("communicationStyleDirective / defaultEffortDirective (2.8.0)", () => {
+    it("communicationStyleDirective(plain) carries the exact plain payload", () => {
+      expect(communicationStyleDirective("plain")).toBe(
+        "Communication style: plain — define jargon on first use; lead with outcomes; per rules/hatch3r-communication-style.md",
+      );
+    });
+
+    it("communicationStyleDirective(technical) carries the style word + rule pointer", () => {
+      const payload = communicationStyleDirective("technical");
+      expect(payload).toContain("Communication style: technical");
+      expect(payload).toContain("per rules/hatch3r-communication-style.md");
+    });
+
+    it("defaultEffortDirective carries the exact override-precedence payload for every effort", () => {
+      const efforts: OrchestrationEffort[] = ["light", "standard", "deep"];
+      for (const effort of efforts) {
+        expect(defaultEffortDirective(effort)).toBe(
+          `Default effort: ${effort} — explicit --effort flag overrides; absent flag+field ⇒ auto-tier`,
+        );
+      }
+    });
+  });
+
   // D3-M5 (Cycle 10 Wave-3 Medium rollover): pin the git-branch-name
   // validator at the persistence boundary. The validator covers a handful
   // of `git check-ref-format` rules and each one is a separate branch in
@@ -2690,6 +2909,11 @@ describe("validateManifest ⇄ collectManifestErrors parity (D3-SA3.3-11)", () =
     { ...base(), maturity: "enterprise" },
     { ...base(), confidenceFloor: "paranoid" },
     { ...base(), confidenceFloor: "high" },
+    // 2.8.0 additive scalars — one malformed + one well-formed instance each.
+    { ...base(), communicationStyle: "shouty" },
+    { ...base(), communicationStyle: "technical" },
+    { ...base(), defaultEffort: "extreme" },
+    { ...base(), defaultEffort: "deep" },
     { ...base(), board: { owner: 1 } },
     { ...base(), board: { owner: "a", repo: "b", defaultBranch: "foo..bar" } },
     { ...base(), models: { agents: { "hatch3r-researcher": 42 } } },

@@ -83,6 +83,8 @@ Classify the onboarding-guide request before delegating:
 
 If Tier 1, run the reduced researcher set and skip experience-level depth tailoring. If Tier 2, run the standard pipeline below. If Tier 3, expand researcher depth and confirm guide sections with the user before generating the document.
 
+Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first researcher dispatch (Step 1), surface the cost preview so a multi-researcher onboarding run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:

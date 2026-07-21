@@ -58,7 +58,7 @@ Report the matched row(s), the matched signals, and the resolved flow(s) to the 
 - **Standard** — one flow with multiple concerns, or two flows in dependency order.
 - **Deep** — ≥2 flows or a whole-product request (R7/R8 chains).
 
-`--effort=light|standard|deep` forces the tier per hatch3r's universal `--effort` override (CONSTITUTION §6 Decision 17) and is passed through to each routed flow; no override → the auto-classification stands.
+`--effort=light|standard|deep` forces the tier per hatch3r's universal `--effort` override (CONSTITUTION §6 Decision 17) and is passed through to each routed flow; no override → a persisted `defaultEffort` (`.hatch3r/hatch.json`) stands next, else the auto-classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs. Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification; per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
 
 ## Phase 1 — Shared Intake
 

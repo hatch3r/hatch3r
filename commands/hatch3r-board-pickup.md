@@ -38,8 +38,8 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 1. Research | `hatch3r-researcher` (modes by task type) | Per issue | Yes |
 | 2. Implementation | `hatch3r-implementer` (one per issue) | Yes (per dependency level) | Yes |
 | 3a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations until clean) | No (sequential loop) | Yes |
-| 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
-| 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
+| 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes; Tier-1 relaxation per `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria) |
+| 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes; Tier-1 relaxation per `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 3e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
@@ -95,7 +95,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the pickup request before delegating:
+Classify the pickup request and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single sub-issue, isolated change, clear acceptance criteria; standard pipeline but with `quick` researcher depth and no parallel batch.
 - **Tier 2 (standard)**: single epic with sub-issues, or 2–3 independent issues in a batch; standard pipeline with researcher per issue and parallel implementer fanout.

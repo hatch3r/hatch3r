@@ -70,7 +70,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ## Step 0: Triage
 
-Classify the bug before delegating:
+Classify the bug and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before the first delegation (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier:
 
 - **Tier 1 (trivial)**: single-file, clear root cause, reproduction known. Route to the `hatch3r-bug-fix` skill and exit — this pipeline's delegation overhead is not warranted.
 - **Tier 2 (standard)**: multi-file or behavior-changing fix with a known or strongly-hypothesized root cause. Run the full 3-phase pipeline below.
@@ -99,7 +99,7 @@ Auto-tiering can misclassify — a single-module bug scored Deep, or a multi-mod
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification. `--effort=light` routes to the `hatch3r-bug-fix` skill.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`) wins over the Step 0 auto-classification; absent both, the auto-classification stands (`--effort` > `defaultEffort` > auto-tier per `agents/shared/triage-vocabulary.md`).
 
 ---
 

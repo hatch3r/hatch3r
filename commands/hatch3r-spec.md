@@ -92,6 +92,8 @@ Resolve the triage tier from scope answer (or auto-detect):
 - **Standard** — subsystem-level spec covering a coherent module. All manifest deliverables produced (8 greenfield / 9 brownfield). Default budget ~12,000 tokens.
 - **Deep** — full-project spec, multi-domain. All manifest deliverables plus depth on risk inventory (≥5 named risks with mitigation owners) and test plan (per-layer coverage matrix). Default budget ~24,000 tokens.
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ## Effort Override (Decision 17)
 
 Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-domain brief scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
@@ -99,7 +101,7 @@ Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-doma
 - `--effort=light|standard|deep` forces the named tier, bypassing the Triage auto-classification above.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
 - When `--effort=deep` lands on a Light-classified scope (or `--effort=light` on a Deep-classified scope), accept the override and emit the resized `estimated_input_tokens_static_frame` in the Cost estimate block.
-- No override passed → the Triage auto-classification stands.
+- **Tier-source precedence** per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs: explicit `--effort` flag > persisted `defaultEffort` scalar in `.hatch3r/hatch.json` > Triage auto-classification; neither flag nor `defaultEffort` present → the Triage auto-classification stands.
 
 ## Confidence Propagation Contract
 

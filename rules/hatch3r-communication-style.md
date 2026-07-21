@@ -1,0 +1,57 @@
+---
+id: hatch3r-communication-style
+type: rule
+description: "Operator-facing chat register for hatch3r agents — two registers keyed off the manifest `communicationStyle` scalar (`plain`, the default, or `technical`): the plain register mandates an outcome-first headline (≤3 facts before detail), first-use glosses for acronyms/ids/tier-pillar vocabulary, sentences averaging ≤25 words, and numbers over adjectives; machine-parseable grammars (recap, structured results, YAML fields, sub_agents_spawned, attestations, commit messages) are never restyled."
+tags: [orchestration, ux]
+precedence: normal
+scope: always
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# hatch3r Communication Style
+
+**Pillars:** P1 (Adoption Experience — progressive disclosure at the chat surface), CQ2 (UX Quality — the operator is a user)
+
+## Scope
+
+Governs how hatch3r-generated agents talk to the human operator in chat: turn-final messages, status updates, explanations, and the prose around ASK checkpoints. Out of scope: generated product copy (owner: `rules/hatch3r-i18n.md` → Microcopy and Tone), code comments, and the exempt machine-parseable grammars below.
+
+## Register Selection
+
+Read the `communicationStyle` scalar from the manifest (`.hatch3r/hatch.json`): `plain` or `technical`. Default is `plain` when the field is absent or no manifest exists. The adapter-emitted directive line in each tool's instruction surface restates the active register; this rule owns the register definitions. Register changes vocabulary and density only — never content, honesty contracts, or the exempt grammars.
+
+## Plain Register (default)
+
+- Lead every turn-final message with the outcome plus at most 3 headline facts before any detail — the answer and its caveats first, supporting material after.
+- Define every acronym, id, and codename on first use in the message that uses it: full term (or a ≤6-word gloss) once, short form afterward.
+- Sentences average ≤25 words per message; target 15-20.
+- No unexplained internal jargon: tier names, phase numbers, pillar ids, and finding ids get a ≤6-word gloss on first use — e.g., "Tier 2 (multi-file change)", "P4 (no-bloat coverage pillar)".
+- State what the result means for the operator before how it was produced — consequence first, mechanism second.
+- Progressive disclosure: detail sections appear only after the headline block, collapsed or offered as a follow-up where the platform supports it.
+- Numbers over adjectives: "3 of 5 gates passed" beats "most gates passed"; wherever a count, delta, or range exists, print it instead of a quality adjective.
+- No filler openers: start with the outcome, not a restatement of the request or a pleasantry.
+
+## Technical Register
+
+Current professional density: full framework vocabulary (tier, phase, pillar, and finding ids unglossed), no glossing requirement, compact multi-clause sentences permitted. The outcome still opens the turn-final message; the exemptions below bind identically.
+
+## Exemptions — never restyled
+
+Machine-parseable grammars are downstream-extraction contracts; both registers emit them byte-exact and add at most a plain-language headline around them:
+
+- The Iteration Summary recap grammar, exception lines, and Remaining Work block (`rules/hatch3r-iteration-summary.md`)
+- Structured result blocks returned by sub-agents (`agents/shared/quality-charter.md` §11 status enum and fields)
+- YAML/frontmatter fields in any emitted artifact
+- The `sub_agents_spawned` output field (`rules/hatch3r-fan-out-discipline.md`)
+- End-of-Turn Delegation Attestation blocks (`rules/hatch3r-agent-orchestration.md`)
+- Commit messages (`rules/hatch3r-git-conventions.md`)
+
+## Jargon Dictionary
+
+Do not restate a banned-jargon dictionary here. The canonical banned-jargon token dictionary lives at `rules/hatch3r-i18n.md` → Microcopy and Tone; the plain register applies the same approach to operator chat — a system token either gets its first-use gloss or stays out of the message.
+
+## References
+
+- GOV.UK content standards — Writing to GOV.UK standards, writing guidelines (https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/; accessed 2026-07-21; trust tier: official government standards documentation — the legacy gov.uk/guidance/content-design page 301-redirects here, which confirms currency). Source of the sentence-length ceiling (15-20 words, never more than about 25) and of explaining essential technical terms on first appearance.
+- Nielsen Norman Group, "Less Chat, More Answer: Site AI Chatbots Need to Get to the Point" (Rosala, Kenderova, Kohler, 2026-04-17; https://www.nngroup.com/articles/less-chat-more-answer/; accessed 2026-07-21; trust tier: independent UX research organization with named authors). Source of the answer-first ("truncated pyramid") headline block, detail-on-demand disclosure, no-filler openers, and specific-over-generic (numbers) directives.
+- Digital.gov, Plain language guide series and style guide (https://digital.gov/guides/plain-language; accessed 2026-07-21; trust tier: official U.S. federal guidance — plainlanguage.gov/guidelines 301-redirects here, which confirms this is the current home). Source of the first-use acronym-definition pattern (full name once, abbreviation after) and audience-first framing.

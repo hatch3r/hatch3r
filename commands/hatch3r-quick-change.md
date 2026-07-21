@@ -106,6 +106,8 @@ Classify the change request before delegating. Detailed tier scoring runs in Ste
 
 If Tier 1, run inline. If Tier 2, run the implementer-only pipeline below. If Tier 3, exit and recommend `hatch3r-workflow`.
 
+Emit the mandatory tier-rationale line when the Step 2b scoring resolves the tier — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ### Pre-Execution Cost Preview
 
 Before any sub-agent dispatch (Step 4b implementer), surface the cost preview so a nontrivial change is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Triage tier. Tier 1 trivial inline edits skip the sub-agent path entirely, so `expected_sa_count: 0` is the correct value for them.
@@ -127,7 +129,7 @@ Auto-tiering can misclassify — a multi-file change scored as Tier 1, or a one-
 
 - `--effort=light|standard` forces the named tier, bypassing the Triage auto-classification. `--effort=deep` is rejected here — quick-change hard-blocks Tier 3 and routes to `hatch3r-workflow`.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Triage auto-classification stands.
+- **Tier-source precedence** per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs: explicit `--effort` flag > persisted `defaultEffort` scalar in `.hatch3r/hatch.json` > Triage auto-classification. A persisted `deep` default is rejected here exactly like `--effort=deep` (Tier 3 routes to `hatch3r-workflow`); neither flag nor `defaultEffort` present → the Triage auto-classification stands.
 
 ### Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
 

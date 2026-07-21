@@ -72,6 +72,8 @@ Classify the migration request before delegating:
 
 If Tier 1, run a condensed pipeline that skips the architect when no breaking changes exist. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including incremental-vs-direct trade-off analysis and confirm phasing with the user before writing files.
 
+Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification (absent signals select Tier 2, never Deep); per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher migration-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:

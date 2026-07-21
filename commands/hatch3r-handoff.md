@@ -48,6 +48,8 @@ Classify the handoff request by subcommand and operation size before routing:
 
 There is no Tier 3 for this command — multi-issue or epic-scale handoffs are out of scope; the caller decomposes into per-work-item handoffs upstream.
 
+Emit the `tier: <1|2> — <subcommand + operation-size summary>` rationale line at classification; per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
+
 ### Step 0.5: Emit Pre-Execution Cost Preview
 
 The `prepare` subcommand is the only one that dispatches a sub-agent. Before invoking `hatch3r-handoff-preparer`, surface the cost preview per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate. The Tier-1 read/list/rename subcommands (`list`, `complete`, `prune --dry-run`) run inline with `expected_sa_count: 0` and may emit a one-line cost note instead of the full block:
@@ -69,7 +71,7 @@ This command has no Tier 3, so `--effort` maps only `light` ↔ `standard`. The 
 
 - `--effort=light|standard` forces the named tier, bypassing the subcommand-derived auto-classification (Step 0). `--effort=deep` is rejected — Tier 3 is out of scope for this command.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the subcommand-derived classification stands.
+- No `--effort` passed → a persisted `defaultEffort` (`.hatch3r/hatch.json`; `deep` rejected here likewise) stands next, else the subcommand-derived classification — precedence per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs.
 
 ## Confidence Propagation Contract
 

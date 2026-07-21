@@ -64,7 +64,7 @@ Classify before delegating, using the Light / Standard / Deep vocabulary in `age
 - **Tier 2 (Standard)** — the elicitation dialog is needed (no assets, or assets answer only part of the Step 2 intake table) OR the detect verdict is `extend`. One `hatch3r-researcher` pass over whatever assets exist + implementer + gates.
 - **Tier 3 (Deep)** — Figma/tokens-studio import, multi-brand palette, monorepo (workspace-wide token package), or a third theme (high-contrast). One researcher per asset class in parallel + implementer + gates.
 
-An undeclared theme set or emission target fires the §0 gate before tiering. Classify upward on uncertainty (highest-tier rule, `agents/shared/triage-vocabulary.md`).
+An undeclared theme set or emission target fires the §0 gate before tiering. Emit the `tier: <1|2|3> — <signal summary>` rationale line at classification; absent signals select Tier 2 (Standard), never Deep — a higher tier requires a signal that affirmatively selects it, and per-tier pipeline depth defers to `agents/shared/triage-vocabulary.md` → Pipeline pruning per tier.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 

@@ -194,6 +194,10 @@ export function createProgram(): Command {
     // Decision 16). Both the help string and this provenance cite now say
     // Decision 16.
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
+    // 2.8.0 additive manifest scalars — flag-only by design: init is at its
+    // 6-prompt ceiling (CONSTITUTION §6 row 32), so neither flag adds a prompt.
+    .option("--communication-style <style>", "How generated agents talk to you: plain, technical (default: plain; flag-only — adds no prompt; change later with `hatch3r config communication_style=<style>`)")
+    .option("--default-effort <effort>", "Persisted default orchestration intensity: light, standard, deep (absent: auto-tier from task shape; an explicit --effort run flag overrides; change later with `hatch3r config default_effort=<effort>`)")
     .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to role-tagged items (no effect until the canonical corpus carries role:* tags; currently a no-op)")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
     .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
@@ -490,6 +494,8 @@ export function createProgram(): Command {
     .option("--dry-run", "Show what would be done without changes")
     .option("--force", "Overwrite existing files in the worktree")
     .option("--yes", "Skip the secret-propagation confirmation prompt")
+    .option("--use-existing", "When branch <name> already exists (locally or on origin), attach/track it in the new worktree without prompting")
+    .option("--no-use-existing", "Never reuse an existing branch <name>: fail with a rename hint instead of prompting")
     .option("--verbose", "Break the skipped-files count down by reason (idempotent re-run vs concurrent-write race)")
     // --format/--quiet provenance: W5 flag-surface standardization.
     .option(

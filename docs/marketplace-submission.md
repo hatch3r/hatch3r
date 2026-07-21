@@ -28,11 +28,11 @@ The `external_plugins/` PR convention referenced in the original C7-H16 finding 
 
 ### One-line description
 
-10-cycle-audited agentic coding setup: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations for Claude Code.
+10-cycle-audited agentic coding setup: 30 agents, 54 skills, 73 rules, 32 commands, 7 hooks, and MCP integrations for Claude Code.
 
 ### Long description
 
-hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 30 agents, 53 skills, 72 rules, 32 commands, 7 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
+hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 30 agents, 54 skills, 73 rules, 32 commands, 7 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
 
 The plugin packages a 4-phase sub-agent pipeline (Research → Implement → Review → Quality) that maps directly to Claude Code Agent Teams, board-management commands for GitHub/Azure DevOps/GitLab, security-audit and accessibility-audit skills, and customization via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.
 
@@ -61,7 +61,7 @@ Or, after marketplace listing:
 
 ### Capabilities checkboxes
 
-- [x] Skills (53 — listed under `skills/`)
+- [x] Skills (54 — listed under `skills/`)
 - [x] Agents (29 — listed under `agents/`)
 - [x] Commands (30 — listed under `commands/`)
 - [x] Hooks (7 — installed into `.claude/hooks/hatch3r-hooks.json` on Claude Code targets at `npx hatch3r init` time)
@@ -82,8 +82,8 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 ```json
 {
   "name": "hatch3r",
-  "description": "10-cycle-audited agentic coding setup: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "2.7.2",
+  "description": "10-cycle-audited agentic coding setup: 30 agents, 54 skills, 73 rules, 32 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "version": "2.8.0",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
@@ -124,7 +124,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ```markdown
 ## hatch3r
 
-**Description:** 10-cycle-audited agentic coding setup framework. One command installs 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations into any repo.
+**Description:** 10-cycle-audited agentic coding setup framework. One command installs 30 agents, 54 skills, 73 rules, 32 commands, 7 hooks, and MCP integrations into any repo.
 
 **License:** MIT
 **Repository:** https://github.com/hatch3r/hatch3r
@@ -133,8 +133,8 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 
 ### Capabilities
 - 29 sub-agents (researcher, implementer, reviewer, fixer, test-writer, security-auditor, creator, etc.)
-- 53 skills covering bug-fix, feature, release, incident-response, customization, and more
-- 72 rules (code standards, testing, observability, security patterns, agent orchestration)
+- 54 skills covering bug-fix, feature, release, incident-response, customization, and more
+- 73 rules (code standards, testing, observability, security patterns, agent orchestration)
 - 32 commands (board management, planning, workflow, operations)
 - 7 lifecycle hooks (pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, review-loop-cap)
 - 10 MCP servers (3 default, 7 opt-in)
@@ -189,7 +189,7 @@ The Cursor form and listing draw from the committed manifest; keep the manifest 
 
 - **name:** `hatch3r`
 - **displayName:** `Hatch3r`
-- **description:** "Agentic coding setup audited each release across 24 governance domains: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json." (counts trace to `governance/inventory.json`)
+- **description:** "Agentic coding setup audited each release across 24 governance domains: 30 agents, 54 skills, 73 rules, 32 commands, 7 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json." (counts trace to `governance/inventory.json`)
 - **version:** `2.6.0`
 - **repository:** https://github.com/hatch3r/hatch3r
 - **homepage:** https://docs.hatch3r.com

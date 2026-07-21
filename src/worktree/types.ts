@@ -40,6 +40,26 @@ export interface WorktreeSetupResult {
   errors: string[];
 }
 
+/**
+ * How `addGitWorktree` materializes the branch for a new worktree
+ * (release/2.8.0 attach mode):
+ * - `"create"`  — new branch off the main repo's HEAD (`worktree add -b <name> <path>`)
+ * - `"attach"`  — reuse an existing LOCAL branch (`worktree add <path> <name>`, no `-b`)
+ * - `"track"`   — remote-only branch: create a local branch tracking
+ *                 `origin/<name>` (`worktree add --track -b <name> <path> origin/<name>`)
+ */
+export type WorktreeAddMode = "create" | "attach" | "track";
+
+/**
+ * Resolved branch plan for a `worktree-setup <name>` run, produced by
+ * `resolveWorktreeBranchPlan` BEFORE any `git worktree add` executes so the
+ * CLI can route the consent flow (interactive confirm / `--use-existing` /
+ * non-TTY refusal) and keep the `--dry-run` preview honest about the action.
+ */
+export interface WorktreeBranchPlan {
+  mode: WorktreeAddMode;
+}
+
 export interface WorktreeListEntry {
   path: string;
   head?: string;

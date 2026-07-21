@@ -72,3 +72,5 @@ social_preview.png
 # does not also ignore the tracked test-fixture tree at src/__tests__/fixtures/.hatch3r/.
 /.hatch3r/
 skills-lock.json
+
+.evolve-workspace.*

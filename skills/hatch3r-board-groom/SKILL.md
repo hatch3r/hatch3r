@@ -109,11 +109,7 @@ Optional but noted: missing `area:*`, missing `risk:*`.
 
 #### 3c. Stale Issue Detection
 
-Flag open issues that are potentially stale:
-
-- `status:triage` with no update in 14+ days (based on `updatedAt`).
-- `status:in-progress` with no update in 7+ days (may be abandoned).
-- `status:ready` with no update in 30+ days (may be deprioritized or obsolete).
+Flag open issues that are potentially stale by applying criterion **S6 (inactivity)** from the **Staleness Detection Criteria** in `hatch3r-board-shared` — per-status `updatedAt` age thresholds. S6 hits become the archive candidates for Step 4e. Detection only; no mutation in this step.
 
 #### 3d. Dependency Health
 
@@ -167,19 +163,17 @@ For each epic, compare the sub-issue references in the epic body (checklist item
 
 #### 3k. Board Sync Drift Detection
 
-If `board.projectNumber` is configured, compare label-based status (`status:*` labels) against board column status via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` (GitHub) or equivalent platform call. Flag issues where the label status and board column status diverge.
+If `board.projectNumber` is configured, apply criterion **S5 (label/column drift)** from the **Staleness Detection Criteria** in `hatch3r-board-shared`, using the detection call in its table row. Flag every issue where the label status and board column status diverge; remediation runs in Step 4j (labels are the source of truth).
 
 #### 3l. Orphaned In-Review Detection
 
-For each open issue with `status:in-review`:
+Apply criterion **S2 (status contradicts git/PR state)** from the **Staleness Detection Criteria** in `hatch3r-board-shared` to every open issue with `status:in-review`, and to closed issues still carrying a non-`status:done` status label (auto-closed on PR merge without the label/board update — see Post-Merge Terminal State in `hatch3r-board-shared`). Fetch PR/MR linkage:
 
 1. **GitHub:** Check if any open PR body references `Closes #N` for this issue: `gh pr list -R {owner}/{repo} --state open --json number,body` — parse for `Closes #{N}`.
 2. **Azure DevOps:** Check if any active PR is linked to this work item: `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status active` — check work item relations.
 3. **GitLab:** Check if any open MR description references `Closes #N` for this issue: `glab mr list -R {namespace}/{project} --state opened` — parse descriptions for `Closes #{N}`.
 
-Also check for closed issues with `status:in-review` (or any non-`status:done` status label) — these are issues that were auto-closed on PR merge but whose labels and board status were not updated to "Done" (see Post-Merge Terminal State in `hatch3r-board-shared`).
-
-Flag two categories:
+Flag the two S2 sub-cases:
 - **Orphaned in-review (open):** Open issues with `status:in-review` but no associated open PR/MR — likely caused by PR closure without merge.
 - **Stale in-review (closed):** Closed issues still labeled `status:in-review` — should be `status:done` with board status "Done".
 

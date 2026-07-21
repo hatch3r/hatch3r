@@ -34,6 +34,8 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 This skill is a standalone generic E2E validation harness — it has NO 1:1 CQ specialist agent dispatcher (unlike `hatch3r-ui-ux-verify`, `hatch3r-reliability-verify`, `hatch3r-observability-verify`, and `hatch3r-browser-verify`, which each map to a CQ specialist). It is invoked directly by release-prep and acceptance-testing flows, and it delegates the UI/UX sub-gate to `hatch3r-ui-ux-verify` (Step 3c). Kept standalone per the cross-artifact overlap review (F16.3-H4): its pass/fail report spans API, data-integrity, and background-job test cases that no single CQ specialist covers.
 
+Scope boundary: here the AGENT plans and executes the validation itself; for a manual test path a HUMAN walks through to judge a PR or diff shippable, use `hatch3r-qa-path` (`skills/hatch3r-qa-path/SKILL.md`).
+
 ## Step 1: Read Inputs
 
 - Parse the issue body: validation scope, test matrix, environments, preconditions, pass/fail criteria, evidence requirements.

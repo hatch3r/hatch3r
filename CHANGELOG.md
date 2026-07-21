@@ -2,6 +2,36 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.8.0] - 2026-07-21
+
+### Headline
+
+Dynamic orchestration intensity + operator-experience release. Orchestration effort now scales with the task instead of defaulting deep: tier selection is mandatory and emitted with its driving signal (absent signals resolve to Standard, never Deep), Tier-1 runs collapse research+plan into one pass with a single implementer and a 1-iteration review loop, and the CQ5+CQ3 specialist floor relaxes only under four named criteria (≤50 changed LOC, no new dependencies, no security-adjacent paths, docs/config/copy-only or single-function-with-coverage class) — tier-derived, never token-cost-derived (P8 unchanged). Two new manifest scalars ship the operator dials: `defaultEffort` (persisted intensity default; flag > manifest > auto-tier) and `communicationStyle` (plain | technical, default plain) backing the new always-on `hatch3r-communication-style` rule. Board fill now detects staleness mechanically against six shared criteria and re-syncs before acting; pr-resolve gains a base-branch sync gate that resolves merge conflicts with per-conflict consent; every orchestrator run ends with a deferred-items disposition gate so deferred work cannot slip through silently; `hatch3r worktree-setup` attaches existing local and remote branches instead of erroring; and the new `hatch3r-qa-path` skill emits a human-QA test path for any PR. Ships as release PR #142; §6 Decisions 38-40 land separately via hatch3r-governance#11.
+
+### Content
+
+- **Dynamic intensity calibration** (`agents/shared/triage-vocabulary.md`, `rules/hatch3r-agent-orchestration.md`, `commands/hatch3r-workflow.md`) — per-tier pipeline-pruning table; mandatory auto-tier with an emitted `tier: <1|2|3> — <signal summary>` line; `--mode=quick` documented as the Tier-1 entry mapping to `--effort=light`; Tier 2/3 escalations on small-looking tasks must name the driving signal.
+- **Deferred-Items Disposition Gate** (`rules/hatch3r-iteration-summary.md`) — one bundled ASK (keep deferred default / follow up now / queue as new workflow) before the final Remaining Work block; mandatory `disposition: kept | followed-up | queued:<ref>` suffix per remaining item; non-interactive runs record `Default applied: kept deferred (non-interactive)`.
+- **`hatch3r-communication-style` rule (new, 73rd rule)** — operator-register dial: plain register (outcome + ≤3 headline facts first, first-use glosses, ≤25-word average sentences, numbers over adjectives) vs technical; machine-parseable grammars (recap lines, structured results, YAML) exempt.
+- **Board staleness auto-refresh** (`commands/hatch3r-board-fill.md` Step 1.6 + shared criteria S1-S6 in `commands/board/shared-board-overview.md`) — non-destructive re-syncs run automatically before fill logic; closes/downgrades stay consent-gated behind one bundled ASK; board-groom now cites the shared criteria instead of duplicating them.
+- **pr-resolve Base-Branch Sync Gate** (Step 1.6 + pre-push re-check) — `git merge-tree` conflict detection, per-conflict triage table with one bundled consent ASK (mirroring the per-comment flow), per-file resolution delegated to `hatch3r-fixer`, binary/outside-diff conflicts halt to human; the `git pull --rebase` punt on push rejection is gone.
+- **`hatch3r-qa-path` skill (new, 54th skill)** — human-QA test path for an existing PR: 7-column table (area, steps, expected result, risk, automated coverage, minutes), risk-descending ordering, sign-off block (ship when all High rows pass and no Medium row fails without a filed follow-up), rollback-check line.
+
+### CLI
+
+- **`worktree-setup` attaches existing branches** — existing local branches attach without `-b` (TTY confirm prompt or `--use-existing`; non-TTY requires the flag and exits 64 with the exact rerun command otherwise); remote-only branches fetch and attach with `--track`; a branch checked out in another worktree gets its own actionable error naming the holder path; `--dry-run` prints the exact git argv it would run.
+- **New manifest scalars + flags** — `communicationStyle` (`hatch3r config set communication_style`, `init --communication-style`; absent = plain) and `defaultEffort` (`config set default_effort`, `init --default-effort`; absent = auto-tier); both consumed as adapter directive lines in all 3 adapters; the ≤6-prompt init ceiling holds (flag-only, no new interactive prompt).
+- **Worktree exit-code drift fixed** — five hard-coded exit-1 sites in `src/worktree/` replaced with `ERROR_CODE_TO_EXIT_CODE` codes (64 validation / 74 fs / 75 network), matching the documented exit-code table.
+
+### Governance
+
+- CONSTITUTION §6 Decisions 38-40 appended (deferred-items disposition gate, Replaces: 37; tier-derived intensity relaxation; operator-dial scalars) — §8-labeled in-session owner consent recorded 2026-07-21; landing per the §8 cooling-off clause (owner re-confirmation at merge or ≥48-hour interval), flagged in the release PR.
+
+### Upgrade notes
+
+- Both manifest fields are additive; schema generation stays 3 and existing manifests keep resolving unchanged. Absent `communicationStyle` now means the plain register — set `technical` to keep the pre-2.8.0 density.
+- Scripts wrapping `worktree-setup` should branch on exit 64 (not 1) for the branch-exists case, and pass `--use-existing` for intentional attach.
+
 ## [2.7.2] - 2026-07-17
 
 ### Headline

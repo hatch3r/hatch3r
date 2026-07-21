@@ -1,7 +1,7 @@
 ---
 id: hatch3r-board-shared-overview
 type: shared-context
-description: Board overview dashboard template, model pool, model selection heuristic, and lane computation algorithm. Referenced from hatch3r-board-shared.
+description: Board overview dashboard template, model pool, model selection heuristic, staleness detection criteria, and lane computation algorithm. Referenced from hatch3r-board-shared.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
@@ -218,3 +218,23 @@ Used by `board-fill`, `board-groom`, and `board-refresh` when generating the Imp
     - Soft-only edges are annotated but do not enforce phasing (advisory).
     - If all lanes have no edges → all Phase 1 (truly parallel).
 12. **Build Lane Dependency Map:** Produce summary: lane phase assignments, inter-lane edges with types, whether the board is fully parallel or phased. This summary populates the Lane Dependency Map and Cross-Lane Dependencies sections of the board overview.
+
+## Staleness Detection Criteria
+
+Single shared home for board staleness detection. `board-fill` applies these criteria automatically in its Step 1.6 Staleness Refresh; `board-groom` cites them in Steps 3c/3k/3l and remediates through its Step 4 actions. Every criterion is evaluated against data the full board scan already cached (issue bodies, labels, timestamps, links) plus local git and PR/MR state — no per-issue re-fetch.
+
+| ID | Criterion | Detection | Refresh action |
+|----|-----------|-----------|----------------|
+| S1 | **Dead file references** — the issue body cites one or more file paths absent from the current tree | Extract path-like tokens from the body; a path is absent when `git ls-files -- {path}` returns nothing; recover rename targets via `git log --follow --diff-filter=R -- {path}` | Annotate: comment listing each missing path and its rename target when git history records one. If every cited path is absent and the described target no longer exists, flag-for-close |
+| S2 | **Status contradicts git/PR state** — a linked PR/MR is merged or closed while the issue is still open, its `status:*` label is not `status:done`, or its board column is not Done; or the issue carries `status:in-review` with no open PR/MR referencing it | Cross-reference cached issue state, `status:*` label, and board column against PR/MR linkage (`Closes #N` references plus PR/MR state) | Merged PR with lagging label/column: set `status:done`, sync board column to Done (update status/column). `status:in-review` with no open PR/MR: propose `status:ready` (work abandoned) or `status:in-progress` (rework expected) — a status downgrade |
+| S3 | **Body predates the code it describes** — the issue's `updatedAt` is older than the newest commit touching a file or area the body references | For each referenced path (and each `area:*` label's mapped directory), compare `git log -1 --format=%cI -- {path}` against `updatedAt` | Annotate: comment naming the newer commit(s) (hash + date) and the affected paths; nominate for re-scope (`board-groom` Step 4c) |
+| S4 | **Duplicate of already-merged work** — the issue's title and acceptance criteria describe an outcome a closed-as-completed issue or merged PR already delivered | Search closed items by title keywords; classify semantically (Duplicate / Partial overlap / No match). Only a Duplicate verdict fires S4 — Partial overlap does not | Flag-for-close, citing the delivering issue/PR number |
+| S5 | **Label/column drift** — the issue's `status:*` label and its board column diverge | Compare the cached label against the board column via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` (GitHub) or the Azure DevOps / GitLab equivalent. Requires `board.projectNumber` | Update status/column: re-sync the board column to match the label (labels are the source of truth per Board Sync Enforcement). A closed issue still labeled `status:in-review` is the S2 merged-PR case |
+| S6 | **Inactivity** — `status:triage` with no update in 14+ days, `status:in-progress` in 7+ days, or `status:ready` in 30+ days (all from `updatedAt`) | Compare each open issue's `updatedAt` against its per-status threshold | Nominate as archive candidate (`board-groom` Step 4e); list in the refresh/refinement summary. Inactivity alone mutates nothing — it is a signal, not proof of obsolescence |
+
+### Disposition classes
+
+Every refresh action above falls into one of two classes:
+
+- **Automatic (non-destructive):** annotation comments and re-syncs that move recorded state forward or into alignment — board column matched to the status label (S5), `status:done` plus Done column when the linked PR merged (S2). Consumers apply these without prompting and record each mutation in the run cache so the end-of-run dashboard regeneration reflects it.
+- **Confirm-first (destructive or downgrade):** closing an issue (S1 total-loss flag-for-close, S4 duplicate-close, S6 archive) and any `status:*` downgrade (S2 in-review with no open PR/MR). These require explicit user confirmation before mutation — the irreversible-action trigger per `rules/hatch3r-clarification-default.md`. `board-fill` bundles ALL confirm-first candidates from a run into ONE ASK (Step 1.6); `board-groom` routes them through its per-action ASK checkpoints (Step 4d demotion, 4e archive, 4g merge-close, 4j in-review remediation). A confirm-first disposition is never applied without a user answer naming it.

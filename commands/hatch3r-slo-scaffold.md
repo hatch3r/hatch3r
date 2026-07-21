@@ -65,6 +65,8 @@ Classify the scaffold before delegating, using the Light / Standard / Deep vocab
 
 A missing availability/latency target or an unnamed metric source fires the §0 B1 gate (`agents/shared/user-question-protocol.md`) before tiering — the burn-rate math derives from the target + window, so a guessed target produces an alert rule that fires wrong. Classify upward on uncertainty (a signal that could read as Tier 2 or Tier 3 takes Tier 3, per the highest-tier rule in `agents/shared/triage-vocabulary.md`).
 
+Emit the mandatory tier-rationale line before delegating — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep); the selected tier's phase depth follows the same file's Pipeline pruning per tier table.
+
 ---
 
 ## Step 1: Parse Service Spec + Targets

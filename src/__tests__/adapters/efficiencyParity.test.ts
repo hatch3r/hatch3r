@@ -46,8 +46,10 @@ import {
   maturityDirective,
   confidenceFloorDirective,
   readConfidenceFloor,
+  communicationStyleDirective,
+  defaultEffortDirective,
 } from "../../manifest/hatchJson.js";
-import type { HatchManifest, MaturityTier, ConfidenceFloor } from "../../types.js";
+import type { HatchManifest, MaturityTier, ConfidenceFloor, CommunicationStyle, OrchestrationEffort } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -276,6 +278,96 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
           `${name} adapter (floor=${floor ?? "<default>"}, maturity=${maturity}, resolved=${resolved}) did not emit the shared confidenceFloorDirective payload verbatim (D1-17)`,
         ).toBe(true);
       }
+    }
+  });
+
+  /**
+   * 2.8.0: communication-style marker parity, the operator-communication
+   * sibling of the maturity gate above. The contract is the shared
+   * `communicationStyleDirective` payload (single source in hatchJson.ts);
+   * each adapter keeps its native wrapper (claude/copilot blockquote, cursor
+   * HTML comment). Covers both explicit styles AND the absent field — absence
+   * resolves to "plain" via readCommunicationStyle, so the plain payload must
+   * still be stamped (the default is itself a visible contract).
+   */
+  it("communication-style directive payload is identical across adapters (explicit + absent)", async () => {
+    const adapters = [
+      { name: "claude", inst: new ClaudeAdapter(), tools: ["claude"] as const },
+      { name: "cursor", inst: new CursorAdapter(), tools: ["cursor"] as const },
+      { name: "copilot", inst: new CopilotAdapter(), tools: ["copilot"] as const },
+    ];
+    // [explicit style | undefined → resolves to "plain"]
+    const cases: Array<{ style?: CommunicationStyle; resolved: CommunicationStyle }> = [
+      { style: "plain", resolved: "plain" },
+      { style: "technical", resolved: "technical" },
+      { style: undefined, resolved: "plain" }, // absent field ⇒ "plain" default
+    ];
+    for (const { style, resolved } of cases) {
+      const expectedPayload = communicationStyleDirective(resolved);
+      for (const { name, inst, tools } of adapters) {
+        const manifest: HatchManifest = {
+          ...createManifest({
+            tools: tools as unknown as Parameters<typeof createManifest>[0]["tools"],
+            mcpServers: [],
+          }),
+          ...(style ? { communicationStyle: style } : {}),
+        };
+        const outputs = await inst.generate(fixtureRoot, manifest);
+        const corpus = outputs.map((o) => o.content ?? "").join("\n");
+        expect(
+          corpus.includes(expectedPayload),
+          `${name} adapter (style=${style ?? "<absent>"}, resolved=${resolved}) did not emit the shared communicationStyleDirective payload verbatim (2.8.0)`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * 2.8.0: default-effort marker parity. Two-sided contract, unlike every
+   * marker above: a PERSISTED `defaultEffort` must surface the shared
+   * `defaultEffortDirective` payload verbatim on all three adapters, and an
+   * ABSENT field must emit NO "Default effort:" line anywhere — absence means
+   * auto-tier, and a phantom line would misstate a persisted default the user
+   * never set (it would also break pre-2.8 byte-stability).
+   */
+  it("default-effort directive payload is identical across adapters when persisted, and absent otherwise", async () => {
+    const adapters = [
+      { name: "claude", inst: new ClaudeAdapter(), tools: ["claude"] as const },
+      { name: "cursor", inst: new CursorAdapter(), tools: ["cursor"] as const },
+      { name: "copilot", inst: new CopilotAdapter(), tools: ["copilot"] as const },
+    ];
+    const efforts: OrchestrationEffort[] = ["light", "standard", "deep"];
+    for (const effort of efforts) {
+      const expectedPayload = defaultEffortDirective(effort);
+      for (const { name, inst, tools } of adapters) {
+        const manifest: HatchManifest = {
+          ...createManifest({
+            tools: tools as unknown as Parameters<typeof createManifest>[0]["tools"],
+            mcpServers: [],
+          }),
+          defaultEffort: effort,
+        };
+        const outputs = await inst.generate(fixtureRoot, manifest);
+        const corpus = outputs.map((o) => o.content ?? "").join("\n");
+        expect(
+          corpus.includes(expectedPayload),
+          `${name} adapter (defaultEffort=${effort}) did not emit the shared defaultEffortDirective payload verbatim (2.8.0)`,
+        ).toBe(true);
+      }
+    }
+    // Absent field ⇒ auto-tier ⇒ NO directive line on any adapter surface.
+    for (const { name, inst, tools } of adapters) {
+      const manifest = createManifest({
+        tools: tools as unknown as Parameters<typeof createManifest>[0]["tools"],
+        mcpServers: [],
+      });
+      expect(manifest.defaultEffort).toBeUndefined();
+      const outputs = await inst.generate(fixtureRoot, manifest);
+      const corpus = outputs.map((o) => o.content ?? "").join("\n");
+      expect(
+        corpus.includes("Default effort:"),
+        `${name} adapter emitted a "Default effort:" line for an ABSENT defaultEffort field — absence means auto-tier, no directive line (2.8.0)`,
+      ).toBe(false);
     }
   });
 

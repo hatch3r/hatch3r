@@ -152,7 +152,7 @@ export function findMainWorktree(worktreeDir: string): string {
   if (!match) {
     throw new HatchError(
       `Unable to parse .git file in ${worktreeDir}: expected "gitdir: <path>"`,
-      1,
+      undefined,
       "FS_ERROR",
     );
   }
@@ -276,7 +276,7 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
   } catch (err) {
     throw new HatchError(
       `git worktree list failed in ${mainRoot}: ${(err as Error).message}`,
-      1,
+      undefined,
       "FS_ERROR",
     );
   }

@@ -57,13 +57,13 @@ Optional positional argument: `<service-name>`.
 
 ## Step 0: Triage
 
-Classify the auth scaffold before delegating. The tier names map to the canonical Light/Standard/Deep vocabulary (`agents/shared/triage-vocabulary.md`); the `Tier {1|2|3}` references in Step 2 resolve to these rows.
+Classify the auth scaffold and emit the tier-rationale line `tier: <1|2|3> — <signal summary>` before delegating. The tier names map to the canonical Light/Standard/Deep vocabulary (`agents/shared/triage-vocabulary.md`; per-tier pipeline depth per its Pipeline pruning per tier table); the `Tier {1|2|3}` references in Step 2 resolve to these rows.
 
 - **Tier 1 (Light)** — a single auth mode (PAT only, or OAuth only) for a confidential server client with a named issuer. One `hatch3r-implementer` writes the single module; one `hatch3r-security` gate verifies it.
 - **Tier 2 (Standard)** — both interactive OAuth 2.1 and machine-to-machine PAT for one client type. One implementer per mode in parallel (`src/auth/oauth/` vs `src/auth/pat/`); one security gate per generated mode.
 - **Tier 3 (Deep)** — a public/browser client (the DPoP token-binding decision is in play), multiple identity providers, or a mixed public+confidential client matrix. Full fan-out (one implementer per mode × provider), each gated, plus the browser-bearer-is-a-High-finding threat check from Step 4 item 4.
 
-Rule: an unspecified client type or an undecided token-binding choice fires the §0 B1 gate before tiering — a public client mis-scaffolded as confidential ships an exploitable bearer flow. Classify upward when the client type or token binding is uncertain.
+Rule: an unspecified client type or an undecided token-binding choice fires the §0 B1 gate before tiering — a public client mis-scaffolded as confidential ships an exploitable bearer flow. A client type still public-or-unknown after the gate is an affirmative Tier 3 signal (the DPoP token-binding decision is in play); absent signals select Tier 2, never Deep, per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs.
 
 ---
 

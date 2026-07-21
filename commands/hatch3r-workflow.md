@@ -134,7 +134,7 @@ Assess the task to recommend a mode.
 
 #### Assessment
 
-Evaluate the task against both signal sets. Count matching signals to determine recommendation.
+Evaluate the task against both signal sets. Count matching signals to determine recommendation. Emit the mandatory tier line before the ASK — `tier: <1|2|3> — <signal summary>` per `agents/shared/triage-vocabulary.md` → Auto-tiering inputs (absent signals select Tier 2 — Standard, never Deep). When the selection lands on Tier 2 or 3 for a task whose surface reads small (single file named, short description), the rationale MUST name which signal drove the escalation — module span, decision class, or AC clarity.
 
 **ASK:** "Task: {user's task description}. Complexity assessment: {assessment}. Recommended mode: {Full/Quick}. Proceed with {recommended}? (yes / switch to {other} / let me decide per phase)"
 
@@ -158,9 +158,11 @@ Post-execution actuals + delta land in the Iteration Summary recap (cost facet; 
 Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scored as Full Mode, or a cross-cutting refactor scored as Quick Mode. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier (light → Quick Tier 1, standard → Quick Tier 2, deep → Full Tier 3), bypassing the Step 0 auto-classification. This composes with the existing `--mode=full|quick` flag: an explicit `--mode` wins over the `--effort`-derived mode.
+- `--mode=quick` with no explicit `--effort` is the Tier-1 entry point: it maps to `--effort=light` (Quick Tier 1). Pair `--mode=quick --effort=standard` to run Quick Mode at Tier 2.
+- **Tier-source precedence** (`agents/shared/triage-vocabulary.md` → Auto-tiering inputs): explicit `--effort` flag > persisted `defaultEffort` scalar in `.hatch3r/hatch.json` > Step 0 auto-classification. When `defaultEffort` supplies the tier, record the source in the run context and in the emitted `tier:` rationale line.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
 - The override never disables the Safety Guardrails (destructive operations, breaking changes, open questions, quality-gate failures always stop) — those are mode-independent.
-- No override passed → the Step 0 auto-classification stands.
+- Neither an `--effort`/`--mode` flag nor a persisted `defaultEffort` present → the Step 0 auto-classification stands.
 
 ### Step 0.7: Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
 
@@ -494,7 +496,7 @@ If `.hatch3r/learnings/` exists:
 
 ## Quick Mode
 
-Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Sub-agent delegation is still mandatory — Quick Mode uses lighter prompts, not fewer sub-agents.
+Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Sub-agent delegation is still mandatory — Quick Mode uses lighter prompts, and sub-agent count follows the tier's pruning table (`agents/shared/triage-vocabulary.md` → Pipeline pruning per tier): tier-derived, never token-cost-derived.
 
 ### Quick Step 1: Rapid Analysis + Plan (Combined)
 
@@ -527,8 +529,8 @@ Same two-stage pipeline as Full Mode, with lighter prompts:
 
 **Stage 2 — Final Quality (after review loop is clean):**
 
-4. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
-5. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
+4. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes (sole exception: a Tier-1 run meeting ALL four criteria of the Tier-1 relaxation, `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria).
+5. **`hatch3r-security`** (CQ3) — ALWAYS for code changes (same sole Tier-1-relaxation exception; any unmet criterion pins CQ5+CQ3 back on).
 6. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
 7. Verify acceptance criteria are met (rate each criterion high/medium/low per Full Mode 4c).
 8. Confirm lint/typecheck/test pass.
