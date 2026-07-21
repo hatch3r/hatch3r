@@ -87,9 +87,10 @@ describe("checked-out-elsewhere classification (mocked porcelain)", () => {
       const err = e as HatchError;
       expect(err.errorCode).toBe("VALIDATION_ERROR");
       expect(err.exitCode).toBe(64);
-      expect(err.message).toContain("/elsewhere/dup-wt");
+      // path.resolve renders the holder path with native separators on Windows
+      expect(err.message.replace(/\\/g, "/")).toContain("/elsewhere/dup-wt");
       expect(err.recoveryHint).toMatch(/worktree-cleanup/);
-      expect(err.recoveryHint).toContain("/elsewhere/dup-wt");
+      expect((err.recoveryHint ?? "").replace(/\\/g, "/")).toContain("/elsewhere/dup-wt");
     }
     // The porcelain lookup WAS consulted (second git call).
     expect(execMock.mock.calls[1][1]).toEqual(["worktree", "list", "--porcelain", "-z"]);
@@ -104,7 +105,7 @@ describe("checked-out-elsewhere classification (mocked porcelain)", () => {
 
     expect(() =>
       addGitWorktree("/main", "dup", "/main/.worktrees/dup", { mode: "attach" }),
-    ).toThrow(/already checked out in another worktree at '\/elsewhere\/dup-wt'/);
+    ).toThrow(/already checked out in another worktree at '[\\/]elsewhere[\\/]dup-wt'/);
   });
 
   it("falls back to the stderr-quoted path when the porcelain probe fails", () => {
