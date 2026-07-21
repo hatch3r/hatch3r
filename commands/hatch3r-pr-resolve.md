@@ -193,7 +193,7 @@ Auto-tiering can misclassify — a 40-comment PR of pure nits scored as Tier 3, 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0/Step 4e auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
 - The override does NOT suppress the Critical-severity upgrade: a `--effort=light` run that surfaces a Critical item in Step 4 still runs the Tier-3 specialist mandate (Step 5). Safety dominates the cost override.
-- No override passed → the Step 0/Step 4e auto-classification stands.
+- No flag passed → the persisted `defaultEffort` manifest scalar (`.hatch3r/hatch.json`) applies when set; absent both, the Step 0/Step 4e auto-classification stands. Full chain: `--effort` flag > `defaultEffort` > auto-tier (`agents/shared/triage-vocabulary.md` → Pipeline pruning per tier). The Critical-severity upgrade above outranks every layer of the chain.
 
 ---
 
