@@ -46,7 +46,7 @@ Canonical content (agents, skills, rules, commands, hooks) lives inside the bund
 
 ## Requirements
 
-- **Node.js 22+** (check with `node --version`)
+- **Node.js 22.13+** (check with `node --version`)
 - A git repository (for board features, a GitHub remote)
 
 ## Next Steps

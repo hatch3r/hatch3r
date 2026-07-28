@@ -13,7 +13,7 @@ A copy-paste-runnable walkthrough that takes a project from empty to released us
 
 ## Prerequisites
 
-- **Node.js 22 or later** — the only hard prerequisite. Check with `node --version`.
+- **Node.js 22.13 or later** — the only hard prerequisite. Check with `node --version`.
 - **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
 - **One of the [supported tools](./supported-tools)** — Claude Code, Cursor, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
 

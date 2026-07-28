@@ -269,30 +269,30 @@ jobs:
       fail-fast: false
       matrix:
         # Cycle 10 M D4-M3 (D4): Node 22 is the minimum supported version
-        # (engines >= 22.0.0). Node 24 is the current LTS lane; Node 26 is the
+        # (engines >= 22.13.0). Node 24 is the current LTS lane; Node 26 is the
         # April-2026 odd-numbered release exercising the upcoming runtime
         # behaviors (V8 13.4, undici 7.x deprecations) so a regression there
         # surfaces in CI before the version becomes LTS in October 2026. The
-        # `engines: >=22.0.0` declaration permits Node 26 today, so leaving the
+        # `engines: >=22.13.0` declaration permits Node 26 today, so leaving the
         # lane untested left users on the bleeding edge unprotected.
         # Floor vs currency (F1, release/2.8.5): the bare `22` entry is a
         # CURRENCY lane — setup-node resolves it to the latest 22.x release,
-        # so it never exercises the exact `engines: >=22.0.0` FLOOR. The
-        # pinned "22.0.0" include lane below covers the floor: a dependency
+        # so it never exercises the exact `engines: >=22.13.0` FLOOR. The
+        # pinned "22.13.0" include lane below covers the floor: a dependency
         # or language feature that requires a later 22.x fails there in CI
         # instead of surfacing first on a user's minimum-version install.
         node-version: [22, 24, 26]
         os: [ubuntu-latest, macos-latest, windows-latest]
         # F1 floor lane — ubuntu-only (macOS/Windows stay at 3 lanes each).
-        # "22.0.0" is a STRING: in the seven `matrix.node-version == 22`
+        # "22.13.0" is a STRING: in the seven `matrix.node-version == 22`
         # single-run conditionals below it coerces to NaN and never equals
         # 22, so this lane runs the cross-version steps (install, audit,
         # build, lint, typecheck, test without coverage) and none of the
         # canonical Linux/Node-22 single-run gates — intended, reviewed
         # per F1: the `!= 22` guard on "Test without coverage" evaluates
-        # true for "22.0.0", so the floor lane does run the full test suite.
+        # true for "22.13.0", so the floor lane does run the full test suite.
         include:
-          - node-version: "22.0.0"
+          - node-version: "22.13.0"
             os: ubuntu-latest
 
     steps:
@@ -317,19 +317,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
-      # Node 22.0.0 bundles npm 10.5.1, which carries the optional-dependency
-      # resolution bug (npm/cli#4828): `npm ci` drops platform-specific
-      # optional deps (observed: @rolldown/binding-linux-x64-gnu →
-      # vitest startup error on the floor lane, PR #145). The floor contract
-      # pins NODE at exactly 22.0.0 (`engines.node >=22.0.0` makes no npm
-      # claim), so upgrade npm on this lane only. npm@11 is NOT installable
-      # here (requires node >=22.9.0), so take the latest npm@10 line
-      # (engines ^18.17.0 || >=20.5.0), which post-dates the 10.5.x resolver.
-      - name: Upgrade npm on the Node floor lane (npm/cli#4828)
-        if: matrix.node-version == '22.0.0'
-        run: |
-          npm install -g npm@10
-          npm --version
+      # Floor-lane history (PR #145): the lane originally pinned 22.0.0 and
+      # failed two ways — Node 22.0.0's bundled npm 10.5.1 dropped
+      # platform-specific optional deps on `npm ci` (npm/cli#4828 class;
+      # observed: @rolldown/binding-linux-x64-gnu → vitest startup error),
+      # and the production dependency tree itself (@inquirer/* engines
+      # `^22.13.0 || >=23.5.0`) never supported 22.0.0. The engines floor was
+      # raised to >=22.13.0 to match the tree, the lane repin follows it, and
+      # 22.13's bundled npm needs no upgrade step (npm@10-latest was the
+      # variant that reproduced the optional-deps drop; the bundled 10.9.x
+      # line matches the passing bare-22 lane).
 
       - name: Install dependencies
         env:

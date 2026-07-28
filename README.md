@@ -10,7 +10,7 @@ hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that inst
 
 ## Quick Start
 
-Requires Node.js 22+.
+Requires Node.js 22.13+.
 
 ```bash
 npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
