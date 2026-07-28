@@ -317,16 +317,19 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
-      # Node 22.0.0 bundles npm 10.5.x, which carries the optional-dependency
-      # resolution bug (npm/cli#4828): `npm ci` intermittently drops
-      # platform-specific optional deps (observed: @rolldown/binding-linux-x64-gnu
-      # → vitest startup error on the floor lane, PR #145). The floor contract
+      # Node 22.0.0 bundles npm 10.5.1, which carries the optional-dependency
+      # resolution bug (npm/cli#4828): `npm ci` drops platform-specific
+      # optional deps (observed: @rolldown/binding-linux-x64-gnu →
+      # vitest startup error on the floor lane, PR #145). The floor contract
       # pins NODE at exactly 22.0.0 (`engines.node >=22.0.0` makes no npm
-      # claim), so upgrade npm on this lane only; the other lanes ship newer
-      # npm where the bug is fixed.
+      # claim), so upgrade npm on this lane only. npm@11 is NOT installable
+      # here (requires node >=22.9.0), so take the latest npm@10 line
+      # (engines ^18.17.0 || >=20.5.0), which post-dates the 10.5.x resolver.
       - name: Upgrade npm on the Node floor lane (npm/cli#4828)
         if: matrix.node-version == '22.0.0'
-        run: npm install -g npm@11
+        run: |
+          npm install -g npm@10
+          npm --version
 
       - name: Install dependencies
         env:
