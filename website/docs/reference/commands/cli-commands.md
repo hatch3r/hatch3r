@@ -107,7 +107,7 @@ npx hatch3r config --dry-run        # preview the change without writing
 npx hatch3r config maturity=team    # scalar form, no prompts
 ```
 
-- Change platform, tools, features, and MCP servers
+- Change platform, tools, communication style, confidence floor, and MCP servers (framework features are no longer a prompt as of 2.8.5 — they derive from the manifest, matching init)
 - Add or remove individual content items (agents, skills, rules, commands) — manifest-only bookkeeping: the selection is written to `.hatch3r/hatch.json` and adapter outputs are regenerated from the bundled canonical content (no `.agents/` materialization). Removing an item rescues its hand-authored `.customize.*` overrides into the archive
 - Enable/disable worktree file isolation for parallel agent sessions
 - Manage workspace repos (add/remove sub-repos, toggle sync, change sync strategy)
