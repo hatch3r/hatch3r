@@ -111,7 +111,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar-implementation discovery, transitive dependency tracing. |
 | **learning-system** | Project-level learning system -- structured frontmatter, auto-consolidation triggers, a mandatory consultation gate for Implementer/Reviewer/Researcher/Fixer, token-efficiency heuristics, and mid-task consult content-security. |
 | **handoff-readiness** | Handoff readiness checklist -- pre-write validation before persisting a canonical handoff document. |
-| **browser-verification** | Playwright browser verification for UI changes -- visual regression, screenshot capture, console checks, and accessibility spot-checks. |
+| **browser-verification** | Three-tier browser verification for UI changes -- Tier 1 scripted Playwright spec runs (read failures only) as the default, Tier 2 accessibility-snapshot step-driving for exploration, Tier 3 screenshots for inherently-visual checks; non-launderable result tokens (`VERIFIED-SPEC \| VERIFIED-INTERACTIVE \| BLOCKED_MISSING_TOOL \| N/A-NO-UI`). |
 | **tooling-hierarchy** | Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification. |
 
 ### Code standards, CI/CD, and flags

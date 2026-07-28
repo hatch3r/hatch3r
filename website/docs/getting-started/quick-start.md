@@ -27,7 +27,7 @@ That is it. No global install, no preflight setup.
 npx hatch3r init
 ```
 
-Interactive flow, 1-2 minutes measured (`init` prints a `Completed in Xs` line) — 6 prompts on a fresh GitHub greenfield repo: platform → repo identity → [content profile](#content-profiles) → [maturity](../guides/maturity-tiers) → tools → CLI-tools picker. Every prompt is auto-detected or seeded from your git remote and history, so pressing Enter through the defaults is a working path. Prompt-by-prompt walkthrough and per-platform prompt counts: [init prompts](../reference/quick-start-reference#init-prompts); spec/PR timing estimates: [time to first value](../reference/quick-start-reference#time-to-first-value).
+Interactive flow, 1-2 minutes measured (`init` prints a `Completed in Xs` line) — 7 prompts on a fresh GitHub greenfield repo: platform → repo identity → [content profile](#content-profiles) → [maturity](../guides/maturity-tiers) → communication style → tools → CLI-tools picker. Every prompt is auto-detected or seeded from your git remote and history, so pressing Enter through the defaults is a working path. Prompt-by-prompt walkthrough and per-platform prompt counts: [init prompts](../reference/quick-start-reference#init-prompts); spec/PR timing estimates: [time to first value](../reference/quick-start-reference#time-to-first-value).
 
 For headless / CI use, pass `--yes` with optional flags:
 

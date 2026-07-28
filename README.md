@@ -14,7 +14,7 @@ Requires Node.js 22.13+.
 
 ```bash
 npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
-npx hatch3r init            # interactive: customize profile, tools, and CLI tools (6 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
+npx hatch3r init            # interactive: customize profile, tools, and CLI tools (7 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
 ```
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).

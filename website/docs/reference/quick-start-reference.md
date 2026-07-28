@@ -12,15 +12,16 @@ Deep-reference companion to the [Quick Start](../getting-started/quick-start): t
 
 ## Interactive init prompts {#init-prompts}
 
-`npx hatch3r init` on a fresh GitHub greenfield repo asks 6 prompts (Azure DevOps adds 1, GitLab matches GitHub at 6); `custom` preset adds 1; a workspace root with detected sub-repos adds 1; missing CLI tools add a single confirm:
+`npx hatch3r init` on a fresh GitHub greenfield repo asks 7 prompts (Azure DevOps adds 1, GitLab matches GitHub at 7); `custom` preset adds 1; a workspace root with detected sub-repos adds 1; missing CLI tools add a single confirm:
 
 1. **Platform** — GitHub, Azure DevOps, or GitLab. Auto-detected from your git remote; press Enter to accept.
 2. **Repo identity** — 2 sub-prompts for GitHub (owner + repo) and GitLab (namespace + project); 3 for Azure DevOps (org + project + repo). Auto-filled from git remote where possible. Default branch is git-detected, not prompted; project type and team size are inferred and no longer prompted.
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
 4. **Project maturity** — `solo` / `team` / `scaleup` / `enterprise` investment dial, seeded at a git-inferred default; press Enter to accept. Shown unless you pass `--maturity`. See [Maturity Tiers](../guides/maturity-tiers).
-5. **Custom content items** — only when `custom` is selected at step 3.
-6. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
-7. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
+5. **Communication style** — `plain` (default: outcome-first, glossed terms) or `technical` operator register for generated-agent output, persisted as the manifest `communicationStyle` dial. Shown unless you pass `--communication-style` or run headless/`--resume` (added 2.8.5 — previously flag-only).
+6. **Custom content items** — only when `custom` is selected at step 3.
+7. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
+8. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
 
 Headless `--yes` skips every prompt; the CLI-tools selection falls back to the smart default (tier-1 + trigger-matched tier-2). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
 
@@ -78,7 +79,7 @@ Only the `init` row below is instrumented and measured; the spec and PR rows are
 
 | Milestone | Wall clock | Basis |
 |-----------|------------|-------|
-| `npx hatch3r init` (interactive ≤6 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22, fresh git repo on `main` |
+| `npx hatch3r init` (interactive 7 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22.13+, fresh git repo on `main` |
 | First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min (estimate) | Model-dependent — varies with model + task scope |
 | First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min (estimate) | Model-dependent — varies with model, task scope, and review latency |
 

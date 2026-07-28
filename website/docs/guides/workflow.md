@@ -17,14 +17,15 @@ hatch3r provides a full project lifecycle, from setup to release. This guide wal
 npx hatch3r init
 ```
 
-Interactive setup (~2 minutes) detects your repository from its git remote and walks a short prompt sequence. On a fresh GitHub greenfield repo it asks 6 prompts:
+Interactive setup (~2 minutes) detects your repository from its git remote and walks a short prompt sequence. On a fresh GitHub greenfield repo it asks 7 prompts:
 
 1. **Platform** — GitHub, Azure DevOps, or GitLab, auto-detected from your git remote (press Enter to accept).
 2. **Repo identity** — owner + repo (GitHub), namespace + project (GitLab), or org + project + repo (Azure DevOps), auto-filled from the remote where possible.
-3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`.
-4. **Custom content items** — only when `custom` is selected at step 3.
-5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
-6. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later.
+3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom` (a `custom` pick adds one item-picker prompt).
+4. **Project maturity** — `solo` / `team` / `scaleup` / `enterprise` investment dial, seeded at a git-inferred default. Skipped when you pass `--maturity`.
+5. **Communication style** — `plain` (default) or `technical` operator register for generated-agent output. Skipped when you pass `--communication-style` or run headless/`--resume`.
+6. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
+7. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later.
 
 Default branch, project type (greenfield/brownfield), and team size (solo/team) are **inferred, not prompted** — branch from git, the others from repository signals. If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm. Headless `--yes` skips every prompt and falls back to the CLI-tools smart default.
 
