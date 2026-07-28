@@ -14,11 +14,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import inquirer from "inquirer";
 import {
-  BACK,
-  isBack,
   runStepMachine,
   type Step,
-  type StepResult,
 } from "../../../cli/shared/initSteps.js";
 import {
   cliToolsStep,
@@ -30,10 +27,9 @@ import {
   presetStep,
   toolsStep,
 } from "../../../cli/shared/flowSteps.js";
-import { FEATURE_CHOICES } from "../../../cli/shared/constants.js";
 import type { RepoIdentity } from "../../../cli/shared/repoIdentityPrompt.js";
 import type { CatalogItem } from "../../../content/index.js";
-import type { CliToolId, Features, Platform, Tool } from "../../../types.js";
+import type { CliToolId, Platform, Tool } from "../../../types.js";
 import type { PresetId } from "../../../content/presets.js";
 
 vi.mock("inquirer", () => {
@@ -72,12 +68,13 @@ interface InitState {
 
 // Mirrors config.ts::ConfigState minus defaultBranch/worktree (config-local
 // inline steps with no init counterpart — out of the extraction's scope).
+// release/2.8.5 (BUG-4): no `features` slot — the config features checkbox
+// was removed; the MCP gate keys on the persisted manifest flag instead.
 interface ConfState {
   platform: Platform;
   identity: RepoIdentity;
   tools: Tool[];
   cliTools: CliToolId[];
-  features: (keyof Features)[];
   mcpGate: boolean;
   mcpServers: string[];
 }
@@ -100,7 +97,8 @@ function initMachine(): Array<Step<InitState>> {
       baselineChecked: () => (item) => item.protected === true,
       previousAsDefault: true,
     }),
-    toolsStep<InitState>({ defaults: ["claude"], emptyFallback: ["claude"] }),
+    // release/2.8.5 (BUG-3): required-selection semantics — no emptyFallback.
+    toolsStep<InitState>({ defaults: ["claude"] }),
     // W3-mcp-optin: init's 5th step is the CLI-tools picker; the tier-2
     // suggestion thunk mirrors init.ts (reads the platform chosen in step 1
     // — init passes applyPlatformTriggers(s.platform, ...)).
@@ -110,8 +108,10 @@ function initMachine(): Array<Step<InitState>> {
   ];
 }
 
-/** Config's composition (config.ts step machine, same options; the
- *  config-local `features` step stays inline there and here). */
+/** Config's composition (config.ts step machine, same options).
+ *  release/2.8.5 (BUG-4): the features step is gone; the MCP gate + server
+ *  picker key on the PERSISTED `featuresMcp` flag the caller closes over —
+ *  the same shape config.ts passes (`skip: () => !manifest.features.mcp`). */
 function configMachine(manifest: {
   platform: Platform;
   owner: string;
@@ -120,6 +120,7 @@ function configMachine(manifest: {
   project: string;
   tools: Tool[];
   mcpServers: string[];
+  featuresMcp: boolean;
 }): Array<Step<ConfState>> {
   return [
     platformStep<ConfState>({ message: "Platform:", defaultPlatform: manifest.platform ?? "github" }),
@@ -133,27 +134,14 @@ function configMachine(manifest: {
     }),
     toolsStep<ConfState>({ defaults: manifest.tools }),
     cliToolsStep<ConfState>({ existing: [] }),
-    {
-      id: "features",
-      async run(_state, previous): Promise<StepResult<(keyof Features)[]>> {
-        const answer = await inquirer.prompt<{ features: (keyof Features)[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "features",
-            message: "Select features:",
-            choices: FEATURE_CHOICES,
-            default: previous ?? [],
-          },
-        ]);
-        if (isBack(answer.features)) return BACK;
-        return (answer.features ?? []) as (keyof Features)[];
-      },
-    },
-    mcpGateStep<ConfState>({ hasExisting: manifest.mcpServers.length > 0 }),
+    mcpGateStep<ConfState>({
+      hasExisting: manifest.mcpServers.length > 0,
+      skip: () => !manifest.featuresMcp,
+    }),
     mcpServersStep<ConfState>({
       platform: (s) => s.platform!,
       existing: manifest.mcpServers,
-      skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,
+      skip: (s) => !manifest.featuresMcp || !s.mcpGate,
     }),
   ];
 }
@@ -176,12 +164,12 @@ describe("flowSteps parity — init vs config machines", () => {
     inq.mockReset();
 
     // Config: platform → identity → tools → cliTools (pickCliTools answers
-    // under `name: "tools"`) → features → mcpGate → mcpServers.
+    // under `name: "tools"`) → mcpGate → mcpServers (release/2.8.5: no
+    // features prompt; the manifest's persisted mcp flag opens the gate).
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "acme", repo: "rocket" });
     inq.mockResolvedValueOnce({ tools: ["claude", "cursor"] });
     inq.mockResolvedValueOnce({ tools: ["jq", "gh"] });
-    inq.mockResolvedValueOnce({ features: ["mcp"] });
     inq.mockResolvedValueOnce({ proceed: true });
     inq.mockResolvedValueOnce({ mcp: ["github"] });
     const confState = await runStepMachine<ConfState>(
@@ -193,6 +181,7 @@ describe("flowSteps parity — init vs config machines", () => {
         project: "old-repo",
         tools: ["claude"],
         mcpServers: [],
+        featuresMcp: true,
       }),
     );
 
@@ -221,7 +210,6 @@ describe("flowSteps parity — init vs config machines", () => {
     inq.mockResolvedValueOnce({ owner: "acme", repo: "rocket" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ features: ["mcp"] });
     inq.mockResolvedValueOnce({ proceed: false });
 
     const confState = await runStepMachine<ConfState>(
@@ -233,10 +221,35 @@ describe("flowSteps parity — init vs config machines", () => {
         project: "rocket",
         tools: ["claude"],
         mcpServers: [],
+        featuresMcp: true,
       }),
     );
 
     expect(confState.mcpGate).toBe(false);
+    expect(confState.mcpServers).toBeUndefined();
+  });
+
+  it("config gate chain: a manifest with MCP off skips both the gate and the picker (release/2.8.5)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "acme", repo: "rocket" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    const confState = await runStepMachine<ConfState>(
+      configMachine({
+        platform: "github",
+        owner: "acme",
+        repo: "rocket",
+        namespace: "acme",
+        project: "rocket",
+        tools: ["claude"],
+        mcpServers: [],
+        featuresMcp: false,
+      }),
+    );
+
+    expect(confState.mcpGate).toBeUndefined();
     expect(confState.mcpServers).toBeUndefined();
   });
 });

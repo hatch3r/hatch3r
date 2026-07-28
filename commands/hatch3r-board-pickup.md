@@ -47,15 +47,15 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 
 **Conditional-CQ scope (D7-SA7.5-02):** board-pickup delivery dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ `hatch3r-docs-writer`, `hatch3r-lint-fixer`); the conditional backend/API specialists — CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, CQ9 `hatch3r-enhancability` — are a stated deferral on this delivery path, not silent drift: they run when the same code passes through `hatch3r-workflow` (its Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle. Step 7's jscpd duplication scan covers the duplication half of CQ8 in-path.
 
+**Review-loop convergence (stage 3a cap):** the code-class cap of 3 stays the operative number; iterations >=2 re-review only changed hunks plus findings marked verify-fix; Medium/Low findings carry forward, not re-litigated; cap-out is an UNRESOLVED escalation, never silent continuation (delta re-review policy, `rules/hatch3r-agent-orchestration.md`; loop mechanics: `commands/board/pickup-delegation.md`).
+
 ## Browser Automation
 
 At the start of this command, ask the user once:
 
 > "Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."
 
-If **yes**: implementation and review stages include browser verification steps — navigate to affected pages, interact with changed elements, check console for errors, capture screenshots.
-
-If **no**: all browser verification steps are skipped silently throughout the entire command.
+> Browser-verification contract (spec-first, tiered): see `commands/shared/orchestration-frame.md` → Browser Verification (opt-in); protocol home `rules/hatch3r-browser-verification.md`. Per-command slot: when enabled, the implementation and review stages run browser-verification steps on UI-affecting changes; if declined, skip every browser-verification step for the session and do not re-ask.
 
 ---
 

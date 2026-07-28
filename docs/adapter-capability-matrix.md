@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-07-14 (release/2.7.0 — Agent Model Customization section regenerated for the 4-class ladder + effort axis; File Path Mapping rows last regenerated 2026-07-11 from a full in-memory run of all 3 adapters, Cycle-12 D9-SA9.4-01; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.7.0
+> **Last verified**: 2026-07-28 (release/2.8.5 — no `ADAPTER_CAPABILITIES` key added or removed this release; rows re-verified against `src/adapters/index.ts` unchanged. Prior regeneration: 2026-07-14, release/2.7.0 — Agent Model Customization section for the 4-class ladder + effort axis; File Path Mapping rows regenerated 2026-07-11 from a full in-memory run of all 3 adapters, Cycle-12 D9-SA9.4-01; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.8.5
 
 Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
 

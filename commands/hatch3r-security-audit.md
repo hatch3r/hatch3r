@@ -30,7 +30,7 @@ This command discovers the module taxonomy via static analysis, then delegates s
 |-------|----------|----------|----------|
 | 1. Context & Pre-flight | Orchestrator (inline) | No | Yes |
 | 2. Module Audit Authoring | `hatch3r-implementer` (one Task call per module sub-issue body) | Yes (across modules) | Yes |
-| 3. Cross-Cutting Security Axis | `hatch3r-security` (sub-issue authoring covering OWASP ASI01-10 + supply-chain) | No | Yes |
+| 3. Cross-Cutting Security Axis | `hatch3r-security` (sub-issue authoring covering OWASP ASI01-10 + supply-chain + dependency-CVE) | No | Yes |
 | 4. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
 | 5. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
 
@@ -57,7 +57,7 @@ Before the first sub-agent dispatch (Step 4 module audit-authoring fan-out), sur
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <module count + 2 cross-cutting axes; Tier 2 ~module-count<=8, Tier 3 module-count>8, bounded by max_phase4_parallel per batch>
+  expected_sa_count: <module count + 3 cross-cutting axes (trust boundaries, OWASP alignment, dependency-CVE); Tier 2 ~module-count<=8, Tier 3 module-count>8, bounded by max_phase4_parallel per batch>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: standard | deep
@@ -176,6 +176,7 @@ Full-product security audit covering {N} logical modules plus cross-module trust
 
 - [ ] #{trust} — Security Audit: Cross-Module Trust Boundaries
 - [ ] #{owasp} — Security Audit: OWASP Top 10 & Compliance Alignment
+- [ ] #{cve} — Security Audit: Dependency CVE Scan (cross-cutting; no Level-1 dependency)
 
 ## Implementation Order
 
@@ -184,6 +185,7 @@ Full-product security audit covering {N} logical modules plus cross-module trust
 - [ ] #{part-1} — Security Audit: {Module 1}
 - [ ] #{part-2} — Security Audit: {Module 2}
       ...all module audits...
+- [ ] #{cve} — Security Audit: Dependency CVE Scan (independent of module audits — may run first)
 
 ### 2 -- after #{part-1}, #{part-2}, ... #{part-N}
 
@@ -350,7 +352,7 @@ Return to the parent orchestrator with:
 
 ### Step 5: Create Cross-Cutting Security Audit Sub-Issues
 
-Create two additional sub-issues with dependencies on all module audit sub-issues.
+Create three additional sub-issues: the trust-boundaries and OWASP-alignment audits depend on all module audit sub-issues; the dependency-CVE audit has no Level-1 dependency and may run in parallel with them.
 
 #### 5a. Cross-Module Trust Boundaries Audit
 
@@ -391,13 +393,31 @@ Follow the same Output — Findings Epic instructions. Include Dependencies sect
 
 Link to parent epic via `sub_issue_write`.
 
+#### 5c. Dependency CVE Audit
+
+**Title:** `Security Audit: Dependency CVE Scan`
+
+**Labels:** `type:security-audit`, `status:ready`, `executor:agent`, `priority:p0`
+
+**Body:** Scope: Scan every dependency manifest/lockfile for known-vulnerable versions and drive each advisory to an acknowledged verdict. No Level-1 dependency — this audit reads lockfiles, not module findings, and may run in parallel with the module audits.
+
+Audit protocol:
+
+1. **Scan:** `npm audit --audit-level=high` and `osv-scanner -r .` (or the per-ecosystem equivalent — `pip-audit`, `cargo audit`, `govulncheck`) across every manifest/lockfile; on GitHub-hosted repos also pull `gh api repos/{owner}/{repo}/dependabot/alerts --jq '.[] | select(.state=="open")'`.
+2. **Research each advisory:** exploitability in this codebase (is the vulnerable path reachable?), fix version, and upgrade blast radius.
+3. **Verdict per advisory:** `mitigated` (upgraded, patched, or unreachable with proof) OR `accepted` (documented risk acceptance) — each with an evidence URL (GHSA/CVE/OSV advisory link). Every advisory ≤90 days old MUST carry a verdict; an unacknowledged advisory is itself a finding.
+
+Follow the same Output — Findings Epic instructions as module audits (title prefix: `[Security Findings]`, label: `meta:security-audit-findings`).
+
+Link to parent epic via `sub_issue_write`.
+
 ---
 
 ### Step 6: Finalize Epic & Set Dependencies
 
 1. **Update the security audit epic body** with the actual sub-issue numbers in the Sub-Issues checklist and Implementation Order section. Use `issue_write` with `method: update`.
 
-2. **Verify dependency sections** on the trust boundaries and OWASP sub-issues contain the correct module audit sub-issue numbers.
+2. **Verify dependency sections** on the trust boundaries and OWASP sub-issues contain the correct module audit sub-issue numbers (the dependency-CVE sub-issue carries none by design).
 
 3. Present a summary with epic number, sub-issues, and total count.
 

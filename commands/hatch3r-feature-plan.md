@@ -253,6 +253,8 @@ From the merged researcher outputs, generate a feature specification document. P
 
 Determine the next sequential number by scanning existing files in `docs/specs/`. Use slugified feature name (lowercase, hyphens).
 
+**Plan-file lifecycle:** the generated spec is a planning artifact — once the feature is implemented and merged, or a newer spec revision supersedes it, the file is a cleanup candidate; consolidate stale plan files via the `hatch3r-cleanup` skill (`skills/hatch3r-cleanup/SKILL.md`).
+
 ```markdown
 # {Feature Name}
 

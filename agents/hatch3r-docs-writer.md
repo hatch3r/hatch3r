@@ -88,6 +88,9 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 **Stable IDs:**
 - All stable IDs verified: YES | NO (list issues)
 
+**Spec currency:**
+- current (no spec-covered behavior changed) | amended ({paths}) | drift-found ({spec section} — routed to {owner})
+
 **New Documents Created:**
 - {path} — {purpose}
 
@@ -98,9 +101,11 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 - (areas needing future documentation, deferred updates)
 ```
 
-## Documentation Trigger Guidelines
+## Documentation Scope Gate (binding)
 
-When invoked as a Phase 4 specialist, use these guidelines to determine the scope of documentation updates:
+When invoked as a Phase 4 specialist, the table below is a binding gate, not advisory guidance: a diff matching a row's Change Type without the row's Documentation Action delivered is an incomplete result — return `Status: PARTIAL` naming the unmet row. Dispatch itself is unconditional when the diff changes user-observable behavior covered by `docs/specs/**` (`rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table; `rules/hatch3r-spec-currency.md`).
+
+**Spec amendment authority:** this agent APPLIES spec amendments. `hatch3r-product-spec` (CQ10) gates and reports spec defects — with drafted amendment text in its findings — but never writes; its findings and the implementer's `Spec updated: routed (...)` entries land here for application.
 
 | Change Type | Documentation Action |
 |------------|---------------------|
@@ -139,6 +144,9 @@ When invoked as a Phase 4 specialist, use these guidelines to determine the scop
 
 **Stable IDs:**
 - All stable IDs verified: YES
+
+**Spec currency:**
+- amended (docs/specs/api.md, docs/specs/security.md)
 
 **New Documents Created:**
 - docs/adr/0012-rate-limiting-strategy.md — ADR for rate limiting approach decision

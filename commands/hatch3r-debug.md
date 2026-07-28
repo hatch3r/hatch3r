@@ -82,11 +82,7 @@ At the start of the command (before Stage 1), ask the user once whether to enabl
 
 **ASK:** "Enable browser verification for this debug session? If yes, I'll use the browser to verify debug logs appear in Stage 2 and verify the fix works in Stage 5. (yes / no)"
 
-If the user enables browser verification:
-- **Stage 2** — after adding debug logging, launch the application in the browser, reproduce the issue, and verify that `[HATCH3R-DEBUG]` log lines appear in the browser console or application output.
-- **Stage 5** — after implementing the fix, launch the application in the browser, attempt to reproduce the original issue, and verify it no longer occurs.
-
-If the user declines, skip all browser steps. Do not ask again during the session.
+> Browser-verification contract (spec-first, tiered): see `commands/shared/orchestration-frame.md` → Browser Verification (opt-in); protocol home `rules/hatch3r-browser-verification.md`. Per-command slot: when enabled, Stage 2 verifies `[HATCH3R-DEBUG]` lines appear during reproduction and Stage 5 verifies the fix — spec-first where the reproduction path is scriptable, accessibility-snapshot step-driving while it is not. If declined, skip all browser steps and do not ask again during the session.
 
 ---
 
@@ -250,7 +246,7 @@ Await the implementer result.
 2. Verify no application logic was altered — only log statements were added.
 3. Run quality checks (`npm run lint && npx tsc --noEmit`) and confirm the debug logging does not break the build. Fix any issues.
 
-If browser verification is enabled: launch the application in the browser, reproduce the issue, and verify that `[HATCH3R-DEBUG]` log lines appear in the console or application output.
+If browser verification is enabled: reproduce the issue per the tiered contract — prefer a Playwright spec that drives the reproduction path and asserts a `[HATCH3R-DEBUG]` console line appears (run `npx playwright test --reporter=line` headless, read failures only); step-drive via accessibility snapshots while the reproduction path is still unscripted.
 
 #### 2d. Present Debug Logging Summary
 
@@ -396,7 +392,7 @@ After the implementer completes, independently verify that all debug artifacts a
 
 #### 5c. Review Loop (Reviewer → Fixer)
 
-Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean result.
+Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean result. Delta re-review (per `rules/hatch3r-agent-orchestration.md`): iterations >=2 re-review only changed hunks plus findings marked verify-fix; Medium/Low findings carry forward, not re-litigated; cap-out is an UNRESOLVED escalation, never silent continuation.
 
 **Each iteration:**
 
@@ -416,7 +412,7 @@ Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean 
 
 3. If the reviewer reports clean (no critical or warning findings), exit the loop.
 
-4. If 3 iterations complete without a clean result:
+4. If 3 iterations complete without a clean result, cap-out is an UNRESOLVED escalation — never continue silently:
 
    **ASK:** "Review loop completed 3 iterations with remaining findings: {summary}. Options: (a) proceed with current state, (b) I'll fix the remaining issues manually, (c) keep iterating."
 
@@ -450,7 +446,7 @@ Adapt commands to project conventions (check `package.json`, `Makefile`, `README
 
 **ASK:** "Quality checks still failing after 2 fix attempts: {specific failures}. Options: (a) I'll fix manually, (b) keep trying, (c) abort."
 
-If browser verification is enabled: launch the application in the browser, attempt to reproduce the original bug, and verify it no longer occurs.
+If browser verification is enabled: verify the fix per the tiered contract — write or update a Playwright spec asserting the corrected behavior (the original reproduction no longer occurs), run `npx playwright test --reporter=line` headless, and read only the failure output.
 
 #### 5f. Present Fix Summary
 
@@ -517,7 +513,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **User provides insufficient logs (Stage 3):** If the log output contains zero `[HATCH3R-DEBUG]` lines, warn the user that the debug logging may not have been reached during reproduction. Suggest verifying that the correct code path was exercised, then ASK for new logs.
 - **No clear root cause (Stage 4):** If all hypotheses are low-confidence, state this in the diagnosis report (named verdict: "Root cause unconfirmed; top hypothesis confidence=low"). Recommend adding more targeted debug logging (loop back to Stage 2 with refined instrumentation points) or switching to `hatch3r-bug-plan` for a broader investigation. ASK the user how to proceed.
 - **Debug artifacts remain after cleanup (Stage 5b):** If `[HATCH3R-DEBUG]` occurrences are found after the implementer's cleanup pass, remove them directly. Do not proceed until zero occurrences remain.
-- **Review loop exhaustion (Stage 5c):** After 3 iterations without a clean review, present remaining findings and ASK the user for direction.
+- **Review loop exhaustion (Stage 5c):** After 3 iterations without a clean review, present remaining findings and ASK the user for direction (UNRESOLVED escalation — never silent continuation).
 - **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this command is ~20 turns, at which point suggest a fresh chat with a progress summary capturing the current stage, diagnosis, and remaining work. Per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 
 ## Guardrails

@@ -402,8 +402,23 @@ export const backableCheckbox = createPrompt(
     const theme: any = makeTheme(checkboxTheme as any, config.theme as any);
     const [status, setStatus] = useState<"idle" | "done">("idle");
     const prefix = usePrefix({ status, theme });
+    // release/2.8.5 (BUG-3 root cause B): honour `config.default`. The fork
+    // declared `default?: V[]` but never read it — selection state came from
+    // the choices' own `checked` flags only, so a caller passing bare choices
+    // plus `default: [...]` (init/config toolsStep) rendered every row
+    // unchecked and Enter-through submitted []. Seed `checked` from the
+    // default for choices that do NOT set `checked` themselves; an explicit
+    // `checked` (true or false) on a choice still wins, matching
+    // `backableSelect`'s default-vs-choice precedence.
+    const defaultSet = new Set<V>(config.default ?? []);
+    const seededChoices = (config.choices as ReadonlyArray<CheckboxChoiceItem<V>>).map(
+      (c) =>
+        Separator.isSeparator(c) || c.checked !== undefined
+          ? c
+          : { ...c, checked: defaultSet.has(c.value) },
+    );
     const [items, setItems] = useState<CheckboxChoiceItem<V>[]>(
-      [...config.choices] as CheckboxChoiceItem<V>[],
+      seededChoices as CheckboxChoiceItem<V>[],
     );
     const bounds = useMemo(() => {
       const first = items.findIndex(isCheckboxNavigable);

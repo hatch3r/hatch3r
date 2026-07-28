@@ -808,5 +808,40 @@ describe("compound system content validation", () => {
       expect(missingSecurity, "floor:security items missing from the security archetype").toEqual([]);
       expect(missingCQ, "floor:content-quality items missing from the security archetype").toEqual([]);
     });
+
+    // release/2.8.5 copy-vs-actual reconciliation (BUG-1 secondary): the
+    // description claims are now guarded against the LIVE corpus, so a future
+    // includeIds/tagging change that re-opens the one-artifact gap fails here
+    // with the offending ids named.
+    it("monorepo's realized selection EQUALS full's — 'Drops nothing vs Full' is literally true (release/2.8.5)", () => {
+      const fullIds = fullSelectedIds();
+      const monorepoIds = getAllContentIds(
+        resolveSelection(getPreset("monorepo"), "brownfield", "team", contentIndex, undefined, undefined, {
+          skipContextFilters: true,
+        }),
+      );
+      const droppedVsFull = [...fullIds].filter((x) => !monorepoIds.has(x));
+      expect(droppedVsFull, "monorepo must drop nothing vs full").toEqual([]);
+      expect(monorepoIds.size).toBe(fullIds.size);
+    });
+
+    it("web-app's delta vs full is exactly the non-floor AI cluster (release/2.8.5)", () => {
+      const fullIds = fullSelectedIds();
+      const webAppIds = getAllContentIds(
+        resolveSelection(getPreset("web-app"), "brownfield", "team", contentIndex, undefined, undefined, {
+          skipContextFilters: true,
+        }),
+      );
+      const droppedVsFull = [...fullIds].filter((x) => !webAppIds.has(x));
+      // Every dropped item must be attributable to the AI dial being off —
+      // i.e. it carries the `ai` capability tag. Anything else dropped (the
+      // pre-2.8.5 state silently dropped the includeIds-carved artifact)
+      // falsifies the "only the AI feature-engineering dial is off" claim.
+      const unattributed = droppedVsFull.filter((id) => {
+        const item = contentIndex.byId.get(id);
+        return !(item?.tags ?? []).includes("ai");
+      });
+      expect(unattributed, "web-app drops only AI-tagged items vs full").toEqual([]);
+    });
   });
 });

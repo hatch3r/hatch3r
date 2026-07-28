@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import inquirer from "inquirer";
 import type { CliToolId } from "../types.js";
 import { printBox } from "../cli/shared/ui.js";
 import { AVAILABLE_CLI_TOOLS, type InstallCommand, type OsKey } from "./registry.js";
@@ -58,10 +57,20 @@ export function buildInstallPlan(ids: readonly CliToolId[], os: OsKey = currentO
 
 /** Options controlling the user-facing prompt behaviour. */
 export interface OfferInstallerOptions {
-  /** When false, skip the inquirer confirm (used by `--yes` flows). */
+  /** When false, skip the confirm prompt entirely (used by `--yes` flows). */
   interactive?: boolean;
   /** Override the OS key (for tests / cross-OS rendering). */
   os?: OsKey;
+  /**
+   * DD-D4 (release/2.8.5): caller-supplied confirm prompt — the CLI layer
+   * owns the inquirer interaction (import-boundary Rule 2: domain modules
+   * must not import inquirer). `src/cli/commands/cliTools.ts` passes an
+   * inquirer-backed callback; when absent in interactive mode this module
+   * falls back to a DYNAMIC inquirer import so the legacy init/config call
+   * sites (owned by a concurrent work unit) keep their prompt until they
+   * thread a callback — remove the fallback once they do.
+   */
+  confirm?: (message: string) => Promise<boolean>;
 }
 
 /**
@@ -126,11 +135,20 @@ export async function offerInstaller(
 
   if (!interactive) return true;
 
+  const message = "Mark these tools as 'install pending' and continue?";
+  if (opts.confirm) {
+    return opts.confirm(message);
+  }
+  // DD-D4 fallback (see OfferInstallerOptions.confirm): dynamic import keeps
+  // the legacy no-callback call sites prompting without a static
+  // domain→inquirer coupling. Scheduled for removal once init/config pass
+  // `confirm`.
+  const { default: inquirer } = await import("inquirer");
   const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
     {
       type: "confirm",
       name: "proceed",
-      message: "Mark these tools as 'install pending' and continue?",
+      message,
       default: true,
     },
   ]);

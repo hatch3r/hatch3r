@@ -333,6 +333,28 @@ export default defineConfig({
           functions: 85,
           lines: 84,
         },
+        // src/workspace/** (DD-E6, release/2.8.5). The multi-repo cascade —
+        // manifest read/validate/migrate, layered-merge resolution, and the
+        // parallel sub-repo sync whose exit-0-on-partial-failure defect DD-B
+        // fixed — previously had NO scoped threshold (only the types.ts
+        // exclusion) and rode the global 78/65/80/80 aggregate, so a
+        // workspace-only regression was mergeable while over-covered dirs
+        // carried the repo-wide gate. Pinned per the src/cli/** measured-floor
+        // policy above: measured on the serialized slice run
+        // (src/__tests__/workspace/** + cli/sync.test.ts, 2026-07-28) at
+        // 87.29/76.59/97.22/89.63 (stmts/branch/func/lines, types.ts
+        // excluded), minus a ~2pt cross-platform-variance buffer. Slice
+        // figures are lower bounds — the full CI gate only adds coverage —
+        // so the floor cannot false-fail there. Lift toward the content tier
+        // (85/70/85/85 is already met; next stop 90/80/90/90) after the
+        // remaining git.ts branch gaps get their own suites; re-measure
+        // before raising any dimension.
+        "src/workspace/**": {
+          statements: 85,
+          branches: 74,
+          functions: 95,
+          lines: 87,
+        },
         // src/cli/** (D3-11, Cycle 11 Wave-3 Medium). Before this row the CLI —
         // 19 command files (one, src/cli/index.ts, is coverage-excluded above)
         // plus 20 shared modules under src/cli/shared/, the largest user-facing

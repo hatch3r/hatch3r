@@ -41,9 +41,7 @@ At the start of this command, ask the user once:
 
 > "Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."
 
-If **yes**: implementation and review stages include browser verification steps — navigate to affected pages, interact with changed elements, check console for errors, capture screenshots.
-
-If **no**: all browser verification steps are skipped silently throughout the entire command.
+> Browser-verification contract (spec-first, tiered): see `commands/shared/orchestration-frame.md` → Browser Verification (opt-in); protocol home `rules/hatch3r-browser-verification.md`. Per-command slot: when enabled, the implementation (Step 4) and review (Step 6) stages run browser-verification steps on UI-affecting items; if declined, skip every browser-verification step for the session and do not re-ask.
 
 # Quick Change -- Fast Path for Small, Board-Free Changes
 
@@ -328,7 +326,7 @@ Skip this step entirely if ALL items were classified as trivial in Step 3.
 
 #### 6a. Review Loop
 
-For nontrivial items, run an iterative review loop (max 3 iterations) until 0 Critical + 0 Warning findings remain:
+For nontrivial items, run an iterative review loop (max 3 iterations) until 0 Critical + 0 Warning findings remain. Delta re-review (per `rules/hatch3r-agent-orchestration.md`): iterations >=2 re-review only changed hunks plus findings marked verify-fix; Medium/Low findings carry forward, not re-litigated; cap-out is an UNRESOLVED escalation, never silent continuation.
 
 1. Spawn `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`).
 
@@ -348,7 +346,7 @@ The reviewer prompt MUST include:
      The fixer prompt MUST include: the reviewer findings, all `scope: always` rule directives, and the confidence expression requirement (high/medium/low per the quality charter).
    - **Suggestions**: skip. The point of quick-change is speed.
 
-3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
+3. If 3 iterations complete and findings remain, cap-out is an UNRESOLVED escalation — **ASK** the user whether to proceed or fix manually; never continue silently past the cap.
    After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
 
 4. After any fixes, re-run quality checks (Step 5a) to verify nothing broke.

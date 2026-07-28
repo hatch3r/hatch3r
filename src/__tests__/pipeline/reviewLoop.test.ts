@@ -323,44 +323,69 @@ describe("reviewLoop", () => {
     }
 
     const CAP_SURFACE_REGISTRY: readonly CapSurface[] = [
-      // ── default class (== DEFAULT_MAX_REVIEW_ITERATIONS) ──────────────
+      // ── unified cap scheme (release/2.8.5) ─────────────────────────────
+      // The orchestration rule pair states the scheme once: loop-class caps
+      // (code 3 / spec 4 from REVIEW_LOOP_CLASS_CAPS) under the protocol
+      // ceiling DEFAULT_MAX_REVIEW_ITERATIONS. Two entries per file pin all
+      // three integers: the class-caps pair (group 1 = code, group 2 = spec —
+      // spec numerically equals the DEFAULT the m[2] check asserts) and the
+      // symbolic ceiling.
       {
         path: "rules/hatch3r-agent-orchestration.md",
-        label: "orchestration rule (canonical) Phase 3 step 3",
+        label: "orchestration rule (canonical) unified-scheme class caps",
+        loopClass: "code",
+        regex:
+          /— (\d+) for code-diff loops, (\d+) for spec\/issue-text loops — under the protocol ceiling/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration.md",
+        label: "orchestration rule (canonical) protocol ceiling",
         loopClass: "default",
-        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        regex: /protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)`/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration.mdc",
-        label: "orchestration rule (Cursor parity) Phase 3 step 3",
+        label: "orchestration rule (Cursor parity) unified-scheme class caps",
+        loopClass: "code",
+        regex:
+          /— (\d+) for code-diff loops, (\d+) for spec\/issue-text loops — under the protocol ceiling/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration.mdc",
+        label: "orchestration rule (Cursor parity) protocol ceiling",
         loopClass: "default",
-        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        regex: /protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)`/g,
         occurrences: 1,
       },
       {
         path: "agents/hatch3r-reviewer.md",
-        label: "reviewer agent Review Loop Termination",
-        loopClass: "default",
-        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        label: "reviewer agent Review Loop Termination (class cap + ceiling)",
+        loopClass: "code",
+        regex:
+          /After the class cap \((\d+) code-diff \/ (\d+) spec-text iterations per `REVIEW_LOOP_CLASS_CAPS`; protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
         occurrences: 1,
       },
       {
         path: "agents/hatch3r-fixer.md",
-        label: "fixer agent Review Loop Termination",
-        loopClass: "default",
-        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        label: "fixer agent Review Loop Termination (class cap + ceiling)",
+        loopClass: "code",
+        regex:
+          /After the class cap \((\d+) code-diff \/ (\d+) spec-text iterations per `REVIEW_LOOP_CLASS_CAPS`; protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
         occurrences: 1,
       },
       {
         // Finding D5-20: the implementer agent's Review Loop Awareness section
-        // states the orchestrator's default-class Phase-3 cap but was absent
-        // from the registry, so its prior "max 3" drifted from the code
-        // constant (4) and the reviewer/fixer surfaces. Pin it as default-class.
+        // states the orchestrator's Phase-3 cap but was absent from the
+        // registry, so its prior "max 3" drifted from the code constant and
+        // the reviewer/fixer surfaces. Pinned to the unified-scheme phrasing.
         path: "agents/hatch3r-implementer.md",
-        label: "implementer agent Review Loop Awareness (default-class cap)",
-        loopClass: "default",
-        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        label: "implementer agent Review Loop Awareness (class cap + ceiling)",
+        loopClass: "code",
+        regex:
+          /loop-class cap — (\d+) code-diff \/ (\d+) spec-text per `REVIEW_LOOP_CLASS_CAPS`, protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)`/g,
         occurrences: 1,
       },
       // ── spec class (== DEFAULT_MAX_REVIEW_ITERATIONS) ─────────────────
@@ -410,69 +435,73 @@ describe("reviewLoop", () => {
         regex: /maximum of \*\*(\d+) iterations\*\*\s+\(code-class cap\)/g,
         occurrences: 1,
       },
-      // Finding D8-SA8.3-02 (Cycle 12): the detail rule's three sites now
-      // state the single Phase-3 pipeline bound (default class, 4) — the
-      // prior "code-class cap = DEFAULT_MAX_REVIEW_ITERATIONS - 1" asserted
-      // arithmetic no code implemented and contradicted the reviewer/fixer
-      // agents ("After 4 review-fix cycles"), the Pipeline Pattern table
-      // (symbolic DEFAULT), and canContinueReview (no class branch). The
-      // retry-policy line additionally carries the shipped loop-class
-      // taxonomy's code-diff opt-down sentence, pinned as a code-class
-      // surface (Finding D5-SA5.4-03).
+      // Finding D8-SA8.3-02 (Cycle 12) + release/2.8.5 unified scheme: the
+      // detail rule's cap sites now cite the loop-class caps (code 3 / spec 4
+      // per REVIEW_LOOP_CLASS_CAPS) under the symbolic protocol ceiling. Four
+      // entries per file pin the iterations comment, the failure-mode table,
+      // the retry-policy class caps, and the retry-policy ceiling (the
+      // HARD_MAX clamp integer is deliberately not captured — the m[2] check
+      // asserts against DEFAULT_MAX_REVIEW_ITERATIONS only).
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
         label: "detail rule PipelineContext reviewResult.iterations comment (canonical)",
-        loopClass: "default",
-        regex: /1 to maxIterations \(default DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
+        loopClass: "code",
+        regex:
+          /1 to the loop-class cap \(code (\d+) \/ spec (\d+) per REVIEW_LOOP_CLASS_CAPS; ceiling DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
         label: "detail rule failure-mode table (canonical)",
-        loopClass: "default",
-        regex: /Max iterations \((\d+)\)/g,
-        occurrences: 1,
-      },
-      {
-        path: "rules/hatch3r-agent-orchestration-detail.md",
-        label: "detail rule retry-policy pipeline bound (canonical)",
-        loopClass: "default",
-        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
-        occurrences: 1,
-      },
-      {
-        path: "rules/hatch3r-agent-orchestration-detail.md",
-        label: "detail rule retry-policy loop-class opt-down (canonical)",
         loopClass: "code",
-        regex: /code-diff loops opt down to (\d+)/g,
+        regex:
+          /Loop-class cap reached \(code (\d+) \/ spec (\d+); ceiling `DEFAULT_MAX_REVIEW_ITERATIONS` = (\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule retry-policy code-class rationale (canonical)",
+        loopClass: "code",
+        regex: /(\d+) for code-diff loops, which diverge faster/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule retry-policy protocol ceiling (canonical)",
+        loopClass: "default",
+        regex:
+          /under the protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)`, overrides clamped/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.mdc",
         label: "detail rule PipelineContext reviewResult.iterations comment (Cursor parity)",
-        loopClass: "default",
-        regex: /1 to maxIterations \(default DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
+        loopClass: "code",
+        regex:
+          /1 to the loop-class cap \(code (\d+) \/ spec (\d+) per REVIEW_LOOP_CLASS_CAPS; ceiling DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.mdc",
         label: "detail rule failure-mode table (Cursor parity)",
-        loopClass: "default",
-        regex: /Max iterations \((\d+)\)/g,
-        occurrences: 1,
-      },
-      {
-        path: "rules/hatch3r-agent-orchestration-detail.mdc",
-        label: "detail rule retry-policy pipeline bound (Cursor parity)",
-        loopClass: "default",
-        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
-        occurrences: 1,
-      },
-      {
-        path: "rules/hatch3r-agent-orchestration-detail.mdc",
-        label: "detail rule retry-policy loop-class opt-down (Cursor parity)",
         loopClass: "code",
-        regex: /code-diff loops opt down to (\d+)/g,
+        regex:
+          /Loop-class cap reached \(code (\d+) \/ spec (\d+); ceiling `DEFAULT_MAX_REVIEW_ITERATIONS` = (\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule retry-policy code-class rationale (Cursor parity)",
+        loopClass: "code",
+        regex: /(\d+) for code-diff loops, which diverge faster/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule retry-policy protocol ceiling (Cursor parity)",
+        loopClass: "default",
+        regex:
+          /under the protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)`, overrides clamped/g,
         occurrences: 1,
       },
       // Finding D7-1: four code-class loop directives that stated a numeric cap
@@ -586,7 +615,7 @@ describe("reviewLoop", () => {
       // This replaces the prior `length >= 20` floor, which only caught the
       // registry being emptied and let a cap-stating file be omitted while CI
       // stayed green — the exact re-opened gap for pr-resolve.md and the
-      // adhoc-orchestrate SKILL. 29 entries across 18 distinct registered
+      // adhoc-orchestrate SKILL. 31 entries across 18 distinct registered
       // files today. The detector is a lower bound tuned
       // to the drift-prone "max N iterations" form: reviewer/fixer state the cap
       // as "review-fix cycles" and are covered by explicit entries the detector
@@ -662,6 +691,11 @@ describe("reviewLoop", () => {
     // future edit cannot re-introduce a third drifting integer answer for the
     // cap (the "three answers for one cap" the finding flagged).
     it("detail rule default-class Phase-3 row references DEFAULT_MAX_REVIEW_ITERATIONS symbolically, not a bare integer (Finding D7-2)", () => {
+      // release/2.8.5 unified scheme: the row states the loop-class caps as
+      // integers under the SYMBOLIC ceiling. Both integers are asserted
+      // against REVIEW_LOOP_CLASS_CAPS so they cannot drift, and the ceiling
+      // must stay symbolic — a bare ceiling integer here re-opens the
+      // cap-drift gap the finding flagged.
       const repoRoot = process.cwd();
       for (const path of [
         "rules/hatch3r-agent-orchestration-detail.md",
@@ -669,12 +703,20 @@ describe("reviewLoop", () => {
       ]) {
         const body = readFileSync(join(repoRoot, path), "utf-8");
         const symbolicRow =
-          /Phase 3 Review Loop \| `hatch3r-reviewer` ↔ `hatch3r-fixer` \(max `DEFAULT_MAX_REVIEW_ITERATIONS`\)/g;
+          /Phase 3 Review Loop \| `hatch3r-reviewer` ↔ `hatch3r-fixer` \(loop-class cap (\d+) code \/ (\d+) spec under ceiling `DEFAULT_MAX_REVIEW_ITERATIONS`/g;
         const matches = [...body.matchAll(symbolicRow)];
         expect(
           matches.length,
-          `${path} — the cross-command Pipeline Pattern Phase-3 row must reference DEFAULT_MAX_REVIEW_ITERATIONS symbolically (default-class cap). A bare integer here re-opens the cap-drift gap (Finding D7-2).`,
+          `${path} — the cross-command Pipeline Pattern Phase-3 row must state the loop-class caps under the symbolic ceiling \`DEFAULT_MAX_REVIEW_ITERATIONS\`. A bare ceiling integer here re-opens the cap-drift gap (Finding D7-2).`,
         ).toBe(1);
+        expect(
+          Number(matches[0][1]),
+          `${path} — Phase-3 row code-class cap must equal REVIEW_LOOP_CLASS_CAPS.code`,
+        ).toBe(REVIEW_LOOP_CLASS_CAPS.code);
+        expect(
+          Number(matches[0][2]),
+          `${path} — Phase-3 row spec-class cap must equal REVIEW_LOOP_CLASS_CAPS.spec`,
+        ).toBe(REVIEW_LOOP_CLASS_CAPS.spec);
       }
     });
   });

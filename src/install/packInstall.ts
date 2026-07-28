@@ -45,6 +45,7 @@ import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { HATCH3R_DIR, HatchError, sanitizeId, type MergeResult } from "../types.js";
 import { safeWriteFile } from "../merge/safeWrite.js";
+import { isPlainObject, rejectUnknownFields } from "../config/parse.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { ADAPTER_CAPABILITY_KEYS } from "../adapters/index.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -387,30 +388,100 @@ export function validatePackManifest(raw: unknown): PackManifest {
   if (!Array.isArray(declaredTools) || declaredTools.some((t) => typeof t !== "string")) {
     throw manifestFieldError("declared_tools", "is required and must be an array of tool names");
   }
+  let signing: PackSigning | undefined;
   if (obj.signing !== undefined) {
-    const signing = obj.signing;
-    if (typeof signing !== "object" || signing === null || Array.isArray(signing)) {
+    const rawSigning = obj.signing;
+    if (typeof rawSigning !== "object" || rawSigning === null || Array.isArray(rawSigning)) {
       throw manifestFieldError("signing", "must be an object with a method field when present");
     }
-    const method = (signing as Record<string, unknown>).method;
+    const signingObj = rawSigning as Record<string, unknown>;
+    const method = signingObj.method;
     if (typeof method !== "string" || !VALID_SIGNING_METHODS.has(method)) {
       throw manifestFieldError("signing.method", 'must be "npm-provenance" or "cosign-keyless"');
     }
+    // DD-C6: validate the optional declaration fields too (previously they
+    // rode through the terminal cast unchecked).
+    if (signingObj.identity !== undefined && typeof signingObj.identity !== "string") {
+      throw manifestFieldError("signing.identity", "must be a string when present");
+    }
+    if (signingObj.transparency_log !== undefined && typeof signingObj.transparency_log !== "string") {
+      throw manifestFieldError("signing.transparency_log", "must be a string when present");
+    }
+    signing = {
+      method,
+      ...(signingObj.identity !== undefined ? { identity: signingObj.identity as string } : {}),
+      ...(signingObj.transparency_log !== undefined
+        ? { transparency_log: signingObj.transparency_log as string }
+        : {}),
+    };
   }
+  let files: Record<string, string> | undefined;
   if (obj.files !== undefined) {
-    const files = obj.files;
-    if (typeof files !== "object" || files === null || Array.isArray(files)) {
+    const rawFiles = obj.files;
+    if (typeof rawFiles !== "object" || rawFiles === null || Array.isArray(rawFiles)) {
       throw manifestFieldError("files", "must be an object mapping path to SHA-256 hex digest when present");
     }
-    for (const [p, h] of Object.entries(files as Record<string, unknown>)) {
+    files = {};
+    for (const [p, h] of Object.entries(rawFiles as Record<string, unknown>)) {
       if (typeof h !== "string" || !/^[0-9a-f]{64}$/i.test(h)) {
         throw manifestFieldError("files", `entry "${p}" must carry a 64-char SHA-256 hex digest`);
       }
       assertSafePackRelPath(p, `integrity-map key in pack-manifest.json`);
+      files[p] = h;
     }
   }
-  return obj as unknown as PackManifest;
+  // DD-C6 (release/2.8.5): the previously-uninspected optional fields.
+  if (obj.mcp_servers !== undefined && !Array.isArray(obj.mcp_servers)) {
+    throw manifestFieldError("mcp_servers", "must be an array when present");
+  }
+  if (obj.review_queue !== undefined && !isPlainObject(obj.review_queue)) {
+    throw manifestFieldError("review_queue", "must be an object when present");
+  }
+  // DD-C6: unknown-field rejection (fail-closed — this is third-party
+  // supply, the highest-risk ingress in the CLI; pack-trust posture is
+  // refuse-by-default). A field outside the §5.1 schema names itself in the
+  // refusal instead of riding silently through into installer state.
+  const unknownKeyErrors: string[] = [];
+  rejectUnknownFields(obj, KNOWN_PACK_MANIFEST_KEYS, unknownKeyErrors, "pack-manifest.json");
+  if (unknownKeyErrors.length > 0) {
+    throw manifestFieldError("(root)", unknownKeyErrors[0]);
+  }
+  // DD-C6: explicit whitelist construction replaces the former
+  // `return obj as unknown as PackManifest` — the returned object holds ONLY
+  // validated fields, so no unvalidated key (including `__proto__`-style
+  // payload keys) survives into the install pipeline.
+  return {
+    pack_id: packId,
+    version,
+    ...(obj.hatch3r_min_version !== undefined
+      ? { hatch3r_min_version: obj.hatch3r_min_version as string }
+      : {}),
+    required_capabilities: caps as string[],
+    tool_footprint: footprint as Record<string, number>,
+    declared_tools: declaredTools as string[],
+    ...(obj.mcp_servers !== undefined ? { mcp_servers: obj.mcp_servers as unknown[] } : {}),
+    ...(signing !== undefined ? { signing } : {}),
+    ...(obj.review_queue !== undefined
+      ? { review_queue: obj.review_queue as Record<string, unknown> }
+      : {}),
+    ...(files !== undefined ? { files } : {}),
+  };
 }
+
+/** DD-C6: the closed §5.1 field set — {@link validatePackManifest} refuses
+ *  any key outside it (fail-closed third-party ingress). */
+const KNOWN_PACK_MANIFEST_KEYS = [
+  "pack_id",
+  "version",
+  "hatch3r_min_version",
+  "required_capabilities",
+  "tool_footprint",
+  "declared_tools",
+  "mcp_servers",
+  "signing",
+  "review_queue",
+  "files",
+] as const;
 
 /** Read + parse + validate the pack's `pack-manifest.json`. */
 export async function readPackManifest(packRoot: string): Promise<PackManifest> {

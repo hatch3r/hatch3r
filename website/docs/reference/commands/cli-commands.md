@@ -53,11 +53,12 @@ The interactive flow asks (default branch, project type, and team size are infer
 2. **Repo identity** -- owner/org and repo name (auto-filled from the remote where possible)
 3. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
 4. **Maturity tier** -- solo, team, scaleup, or enterprise (seeded at the git-inferred default); `--maturity <tier>` skips this prompt. The tier is an investment-depth dial, not a content gate -- every tier installs the full corpus (see [Maturity Tiers](../../guides/maturity-tiers))
-5. **Custom content items** -- only when Custom is selected at step 3
-6. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
-7. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
+5. **Communication style** -- plain (default) or technical operator register for generated-agent output; `--communication-style <style>`, headless flags, or `--resume` skip this prompt (added 2.8.5)
+6. **Custom content items** -- only when Custom is selected at step 3
+7. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
+8. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
 
-The common (non-custom) path is 6 prompts; the custom-content multi-select adds a 7th only when Custom is chosen at step 3.
+The common (non-custom) path is 7 prompts; the custom-content multi-select adds an 8th only when Custom is chosen at step 3 (steps renumber accordingly).
 
 Only the content matching your profile and context is generated into your adapter outputs (canonical content is read from the bundled npm package, not copied into your repo). Use `hatch3r config` to add or remove items later.
 
@@ -106,7 +107,7 @@ npx hatch3r config --dry-run        # preview the change without writing
 npx hatch3r config maturity=team    # scalar form, no prompts
 ```
 
-- Change platform, tools, features, and MCP servers
+- Change platform, tools, communication style, confidence floor, and MCP servers (framework features are no longer a prompt as of 2.8.5 — they derive from the manifest, matching init)
 - Add or remove individual content items (agents, skills, rules, commands) — manifest-only bookkeeping: the selection is written to `.hatch3r/hatch.json` and adapter outputs are regenerated from the bundled canonical content (no `.agents/` materialization). Removing an item rescues its hand-authored `.customize.*` overrides into the archive
 - Enable/disable worktree file isolation for parallel agent sessions
 - Manage workspace repos (add/remove sub-repos, toggle sync, change sync strategy)

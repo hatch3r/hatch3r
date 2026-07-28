@@ -19,23 +19,30 @@
  *     bridge and AGENTS.md generators).
  *
  * The barrel preserves the public import surface so existing importers
- * (`src/adapters/base.ts`) and tests (`src/__tests__/cli/agentsContent.test.ts`,
- * the `vi.mock("agentsContent.js")` in `config.test.ts`) keep resolving the
+ * and tests (`src/__tests__/cli/agentsContent.test.ts`, the
+ * `vi.mock("agentsContent.js")` in `config.test.ts`) keep resolving the
  * same names. No behavior change — function bodies were moved verbatim.
+ *
+ * DD-D3 (release/2.8.5): `bridgeOrchestration`, `taskRouter`, and
+ * `agentsContentShared` now live under `src/adapters/shared/` (their only
+ * production consumer is `src/adapters/base.ts`, and a domain module must
+ * not import `src/cli/**` — import-boundary Rule 1). This barrel re-exports
+ * from the new home; `src/adapters/base.ts` imports the domain module
+ * directly and no longer routes through this CLI barrel.
  */
 
 export {
   type BridgeAdapter,
   BRIDGE_ORCHESTRATION,
   generateBridgeOrchestration,
-} from "./bridgeOrchestration.js";
+} from "../../adapters/shared/bridgeOrchestration.js";
 
 export {
   type TaskRouterPrimaryKind,
   type TaskRouterRow,
   buildTaskRouterModel,
   bestTaskTypeForSkill,
-} from "./taskRouter.js";
+} from "../../adapters/shared/taskRouter.js";
 
 export {
   AGENTS_MD_INNER,

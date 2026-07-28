@@ -54,17 +54,17 @@ jobs:
       SOCKET_API_KEY: ${{ secrets.SOCKET_API_KEY }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: "npm"
@@ -132,7 +132,15 @@ jobs:
       # /website dependabot PRs (.github/dependabot.yml), not by blocking PRs.
       - name: Security audit (website deps, fail >=high)
         working-directory: website
-        run: npm audit --package-lock-only --audit-level=high
+        # release/2.8.5: bare `--audit-level=high` was permanently red on the
+        # serve-handler→minimatch→brace-expansion chain (root advisory 1124334 /
+        # GHSA-mh99-v99m-4gvg — no patched release exists on the majors
+        # serve-handler pins). The gate now allowlists exactly that root
+        # advisory id in website/scripts/audit-gate.mjs; any other high or
+        # critical advisory — including new ones inside the same subtree —
+        # still fails. The script prints a removal notice once the upstream
+        # fix lands.
+        run: npm audit --package-lock-only --json | node scripts/audit-gate.mjs
 
       - name: Security audit (website deps, report >=moderate)
         continue-on-error: true
@@ -261,14 +269,31 @@ jobs:
       fail-fast: false
       matrix:
         # Cycle 10 M D4-M3 (D4): Node 22 is the minimum supported version
-        # (engines >= 22.0.0). Node 24 is the current LTS lane; Node 26 is the
+        # (engines >= 22.13.0). Node 24 is the current LTS lane; Node 26 is the
         # April-2026 odd-numbered release exercising the upcoming runtime
         # behaviors (V8 13.4, undici 7.x deprecations) so a regression there
         # surfaces in CI before the version becomes LTS in October 2026. The
-        # `engines: >=22.0.0` declaration permits Node 26 today, so leaving the
+        # `engines: >=22.13.0` declaration permits Node 26 today, so leaving the
         # lane untested left users on the bleeding edge unprotected.
+        # Floor vs currency (F1, release/2.8.5): the bare `22` entry is a
+        # CURRENCY lane — setup-node resolves it to the latest 22.x release,
+        # so it never exercises the exact `engines: >=22.13.0` FLOOR. The
+        # pinned "22.13.0" include lane below covers the floor: a dependency
+        # or language feature that requires a later 22.x fails there in CI
+        # instead of surfacing first on a user's minimum-version install.
         node-version: [22, 24, 26]
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # F1 floor lane — ubuntu-only (macOS/Windows stay at 3 lanes each).
+        # "22.13.0" is a STRING: in the seven `matrix.node-version == 22`
+        # single-run conditionals below it coerces to NaN and never equals
+        # 22, so this lane runs the cross-version steps (install, audit,
+        # build, lint, typecheck, test without coverage) and none of the
+        # canonical Linux/Node-22 single-run gates — intended, reviewed
+        # per F1: the `!= 22` guard on "Test without coverage" evaluates
+        # true for "22.13.0", so the floor lane does run the full test suite.
+        include:
+          - node-version: "22.13.0"
+            os: ubuntu-latest
 
     steps:
       # Cycle 9 C9-H9 (D4-H4.2.1): see top-of-file rationale block.
@@ -277,20 +302,31 @@ jobs:
       # unconditionally is simpler than a matrix exclusion and preserves
       # the "first step of every job" invariant from the supply-chain job.
       - name: Harden Runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
+
+      # Floor-lane history (PR #145): the lane originally pinned 22.0.0 and
+      # failed two ways — Node 22.0.0's bundled npm 10.5.1 dropped
+      # platform-specific optional deps on `npm ci` (npm/cli#4828 class;
+      # observed: @rolldown/binding-linux-x64-gnu → vitest startup error),
+      # and the production dependency tree itself (@inquirer/* engines
+      # `^22.13.0 || >=23.5.0`) never supported 22.0.0. The engines floor was
+      # raised to >=22.13.0 to match the tree, the lane repin follows it, and
+      # 22.13's bundled npm needs no upgrade step (npm@10-latest was the
+      # variant that reproduced the optional-deps drop; the bundled 10.9.x
+      # line matches the passing bare-22 lane).
 
       - name: Install dependencies
         env:

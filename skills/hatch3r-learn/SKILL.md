@@ -181,7 +181,7 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 
 ### Consolidation Pass
 
-Agent-performed merge procedure — there is no CLI equivalent (`rules/hatch3r-learning-system.md` → Auto-Consolidation defines the triggers; this section is the executable pass). Run it when active learnings reach 80% of the cap (default 150; `learnings.maxCount` in `.hatch3r/hatch.json`) or when `hatch3r learn capture` prints its capacity warning:
+Agent-performed merge procedure — there is no CLI equivalent (`rules/hatch3r-learning-system.md` → Auto-Consolidation defines the triggers; this section is the executable pass). Also invoked by `skills/hatch3r-cleanup/SKILL.md` (Step 2) when its consolidated cleanup ASK approves the learnings category — same pass, same guardrails (consolidate/archive only, never delete). Run it when active learnings reach 80% of the cap (default 150; `learnings.maxCount` in `.hatch3r/hatch.json`) or when `hatch3r learn capture` prints its capacity warning:
 
 1. **Read** `.hatch3r/learnings/INDEX.md` plus every active learning under `.hatch3r/learnings/*.md` (skip `archive/`).
 2. **Cluster** entries by `topic` + overlapping `applies-to` — the same match keys the consultation gate uses.

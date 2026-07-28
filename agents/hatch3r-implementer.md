@@ -76,7 +76,7 @@ Always explain your reasoning before acting. Before writing or modifying code, s
 ### 1. Read Inputs and Specs
 
 - Parse the issue body: acceptance criteria, scope (in/out), edge cases.
-- Read `docs/specs/` headers (TOC first, ~30 lines per file) to identify specifications relevant to the task. Expand and read in full only the sections that apply to the current issue's domain or affected modules.
+- Read `docs/specs/` headers (TOC first, ~30 lines per file) to identify specifications relevant to the task. Expand and read in full only the sections that apply to the current issue's domain or affected modules. Record which spec sections govern the issue's behavior — Step 5e diffs the implemented behavior against them (`rules/hatch3r-spec-currency.md`).
 - Read relevant specs from project documentation based on the provided references.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for any external library/framework APIs involved.
 - Use web research for novel problems, security advisories, or current best practices not covered by local docs or Context7.
@@ -170,20 +170,19 @@ The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGat
 
 ### 5b. Browser Verification (if UI)
 
-Skip this step if the issue has no user-facing UI changes.
+Skip this step if the issue has no user-facing UI changes. Three tiers, cheapest first — Tier 1 is the default; escalate a tier only when the lower tier cannot express the check:
 
 - Confirm the dev server is running by checking the expected port. If not running, start it in the background.
-- Navigate to the page affected by the change using browser automation MCP.
-- Visually confirm the implementation matches acceptance criteria.
-- Interact with changed elements to verify correctness.
-- Check the browser console for errors or warnings.
-- Capture screenshots as evidence.
+- **Tier 1 — scripted spec run (default).** Write or update a durable Playwright spec asserting the expected behavior (web-first locator assertions; `toHaveScreenshot()` diffs for visual properties), then run `npx playwright test <spec> --reporter=line` headless and read only the failure output (error + locator + diff counts). Assertions execute in the browser process, not in your context; a passing run is a one-line summary. The spec is the durable verification artifact: `hatch3r-fixer` re-runs it after UI-affecting fixes and each review iteration re-runs it at near-zero token cost, instead of re-driving the browser every pass.
+- **Tier 2 — step driving (only when no spec can express the check).** Drive the browser step-by-step only when the check cannot be written as a spec assertion or you are exploring an unknown failure. Read page state via accessibility snapshots — never screenshots for state-reading. Convert what the exploration proves into a Tier 1 spec before returning.
+- **Tier 3 — screenshot (inherently-visual checks only).** Capture a screenshot only when the verified property is pixel-visual (layout, theming, design-token fidelity) AND cannot be expressed as a `toHaveScreenshot()` diff or a computed-style/ARIA assertion. Viewport-scoped, one per decision — never per-route capture loops for the record.
+- Check the browser console for errors or warnings (from the spec run's captured console, or a Tier 2 snapshot).
 
 ### 5c. UI/UX Verification Gate (if UI)
 
 **Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` §UI/UX quality (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
 
-This gate is mandatory when triggered; passing Step 5b screenshot verification does not substitute for it. Step 5b confirms visual presence; Step 5c confirms the 2026 UI/UX floor (WCAG 2.2 AA conformance, design-token reuse, four-state surface contract, microcopy and tone, AI-UX patterns when applicable, Core Web Vitals).
+This gate is mandatory when triggered; a green Step 5b spec run does not substitute for it. Step 5b confirms the asserted behavior; Step 5c confirms the 2026 UI/UX floor (WCAG 2.2 AA conformance, design-token reuse, four-state surface contract, microcopy and tone, AI-UX patterns when applicable, Core Web Vitals).
 
 **Before writing any UI surface:**
 
@@ -230,6 +229,14 @@ Grep-pattern details live in `rules/hatch3r-contract-census.md` → Consumer Cen
 
 **Gate:** `Status: SUCCESS` requires census ∈ {`clean`, `reconciled(N)`, `N/A`}; any `unreconciled` consumer without a named justification caps Status at `PARTIAL`, with the unreconciled consumers listed under Issues encountered / Notes.
 
+### 5e. Spec Delta (docs/specs currency)
+
+**Trigger:** the change alters user-observable behavior that a section under `docs/specs/` (or the project's spec set from input #4) covers or should cover. No trigger → record `Spec updated: not-needed (<one-line reason>)` and skip the rest of this step.
+
+1. Name the spec section(s) governing the changed behavior — you recorded them in Step 1; diff the implemented behavior against them.
+2. When the amendment is in-scope for this issue, amend the spec section in the same change set; otherwise name the section and route the amendment to `hatch3r-docs-writer` — the applying owner per `rules/hatch3r-spec-currency.md` — via the structured result.
+3. Set the `Spec updated:` result field per the schema below. An empty field on a behavior-changing diff is a protocol violation the reviewer flags (`agents/hatch3r-reviewer.md` → Spec Cross-Reference).
+
 ### 6. Return Structured Result
 
 Report back to the parent orchestrator with:
@@ -255,11 +262,13 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 
 **Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
+**Spec updated:** <docs/specs path#section — amended here> | routed (<path#section> → hatch3r-docs-writer) | not-needed (<one-line reason>)
+
 **Plan/Act split:** triggered | skipped
 
 **Browser verification:**
-- VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
-- (screenshots or observations if verified)
+- VERIFIED-SPEC (<spec path> + one-line run summary) | VERIFIED-INTERACTIVE (<why no spec could express the check>) | BLOCKED_MISSING_TOOL (<missing tool + install one-liner>) | N/A-NO-UI (<one-line justification>)
+- (Tier used + evidence: failure excerpt on FAIL, diff counts, or snapshot reference. BLOCKED_MISSING_TOOL is never laundered into a pass — the orchestrator routes it per `agents/shared/quality-charter.md` §17, mirroring Step 5c.)
 
 **UI/UX verification gate (Step 5c):**
 - VERDICT: PASS | PARTIAL | FAIL | SKIPPED (non-UI)
@@ -335,7 +344,7 @@ Apply this format whenever the implementation involves choosing between approach
 
 ## Review Loop Awareness
 
-After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS`)). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
+After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, bounded by the loop-class cap — 3 code-diff / 4 spec-text per `REVIEW_LOOP_CLASS_CAPS`, protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = 4` in `src/pipeline/reviewLoop.ts`; unified scheme: `rules/hatch3r-agent-orchestration.md` Phase 3). The loop terminates on a clean verdict (0 Critical + 0 Warning), the class cap (UNRESOLVED escalation), or manual halt; from iteration 2 the re-review is delta-scoped to the fixer's changed hunks (`agents/hatch3r-reviewer.md` → Delta Re-Review Scope). Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
 After the review loop, Phase 4 specialists run bounded by the orchestrator-honored `max_phase4_parallel` width (default `8` — LLM-honored guidance, not a code-enforced cap). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ10) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
@@ -412,9 +421,11 @@ When encountering errors during implementation, follow these protocols:
 
 **Consumer census:** clean
 
+**Spec updated:** routed (docs/specs/api.md#rate-limiting → hatch3r-docs-writer)
+
 **Plan/Act split:** triggered
 
-**Browser verification:** SKIPPED (non-UI)
+**Browser verification:** N/A-NO-UI (backend middleware — no UI surface)
 
 **UI/UX verification gate (Step 5c):**
 - VERDICT: SKIPPED (non-UI)
@@ -438,3 +449,5 @@ Rationale for absence (D5 universal checklist row 6): this agent is an LLM promp
 
 - Anthropic. "Subagents in the SDK." `https://code.claude.com/docs/en/agent-sdk/subagents` (accessed 2026-05-28, Claude Code Docs, official-docs). Source for this agent's single-focused-task contract — a subagent receives an isolated brief, carries every needed file path and decision in its prompt, and returns a structured result to the parent, which underpins the implementer's one-issue-per-invocation boundary and Delegation proof ID handshake.
 - Conventional Commits. "Conventional Commits 1.0.0." `https://www.conventionalcommits.org/en/v1.0.0/` (accessed 2026-05-28, Conventional Commits maintainers, established-library; v1.0.0). Source for the commit-message structure the implementer's output enables the orchestrator to produce — `type(scope): description` with feat→MINOR / fix→PATCH semantics — even though this agent does not commit, its scoped, single-concern changes map cleanly to one conventional commit.
+- Microsoft. "playwright-cli README." `https://github.com/microsoft/playwright-cli` (accessed 2026-07-28, Microsoft, official-docs). Source for the Step 5b tier ordering — CLI/spec invocations over MCP step loops for coding agents (tool schemas and page snapshots stay out of model context) and accessibility snapshots over screenshots for state-reading (Tier 2's snapshot mandate).
+- Playwright. "Coding agents (getting-started-cli)" `https://playwright.dev/docs/getting-started-cli` + "Test agents" `https://playwright.dev/docs/test-agents` (accessed 2026-07-28, Microsoft/Playwright, official-docs). Source for spec-run-first as the verify default and for converting one-time agentic exploration into a durable spec suite (planner/generator/healer) — the basis of Tier 1's write-once, re-run-per-iteration contract.

@@ -10,11 +10,11 @@ hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that inst
 
 ## Quick Start
 
-Requires Node.js 22+.
+Requires Node.js 22.13+.
 
 ```bash
 npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
-npx hatch3r init            # interactive: customize profile, tools, and CLI tools (6 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
+npx hatch3r init            # interactive: customize profile, tools, and CLI tools (7 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
 ```
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
@@ -26,8 +26,8 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 30 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 10 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability/product-spec), and more |
-| **Skills** | 54 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
-| **Rules** | 73 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, model allocation, context budgets, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
+| **Skills** | 55 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
+| **Rules** | 74 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, model allocation, context budgets, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 32 | Board management, planning (router `plan`, feature, bug, refactor, test), workflow, quick-change, bug-pipeline, rework, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.0.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |

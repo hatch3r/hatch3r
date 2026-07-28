@@ -349,6 +349,200 @@ describe("workspace manifest", () => {
     });
   });
 
+  // ── DD-C2/C3/C4 (release/2.8.5): ingress hardening ───────────────────────
+  describe("DD-C2 duplicate repo paths (normalized)", () => {
+    it("rejects two entries whose paths normalize to the same directory ('api' vs './api'), naming both", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("dup", minimalDefaults, [
+        { path: "api", sync: true },
+        { path: "./api", sync: true },
+      ], "manual");
+      await writeWorkspaceManifest(dir, manifest);
+
+      let caught: unknown;
+      try {
+        await readWorkspaceManifest(dir);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      const err = caught as HatchError;
+      expect(err.errorCode).toBe("VALIDATION_ERROR");
+      expect(err.message).toContain('"api"');
+      expect(err.message).toContain('"./api"');
+      expect(err.message).toContain("duplicate");
+    });
+
+    it("rejects a trailing-slash duplicate ('api' vs 'api/')", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("dup-slash", minimalDefaults, [
+        { path: "api", sync: true },
+        { path: "api/", sync: true },
+      ], "manual");
+      await writeWorkspaceManifest(dir, manifest);
+
+      await expect(readWorkspaceManifest(dir)).rejects.toMatchObject({
+        errorCode: "VALIDATION_ERROR",
+        message: expect.stringContaining("duplicate"),
+      });
+    });
+
+    it("accepts genuinely distinct paths", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("distinct", minimalDefaults, [
+        { path: "api", sync: true },
+        { path: "api-service", sync: true },
+        { path: "services/api", sync: true },
+      ], "manual");
+      await writeWorkspaceManifest(dir, manifest);
+      const read = await readWorkspaceManifest(dir);
+      expect(read?.repos).toHaveLength(3);
+    });
+  });
+
+  describe("DD-C3 version gate + migration registry", () => {
+    it("rejects a major-newer manifest (2.0.0) with an upgrade hint, before shape validation", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("future", minimalDefaults, [], "manual");
+      const doctored = { ...manifest, version: "2.0.0" };
+      await writeFile(
+        join(dir, AGENTS_DIR, "workspace.json"),
+        JSON.stringify(doctored, null, 2),
+        "utf-8",
+      );
+
+      let caught: unknown;
+      try {
+        await readWorkspaceManifest(dir);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      const err = caught as HatchError;
+      expect(err.errorCode).toBe("CONFIG_ERROR");
+      expect(err.message).toContain("2.0.0");
+      expect(err.recoveryHint).toMatch(/upgrade hatch3r/i);
+    });
+
+    it("accepts a same-major minor-newer version (1.5.0)", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("minor", minimalDefaults, [], "manual");
+      await writeFile(
+        join(dir, AGENTS_DIR, "workspace.json"),
+        JSON.stringify({ ...manifest, version: "1.5.0" }, null, 2),
+        "utf-8",
+      );
+      const read = await readWorkspaceManifest(dir);
+      expect(read?.version).toBe("1.5.0");
+    });
+
+    it("the migration registry exists, is idempotent, and returns a deep copy", async () => {
+      const { WORKSPACE_MANIFEST_MIGRATIONS, migrateWorkspaceManifest } = await import(
+        "../../workspace/manifest.js"
+      );
+      expect(Array.isArray(WORKSPACE_MANIFEST_MIGRATIONS)).toBe(true);
+      const input = { version: "1.0.0", nested: { keep: true } };
+      const once = migrateWorkspaceManifest(input);
+      const twice = migrateWorkspaceManifest(once);
+      expect(twice).toEqual(once);
+      expect(once).not.toBe(input); // pure — caller's object untouched
+      expect(once.nested).not.toBe(input.nested);
+    });
+  });
+
+  describe("DD-C4 per-field errors + unknown-field advisory", () => {
+    it("accumulates EVERY defect with its field path in one pass", async () => {
+      const dir = await setup();
+      await writeFile(
+        join(dir, AGENTS_DIR, "workspace.json"),
+        JSON.stringify({
+          version: "1.0.0",
+          hatch3rVersion: "2.8.5",
+          name: 42, // wrong type
+          syncStrategy: "sometimes", // outside the enum
+          repos: [{ path: "api" }], // missing sync
+          defaults: { tools: "cursor", features: {}, mcp: { servers: [] } }, // tools not array
+        }),
+        "utf-8",
+      );
+
+      let caught: unknown;
+      try {
+        await readWorkspaceManifest(dir);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      const msg = (caught as HatchError).message;
+      expect(msg).toContain("`name`");
+      expect(msg).toContain("`syncStrategy`");
+      expect(msg).toContain("`repos[0].sync`");
+      expect(msg).toContain("`defaults.tools`");
+    });
+
+    it("collectWorkspaceManifestErrors returns [] for a valid manifest (guard parity)", async () => {
+      const { collectWorkspaceManifestErrors } = await import("../../workspace/manifest.js");
+      const manifest = createWorkspaceManifest("ok", minimalDefaults, [{ path: "api", sync: true }], "manual");
+      expect(collectWorkspaceManifestErrors(manifest)).toEqual([]);
+      expect(collectWorkspaceManifestErrors(null)).not.toEqual([]);
+      expect(collectWorkspaceManifestErrors([])).not.toEqual([]);
+    });
+
+    it("unknown top-level + defaults fields surface through onWarn, never reject", async () => {
+      const dir = await setup();
+      const manifest = createWorkspaceManifest("unknown", minimalDefaults, [], "manual");
+      const doctored = {
+        ...manifest,
+        repoes: [], // typo'd key
+        defaults: { ...manifest.defaults, futureKnob: true },
+      };
+      await writeFile(
+        join(dir, AGENTS_DIR, "workspace.json"),
+        JSON.stringify(doctored, null, 2),
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const read = await readWorkspaceManifest(dir, { onWarn: (m) => warnings.push(m) });
+      expect(read).not.toBeNull(); // advisory, not a rejection
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("repoes");
+      expect(warnings[0]).toContain("defaults.futureKnob");
+    });
+
+    it("no advisory for a fully-known manifest (and the param stays optional)", async () => {
+      const dir = await setup();
+      await writeWorkspaceManifest(dir, createWorkspaceManifest("clean", minimalDefaults, [], "manual"));
+      const warnings: string[] = [];
+      await readWorkspaceManifest(dir, { onWarn: (m) => warnings.push(m) });
+      expect(warnings).toEqual([]);
+      // Legacy single-argument call still compiles/works.
+      expect(await readWorkspaceManifest(dir)).not.toBeNull();
+    });
+  });
+
+  // DD-A (release/2.8.5): the workspace-manifest writer takes a REAL lock by
+  // default — no env var, no enable call (the pre-2.8.5 shape needed
+  // enableDefaultCrossProcessLocking() or HATCH3R_LOCK=1).
+  describe("DD-A1 real lock with no env var", () => {
+    it("writeWorkspaceManifest contends on a pre-held workspace.json lock → LOCK_TIMEOUT", async () => {
+      const orig = process.env.HATCH3R_LOCK;
+      delete process.env.HATCH3R_LOCK;
+      try {
+        const dir = await setup();
+        const lockDir = join(dir, AGENTS_DIR, "workspace.json.hatch3r.lock");
+        await mkdir(lockDir, { recursive: true });
+
+        await expect(
+          writeWorkspaceManifest(dir, createWorkspaceManifest("locked", minimalDefaults, [], "manual")),
+        ).rejects.toMatchObject({ name: "HatchError", errorCode: "LOCK_TIMEOUT" });
+      } finally {
+        if (orig === undefined) delete process.env.HATCH3R_LOCK;
+        else process.env.HATCH3R_LOCK = orig;
+      }
+    }, 20_000);
+  });
+
   describe("isUnsafeRepoPath", () => {
     it("rejects path traversal with ..", () => {
       expect(isUnsafeRepoPath("../secret")).toBe(true);

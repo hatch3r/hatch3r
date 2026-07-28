@@ -13,7 +13,7 @@ A copy-paste-runnable walkthrough that takes a project from empty to released us
 
 ## Prerequisites
 
-- **Node.js 22 or later** — the only hard prerequisite. Check with `node --version`.
+- **Node.js 22.13 or later** — the only hard prerequisite. Check with `node --version`.
 - **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
 - **One of the [supported tools](./supported-tools)** — Claude Code, Cursor, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
 
@@ -27,7 +27,7 @@ That is it. No global install, no preflight setup.
 npx hatch3r init
 ```
 
-Interactive flow, 1-2 minutes measured (`init` prints a `Completed in Xs` line) — 6 prompts on a fresh GitHub greenfield repo: platform → repo identity → [content profile](#content-profiles) → [maturity](../guides/maturity-tiers) → tools → CLI-tools picker. Every prompt is auto-detected or seeded from your git remote and history, so pressing Enter through the defaults is a working path. Prompt-by-prompt walkthrough and per-platform prompt counts: [init prompts](../reference/quick-start-reference#init-prompts); spec/PR timing estimates: [time to first value](../reference/quick-start-reference#time-to-first-value).
+Interactive flow, 1-2 minutes measured (`init` prints a `Completed in Xs` line) — 7 prompts on a fresh GitHub greenfield repo: platform → repo identity → [content profile](#content-profiles) → [maturity](../guides/maturity-tiers) → communication style → tools → CLI-tools picker. Every prompt is auto-detected or seeded from your git remote and history, so pressing Enter through the defaults is a working path. Prompt-by-prompt walkthrough and per-platform prompt counts: [init prompts](../reference/quick-start-reference#init-prompts); spec/PR timing estimates: [time to first value](../reference/quick-start-reference#time-to-first-value).
 
 For headless / CI use, pass `--yes` with optional flags:
 

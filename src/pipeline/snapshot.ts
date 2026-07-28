@@ -61,6 +61,31 @@ export interface SnapshotMeta {
 }
 
 /**
+ * DD-C (release/2.8.5): full shape validation for a parsed `meta.json` —
+ * replaces the four trusting `JSON.parse(raw) as SnapshotMeta` casts in this
+ * module, which accepted any JSON value and let the rollback path index
+ * `meta.paths[i]` / `meta.relativePaths[i]` on undefined arrays. Checks the
+ * schema version pin plus every field the readers rely on, including the
+ * paths↔relativePaths pairing the mirror layout depends on. Exported for
+ * direct unit coverage.
+ */
+export function isSnapshotMeta(v: unknown): v is SnapshotMeta {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    o.schemaVersion === SNAPSHOT_SCHEMA_VERSION &&
+    typeof o.sessionId === "string" &&
+    typeof o.timestamp === "string" &&
+    typeof o.projectRoot === "string" &&
+    Array.isArray(o.paths) &&
+    o.paths.every((p) => typeof p === "string") &&
+    Array.isArray(o.relativePaths) &&
+    o.relativePaths.every((p) => typeof p === "string") &&
+    o.paths.length === o.relativePaths.length
+  );
+}
+
+/**
  * Per-file outcome of a rollback (F1.5-H3 / F8.2.4). Surfaced so the CLI
  * can print a disposition table when a rollback does not complete cleanly.
  *
@@ -339,8 +364,12 @@ async function pruneSnapshots(
     let timestamp = ""; // empty sorts oldest → corrupt sessions pruned first
     try {
       const raw = await readFile(join(dir, SNAPSHOT_META_FILE), "utf-8");
-      const parsed = JSON.parse(raw) as SnapshotMeta;
-      if (typeof parsed.timestamp === "string") timestamp = parsed.timestamp;
+      // DD-C: validated parse (was a trusting `as SnapshotMeta` cast). A
+      // parseable-but-wrong-shape meta keeps the empty timestamp, sorting the
+      // corrupt session oldest for prune-first reclaim — same disposition as
+      // the unreadable case below.
+      const parsed: unknown = JSON.parse(raw);
+      if (isSnapshotMeta(parsed)) timestamp = parsed.timestamp;
     } catch (metaErr) {
       // Unparseable / missing meta — leave timestamp empty so it prunes first.
       // Surface the corrupt session per the Silent Failure Contract
@@ -436,8 +465,12 @@ export async function createSnapshot(
   let existing: SnapshotMeta | null = null;
   try {
     const metaRaw = await readFile(join(dir, SNAPSHOT_META_FILE), "utf-8");
-    const parsed = JSON.parse(metaRaw) as SnapshotMeta;
-    if (parsed.schemaVersion === SNAPSHOT_SCHEMA_VERSION) existing = parsed;
+    // DD-C: validated parse (was a schemaVersion-only check on a trusting
+    // cast). A wrong-shape meta leaves `existing` null — the accumulate path
+    // starts a fresh meta rather than extending a corrupt one, matching the
+    // prior schema-mismatch disposition.
+    const parsed: unknown = JSON.parse(metaRaw);
+    if (isSnapshotMeta(parsed)) existing = parsed;
   } catch (err) {
     // Missing meta.json is the cold-start case; malformed meta is an
     // anomaly worth surfacing so an operator can decide to delete the
@@ -623,8 +656,10 @@ export async function listSnapshots(
     const metaPath = join(sessionDir(sessionId, projectRoot), SNAPSHOT_META_FILE);
     try {
       const raw = await readFile(metaPath, "utf-8");
-      const parsed = JSON.parse(raw) as SnapshotMeta;
-      if (parsed.schemaVersion === SNAPSHOT_SCHEMA_VERSION && typeof parsed.timestamp === "string") {
+      // DD-C: validated parse (was schemaVersion+timestamp spot checks on a
+      // trusting cast) — a wrong-shape meta is skipped like an unreadable one.
+      const parsed: unknown = JSON.parse(raw);
+      if (isSnapshotMeta(parsed)) {
         out.push(parsed);
       }
     } catch (err) {
@@ -827,23 +862,43 @@ export async function applyRollback(
   const dir = sessionDir(sessionId, projectRoot);
   const metaPath = join(dir, SNAPSHOT_META_FILE);
 
-  let meta: SnapshotMeta;
+  let parsedMeta: unknown;
   try {
     const raw = await readFile(metaPath, "utf-8");
-    meta = JSON.parse(raw) as SnapshotMeta;
+    parsedMeta = JSON.parse(raw);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { filesRestored: 0, errors: [`session ${sessionId} not found or unreadable: ${msg}`] };
   }
-  if (meta.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
+  // Preserved pre-DD message for the version-skew case specifically.
+  const schemaVersion =
+    typeof parsedMeta === "object" && parsedMeta !== null
+      ? (parsedMeta as Record<string, unknown>).schemaVersion
+      : undefined;
+  if (schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
     return {
       filesRestored: 0,
       errors: [
-        `session ${sessionId} uses snapshot schema ${String(meta.schemaVersion)} ` +
+        `session ${sessionId} uses snapshot schema ${String(schemaVersion)} ` +
           `(expected ${SNAPSHOT_SCHEMA_VERSION}). Restore with a matching hatch3r version.`,
       ],
     };
   }
+  // DD-C: full shape validation before the restore loop indexes
+  // meta.paths/meta.relativePaths (was a trusting `as SnapshotMeta` cast —
+  // a hand-edited meta with a missing/mismatched array made the prepare
+  // phase walk undefined entries).
+  if (!isSnapshotMeta(parsedMeta)) {
+    return {
+      filesRestored: 0,
+      errors: [
+        `session ${sessionId} has a malformed meta.json (missing or mismatched ` +
+          `sessionId/timestamp/projectRoot/paths/relativePaths). Delete the session directory or ` +
+          `restore meta.json from backup before rolling back.`,
+      ],
+    };
+  }
+  const meta: SnapshotMeta = parsedMeta;
 
   const filesDir = join(dir, SNAPSHOT_FILES_DIR);
 

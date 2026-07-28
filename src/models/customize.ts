@@ -72,6 +72,21 @@ export async function readCustomizationWithWarnings(
     const parsed = parseYaml(raw) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== "object") return { value: undefined, warnings };
 
+    // DD-C7 (release/2.8.5): surface unknown keys instead of silently
+    // dropping them. The field-by-field reads below ignore anything outside
+    // the known set, so a typo'd key (`modle: opus`) previously produced a
+    // no-op override with zero signal — the same Silent Failure class as the
+    // D2-12 YAML-parse warning this rides beside. Routed through the
+    // existing warnings[] channel (init/sync/update/validate consumers).
+    const KNOWN_CUSTOMIZE_KEYS = new Set(["model", "effort", "scope", "description", "enabled"]);
+    const unknownKeys = Object.keys(parsed).filter((k) => !KNOWN_CUSTOMIZE_KEYS.has(k)).sort();
+    if (unknownKeys.length > 0) {
+      warnings.push(
+        `Customization YAML for "${id}" contains unknown field(s) that are ignored: ` +
+          `${unknownKeys.join(", ")}. Known fields: model, effort, scope, description, enabled.`,
+      );
+    }
+
     const result: Customization = {};
     let hasValue = false;
 

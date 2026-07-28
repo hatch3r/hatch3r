@@ -947,7 +947,7 @@ describe("sync command", () => {
       const wsSyncMod = await import("../../workspace/sync.js");
       const spy = vi
         .spyOn(wsSyncMod, "syncWorkspaceRepos")
-        .mockResolvedValue({ repos: [] });
+        .mockResolvedValue({ repos: [], outcome: "passed", counts: { total: 0, synced: 0, failed: 0, skipped: 0, dryRun: 0 } });
       try {
         const { syncCommand } = await import("../../cli/commands/sync.js");
         await syncCommand({ concurrency: "16" });
@@ -963,7 +963,7 @@ describe("sync command", () => {
       const wsSyncMod = await import("../../workspace/sync.js");
       const spy = vi
         .spyOn(wsSyncMod, "syncWorkspaceRepos")
-        .mockResolvedValue({ repos: [] });
+        .mockResolvedValue({ repos: [], outcome: "passed", counts: { total: 0, synced: 0, failed: 0, skipped: 0, dryRun: 0 } });
       try {
         const { syncCommand } = await import("../../cli/commands/sync.js");
         // "abc" → NaN → undefined → defaultSyncConcurrency() fallback.
@@ -980,7 +980,7 @@ describe("sync command", () => {
       const wsSyncMod = await import("../../workspace/sync.js");
       const spy = vi
         .spyOn(wsSyncMod, "syncWorkspaceRepos")
-        .mockResolvedValue({ repos: [] });
+        .mockResolvedValue({ repos: [], outcome: "passed", counts: { total: 0, synced: 0, failed: 0, skipped: 0, dryRun: 0 } });
       try {
         const { syncCommand } = await import("../../cli/commands/sync.js");
         // "0" is an integer but not > 0 → undefined → default.
@@ -1023,5 +1023,131 @@ describe("sync command", () => {
         spy.mockRestore();
       }
     });
+  });
+
+  // ── DD-B5/B6/B7 (release/2.8.5): cascade failures own the exit code and
+  // the JSON envelope. Pre-2.8.5 the cascade ran AFTER finishCommand and
+  // failures were warn-only: `hatch3r sync` exited 0 with N of M repos
+  // failed, and JSON consumers saw status "passed" with no workspace key.
+  describe("workspace cascade exit-code + JSON contract (DD-B5/B6)", () => {
+    const stageCascadeWorkspace = async (repos: Array<{ path: string; real: boolean }>) => {
+      await createTestProject(tempDir, {
+        // Keep the root emission surface minimal/deterministic.
+        features: {
+          agents: true, skills: false, rules: true, prompts: false,
+          commands: false, mcp: false, githubAgents: false, hooks: false,
+          handoffs: false,
+        },
+      });
+      for (const r of repos) {
+        if (r.real) await mkdir(join(tempDir, r.path), { recursive: true });
+      }
+      const wsManifest = {
+        version: "1.0.0",
+        hatch3rVersion: "1.9.0",
+        name: "test-ws",
+        repos: repos.map((r) => ({ path: r.path, sync: true })),
+        defaults: {
+          platform: "github",
+          tools: ["cursor"],
+          features: {
+            agents: true, skills: false, rules: true, prompts: false,
+            commands: false, mcp: false, githubAgents: false, hooks: false,
+          },
+          mcp: { servers: [] },
+          // A concrete selection keeps the member emission small AND avoids
+          // the content-less-defaults path (member resolution reads
+          // `defaults.content.items`).
+          content: {
+            preset: "minimal",
+            projectType: "brownfield",
+            teamSize: "solo",
+            items: {
+              agents: ["hatch3r-implementer"],
+              skills: [],
+              rules: ["hatch3r-git-conventions"],
+              commands: [],
+              prompts: [],
+              hooks: [],
+              githubAgents: [],
+            },
+          },
+        },
+        syncStrategy: "on-sync",
+      };
+      await writeFile(
+        join(tempDir, HATCH3R_DIR, "workspace.json"),
+        JSON.stringify(wsManifest, null, 2),
+      );
+    };
+
+    it("throws HatchError exit 2 / ADAPTER_ERROR when the cascade leaves a repo failed (DD-B6 BREAKING)", async () => {
+      await stageCascadeWorkspace([{ path: "missing-repo", real: false }]);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand();
+        expect.fail("expected syncCommand to throw HatchError for the failed cascade");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.exitCode).toBe(2);
+        expect(err.errorCode).toBe("ADAPTER_ERROR");
+        expect(err.message).toMatch(/Workspace sync completed with 1 of 1 repo\(s\) failed/);
+        expect(err.message).toContain("missing-repo");
+        expect(err.recoveryHint).toContain("--repos");
+      }
+    }, 120_000);
+
+    it("--format json: exactly one document, status 'partial', workspace.repos with structured errorDetail (DD-B5/B7)", async () => {
+      await stageCascadeWorkspace([
+        { path: "api", real: true },
+        { path: "missing-repo", real: false },
+      ]);
+
+      const stdoutWrites: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((chunk: unknown) => {
+          stdoutWrites.push(String(chunk));
+          return true;
+        }) as never);
+
+      try {
+        const { syncCommand } = await import("../../cli/commands/sync.js");
+        await expect(syncCommand({ format: "json" })).rejects.toMatchObject({
+          name: "HatchError",
+          exitCode: 2,
+        });
+
+        // Exactly ONE JSON document on stdout — the envelope emitted before
+        // the exit-code throw; the top-level handler's B7 error document is
+        // suppressed because the envelope already landed
+        // (wasJsonDocumentEmitted guard).
+        const jsonDocs = stdoutWrites.filter((w) => w.trimStart().startsWith("{"));
+        expect(jsonDocs).toHaveLength(1);
+        const doc = JSON.parse(jsonDocs[0]) as Record<string, unknown>;
+
+        expect(doc.status).toBe("partial");
+        expect(doc.command).toBe("sync");
+        const workspace = doc.workspace as {
+          outcome: string;
+          counts: Record<string, number>;
+          repos: Array<Record<string, unknown>>;
+        };
+        expect(workspace.outcome).toBe("partial");
+        expect(workspace.counts.failed).toBe(1);
+        expect(workspace.counts.synced).toBe(1);
+        expect(workspace.repos).toHaveLength(2);
+        const failed = workspace.repos.find((r) => r.path === "missing-repo") as {
+          action: string;
+          errorDetail?: { errorCode?: string; message?: string };
+        };
+        expect(failed.action).toBe("error");
+        expect(failed.errorDetail?.errorCode).toBe("FS_ERROR");
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    }, 120_000);
   });
 });

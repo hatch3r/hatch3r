@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { HatchError, type HatchManifest } from "../../types.js";
 
 // ── Mock all external dependencies before imports ─────────────
@@ -82,6 +82,21 @@ vi.mock("node:fs", () => ({
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
+
+// DD-A1 (release/2.8.5): locking is default-on, and `withManifestLock` →
+// `acquireWriteLock` runs a REAL `mkdir` before proper-lockfile — but this
+// suite fully mocks node:fs/promises (readFile only) to drive command logic,
+// so the acquire path would die on the missing mkdir export. Opt the whole
+// file out of locking; command-level lock behavior for `mcp remove` has its
+// own real-fs suite (src/__tests__/cli/lockOutcomes.test.ts).
+const ORIG_HATCH3R_LOCK = process.env.HATCH3R_LOCK;
+beforeAll(() => {
+  process.env.HATCH3R_LOCK = "0";
+});
+afterAll(() => {
+  if (ORIG_HATCH3R_LOCK === undefined) delete process.env.HATCH3R_LOCK;
+  else process.env.HATCH3R_LOCK = ORIG_HATCH3R_LOCK;
+});
 
 // ── Import mocked modules ─────────────────────────────────────
 

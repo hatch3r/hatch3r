@@ -37,7 +37,7 @@ sub_agents_spawned:
 
 Take a test planning scope (feature, module, or codebase area) and produce a complete test plan specification (`docs/specs/`), architectural decision records (`docs/adr/`) when significant testing infrastructure decisions are involved, and structured `todo.md` entries (epic + sub-items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization) to analyze the testing landscape from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Supports two modes: feature-scoped test planning (plan tests for a specific feature) and module/codebase-level coverage auditing (assess and improve test coverage across an area). Optionally chains into `hatch3r-testability` for CQ5 mandate verification or `hatch3r-board-fill` to create tracking issues.
 
-Scope boundary: this command plans the automated test STRATEGY; for a manual human-run QA walk-through of an existing PR or diff (a risk-ordered table the human executes to judge shippability), use the `hatch3r-qa-path` skill (`skills/hatch3r-qa-path/SKILL.md`).
+Scope boundary: this command plans the automated test STRATEGY; for a QA walk-through of an existing PR or diff (a risk-ordered table to judge shippability), use the `hatch3r-qa-path` skill (`skills/hatch3r-qa-path/SKILL.md`) — its Step 3.5 proving pass first auto-executes the rows it can prove (per-row delegation to `hatch3r-qa-validation` / browser-verify), so the human runs only the unproven residue.
 
 ---
 

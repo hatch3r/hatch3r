@@ -33,7 +33,7 @@ hatch3r is for developers and teams who use AI coding tools and want a maintaine
 - **Teams** standardizing agent behavior across Claude Code, Cursor, and Copilot from one source.
 - **Greenfield and brownfield projects** alike — init detects your repo context (greenfield/brownfield, solo/team) and platform (GitHub, Azure DevOps, GitLab auto-detected from the git remote), and filters content accordingly.
 
-The only prerequisite for first-run success is Node.js 22+.
+The only prerequisite for first-run success is Node.js 22.13+.
 
 ## The quality bar
 

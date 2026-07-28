@@ -21,7 +21,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
+import { safeWriteFile, predictMergeAction, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
@@ -33,6 +33,7 @@ import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../.
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
+import type { WorkspaceSyncResult } from "../../workspace/types.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { pruneArchives } from "../../archive/index.js";
@@ -391,13 +392,14 @@ export async function syncCommand(
     } catch (err) {
       verbose(`sync: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
-    // D11-14 (Cycle 11 Wave 3, P6): after the aged-orphan sweep (which removes
-    // crash leftovers), check for a YOUNG `.tmp.<8hex>` — the signal of another
-    // hatch3r write in flight RIGHT NOW. The single-repo default takes no lock,
-    // so two concurrent `hatch3r sync` runs clobber managed files
-    // last-writer-wins; warn the operator to pass HATCH3R_LOCK=1 on both runs.
-    // Returns null (no warning) when locking is already active. Best-effort,
-    // never aborts the sync.
+    // D11-14 (Cycle 11 Wave 3, P6) / DD-A9 (release/2.8.5): after the
+    // aged-orphan sweep (which removes crash leftovers), check for a YOUNG
+    // `.tmp.<8hex>` — the signal of another hatch3r write in flight RIGHT NOW.
+    // Cross-process locking is default-on since 2.8.5, so
+    // detectConcurrentWriteRisk returns null on the default path (the lock
+    // makes the warning moot); the check fires ONLY when this run opted out
+    // via `--no-lock` or HATCH3R_LOCK=0 and warns the operator to drop the
+    // opt-out. Best-effort, never aborts the sync.
     try {
       const concurrencyWarning = await detectConcurrentWriteRisk(rootDir, { recursive: true });
       if (concurrencyWarning) warn(concurrencyWarning);
@@ -483,17 +485,11 @@ export async function syncCommand(
       `Run ${chalk.cyan("hatch3r sync")} from the workspace root to sync all repos.`,
     );
   }
-  // D8-M3: workspace sync runs N parallel repo writes against a shared
-  // `.hatch3r/workspace.json` + per-repo manifests. Default-on cross-process
-  // locking serializes the read-modify-write window so two concurrent
-  // operators (or CI matrix runners) on the same workspace cannot silently
-  // clobber each other's `lastSync` timestamps. Set `HATCH3R_LOCK=0` to opt
-  // out. Single-repo sync invocations still inherit the prior default
-  // (no lock unless `HATCH3R_LOCK=1`) so the existing standalone flow is
-  // unchanged.
-  if (wsContext.type === "workspace-root" || wsContext.type === "workspace-member") {
-    enableDefaultCrossProcessLocking();
-  }
+  // DD-A3 (release/2.8.5): the D8-M3 per-context
+  // `enableDefaultCrossProcessLocking()` call that lived here is gone —
+  // cross-process locking is default-on for EVERY write path now
+  // (src/merge/safeWrite.ts::isLockingEnabled), workspace context or not.
+  // Opt-outs: `hatch3r --no-lock <command>` or HATCH3R_LOCK=0.
 
   // Wave 6: relocate any pre-1.9 `.agents/` state before reading the manifest
   // so legacy installs sync without manual `init` first.
@@ -1620,6 +1616,78 @@ export async function syncCommand(
     void formatOrphanScanDiagnostic;
   }
 
+  // ── Workspace sync cascade ────────────────────────────────────
+  // DD-B5 (release/2.8.5): the cascade RUNS BEFORE finishCommand so the one
+  // JSON envelope and the summary box reflect the whole run. The pre-2.8.5
+  // shape emitted the envelope (status "passed", no workspace key), THEN ran
+  // the cascade, warned on per-repo failures, and returned — `hatch3r sync`
+  // exited 0 with N of M repos failed, and JSON consumers had no signal.
+  // Gating preserved from the old bottom-of-function shape: no cascade under
+  // --dry-run (the dry-run advisory below still fires) and none after root
+  // adapter failures (the root ADAPTER_ERROR throw below still fires).
+  let wsCascade: WorkspaceSyncResult | null = null;
+  if (!opts.dryRun && adapterFailures.length === 0) {
+    // DD-C4: pass the warn channel so the reader's unknown-field advisory
+    // surfaces on the sync UI.
+    const wsManifest = await readWorkspaceManifest(rootDir, { onWarn: (msg) => warn(msg) });
+    if (wsManifest) {
+      const syncReposRequested = opts.repos !== undefined;
+      const syncOnSync = wsManifest.syncStrategy === "on-sync";
+      const syncableCount = wsManifest.repos.filter((r) => r.sync).length;
+      if (!syncReposRequested && !syncOnSync) {
+        if (syncableCount > 0) {
+          info(`Workspace: ${syncableCount} repo(s) available for sync. Run ${chalk.bold("hatch3r sync --repos")} to propagate.`);
+        }
+      } else {
+        // Determine which repos to sync
+        const repoPaths = Array.isArray(opts.repos) ? opts.repos : undefined;
+
+        console.log();
+        const wsSpinner = createSpinner(
+          `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
+        );
+        wsSpinner.start();
+
+        // D14-SA14.2-F4: coerce the `--concurrency <n>` string to a positive
+        // integer. Non-numeric or non-positive input is ignored so
+        // syncWorkspaceRepos falls back to defaultSyncConcurrency() (min(cpus, 8)).
+        const parsedConcurrency =
+          opts.concurrency !== undefined ? Number.parseInt(opts.concurrency, 10) : NaN;
+        const concurrencyOverride =
+          Number.isInteger(parsedConcurrency) && parsedConcurrency > 0
+            ? parsedConcurrency
+            : undefined;
+
+        wsCascade = await syncWorkspaceRepos(rootDir, {
+          repos: repoPaths,
+          // D1-SA1.3-12: forward-compatible plumbing. A `--dry-run` root run
+          // never reaches here (cascade is gated on !opts.dryRun), so this is
+          // always falsy today; the pass-through is retained so wiring a
+          // root-driven sub-repo dry-run preview later needs no change.
+          dryRun: opts.dryRun,
+          force: opts.force,
+          concurrency: concurrencyOverride,
+          onWarn: (msg) => warn(msg),
+        });
+
+        if (wsCascade.counts.failed > 0) {
+          wsSpinner.warn(`Workspace sync: ${wsCascade.counts.synced} synced, ${wsCascade.counts.failed} failed`);
+          for (const r of wsCascade.repos.filter((r) => r.action === "error")) {
+            // DD-B2: render the structured failure — message plus the
+            // machine-readable code and the per-repo fix when present.
+            const code = r.errorDetail?.errorCode ? ` [${r.errorDetail.errorCode}]` : "";
+            logError(`  ${r.path}${code}: ${r.error}`);
+            if (r.errorDetail?.recoveryHint) {
+              info(`    Try: ${r.errorDetail.recoveryHint}`);
+            }
+          }
+        } else {
+          wsSpinner.succeed(`Workspace sync: ${wsCascade.counts.synced} repo(s) synced`);
+        }
+      }
+    }
+  }
+
   console.log();
 
   const icons: Record<string, string> = {
@@ -1722,9 +1790,11 @@ export async function syncCommand(
     }
   }
 
+  // DD-B5: workspace-cascade failures now surface in the box title too.
+  const wsFailedCount = wsCascade?.counts.failed ?? 0;
   const boxTitle = opts.dryRun
     ? "Sync dry run complete"
-    : adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete";
+    : adapterFailures.length > 0 || wsFailedCount > 0 ? "Sync complete (with warnings)" : "Sync complete";
 
   // Decision 27 (Bucket 2.2): when a snapshot was captured, surface the
   // session id so the operator knows the rollback target without scanning
@@ -1732,6 +1802,16 @@ export async function syncCommand(
   if (syncSessionId) {
     summaryLines.push("");
     summaryLines.push(`${chalk.dim("Snapshot:")} ${syncSessionId} ${chalk.dim(`(revert: hatch3r rollback --session=${syncSessionId})`)}`);
+  }
+
+  // DD-B5: one workspace tally line in the box so the cascade outcome is
+  // visible in the summary, not only in the scroll-back spinner output.
+  if (wsCascade) {
+    summaryLines.push("");
+    summaryLines.push(
+      `${chalk.dim("Workspace:")} ${wsCascade.counts.synced}/${wsCascade.counts.total} repo(s) synced` +
+        (wsFailedCount > 0 ? chalk.red(` — ${wsFailedCount} failed`) : ""),
+    );
   }
 
   // SA12.1-F-D12-M2 (D12, P1): in JSON mode, emit a structured summary in
@@ -1745,17 +1825,24 @@ export async function syncCommand(
   // ladder, timing) stays on ui.ts primitives because finishCommand's single
   // box + next-steps shape cannot express chrome BETWEEN the box and the
   // next-steps without reordering the byte-identical human output.
+  // DD-B5: envelope status = max(root, workspace) on the severity order
+  // failed > partial > passed. The root repo contributes failed (adapter
+  // failures) or passed; the cascade contributes its outcome. Dry-run keeps
+  // its dedicated status (the cascade never runs under --dry-run).
+  const envelopeStatus = opts.dryRun
+    ? ("dry-run" as const)
+    : adapterFailures.length > 0 || wsCascade?.outcome === "failed"
+      ? ("failed" as const)
+      : wsCascade?.outcome === "partial"
+        ? ("partial" as const)
+        : ("passed" as const);
   finishCommand(format, {
     command: "sync",
     title: boxTitle,
     lines: summaryLines,
-    style: opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
+    style: opts.dryRun ? "info" : adapterFailures.length > 0 || wsFailedCount > 0 ? "info" : "success",
     json: {
-      status: opts.dryRun
-        ? ("dry-run" as const)
-        : adapterFailures.length > 0
-          ? ("failed" as const)
-          : ("passed" as const),
+      status: envelopeStatus,
       dryRun: !!opts.dryRun,
       adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
       successfulAdapters: m.tools.filter((t) => !adapterFailures.some((f) => f.tool === t)),
@@ -1765,6 +1852,12 @@ export async function syncCommand(
       results,
       partialFailureLines,
       snapshotSessionId: syncSessionId ?? null,
+      // DD-B5: cascade payload — present only when the cascade ran. `repos`
+      // carries the per-repo action plus the DD-B2 structured errorDetail
+      // (message / errorCode / recoveryHint / causeChain).
+      ...(wsCascade !== null
+        ? { workspace: { outcome: wsCascade.outcome, counts: wsCascade.counts, repos: wsCascade.repos } }
+        : {}),
     },
   });
   if (!jsonMode) {
@@ -1822,10 +1915,17 @@ export async function syncCommand(
     // D10-SA10.2-F5 + F6 (Cycle 10 Wave 4, D10, P1/P4): on a clean sync, emit
     // a next-steps ladder (closing the dead-code gap on `printNextSteps`,
     // which init's inline ladder never routed through) and an elapsed-time
-    // read-out. Suppressed on dry-run and partial failure so the post-summary
-    // chrome only fires when there is a confirmed success to act on. Both
-    // helpers are no-ops under quiet/json mode.
-    if (!opts.dryRun && adapterFailures.length === 0) {
+    // read-out. Suppressed on dry-run and ANY partial failure — root adapter
+    // failures AND a partial/failed workspace cascade (the box title and JSON
+    // envelope already grade those runs partial, and the command exits 2) —
+    // so the post-summary chrome only fires when there is a confirmed success
+    // to act on. Both helpers are no-ops under quiet/json mode.
+    if (
+      !opts.dryRun &&
+      adapterFailures.length === 0 &&
+      wsCascade?.outcome !== "partial" &&
+      wsCascade?.outcome !== "failed"
+    ) {
       printNextSteps([
         "Run `hatch3r status` to verify your generated files are in sync.",
         "Run `hatch3r validate` to check canonical content + customizations.",
@@ -1906,61 +2006,23 @@ export async function syncCommand(
     );
   }
 
-  // ── Workspace sync cascade ────────────────────────────────────
-  const wsManifest = await readWorkspaceManifest(rootDir);
-  if (!wsManifest) return;
-
-  const syncReposRequested = opts.repos !== undefined;
-  const syncOnSync = wsManifest.syncStrategy === "on-sync";
-  const syncableCount = wsManifest.repos.filter((r) => r.sync).length;
-
-  if (!syncReposRequested && !syncOnSync) {
-    if (syncableCount > 0) {
-      info(`Workspace: ${syncableCount} repo(s) available for sync. Run ${chalk.bold("hatch3r sync --repos")} to propagate.`);
-    }
-    return;
-  }
-
-  // Determine which repos to sync
-  const repoPaths = Array.isArray(opts.repos) ? opts.repos : undefined;
-
-  console.log();
-  const wsSpinner = createSpinner(
-    `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
-  );
-  wsSpinner.start();
-
-  // D14-SA14.2-F4: coerce the `--concurrency <n>` string to a positive
-  // integer. Non-numeric or non-positive input is ignored so syncWorkspaceRepos
-  // falls back to defaultSyncConcurrency() (min(cpus, 8)).
-  const parsedConcurrency =
-    opts.concurrency !== undefined ? Number.parseInt(opts.concurrency, 10) : NaN;
-  const concurrencyOverride =
-    Number.isInteger(parsedConcurrency) && parsedConcurrency > 0
-      ? parsedConcurrency
-      : undefined;
-
-  const wsResult = await syncWorkspaceRepos(rootDir, {
-    repos: repoPaths,
-    // D1-SA1.3-12: forward-compatible plumbing. A `--dry-run` root run returns
-    // earlier (with the un-previewed-cascade advisory) and never reaches here,
-    // so `opts.dryRun` is falsy at this call today; the pass-through is retained
-    // so wiring a root-driven sub-repo dry-run preview later needs no change.
-    dryRun: opts.dryRun,
-    force: opts.force,
-    concurrency: concurrencyOverride,
-    onWarn: (msg) => warn(msg),
-  });
-
-  const succeeded = wsResult.repos.filter((r) => r.action === "synced").length;
-  const failed = wsResult.repos.filter((r) => r.action === "error").length;
-
-  if (failed > 0) {
-    wsSpinner.warn(`Workspace sync: ${succeeded} synced, ${failed} failed`);
-    for (const r of wsResult.repos.filter((r) => r.action === "error")) {
-      logError(`  ${r.path}: ${r.error}`);
-    }
-  } else {
-    wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+  // DD-B6 (release/2.8.5, BREAKING): exit non-zero when the workspace
+  // cascade left any repo failed, mirroring the root-repo throw above.
+  // Pre-2.8.5, cascade failures were warn-only and `hatch3r sync` exited 0
+  // with N of M repos failed — CI pipelines could not detect the half-state.
+  // The envelope/box above already reported the partial outcome; this throw
+  // owns only the exit code (2, ADAPTER_ERROR — same contract as the root
+  // partial-failure throw at the top of this block).
+  if (wsCascade !== null && wsCascade.counts.failed > 0) {
+    const failedPaths = wsCascade.repos
+      .filter((r) => r.action === "error")
+      .map((r) => r.path)
+      .join(", ");
+    throw new HatchError(
+      `Workspace sync completed with ${wsCascade.counts.failed} of ${wsCascade.counts.total} repo(s) failed: ${failedPaths}.`,
+      2,
+      "ADAPTER_ERROR",
+      "Inspect the per-repo errors above, fix the failed repo(s), then re-run `hatch3r sync --repos` to retry the cascade.",
+    );
   }
 }

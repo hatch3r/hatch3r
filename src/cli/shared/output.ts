@@ -69,5 +69,41 @@ export function parseFormatOption(value: string | undefined): CliOutputFormat {
  * visible when stdout is piped (matches `src/cli/shared/ui.ts` error()/warn()).
  */
 export function emitJson(payload: unknown): void {
+  jsonDocumentEmitted = true;
   process.stdout.write(JSON.stringify(payload) + "\n");
+}
+
+// ── DD-B7 (release/2.8.5): resolved-format + emission tracking ──────────────
+//
+// The top-level error handler (`src/cli/index.ts`) needs two facts the
+// per-command scope used to keep to itself: (1) did this run resolve
+// `--format json`, and (2) has a JSON document already been written to
+// stdout? With both it can emit a machine-readable error document
+// (`{status:"failed",errorCode,message,recoveryHint,command,runId}`) on
+// stdout for a failed JSON-mode run — WITHOUT ever double-emitting after a
+// command that already wrote its envelope and then threw for the exit code
+// (verify/status FAIL paths, sync's partial-cascade throw). Both flags reset
+// at `beginCommand` so vitest in-process reuse cannot leak state across runs.
+
+let activeCliFormat: CliOutputFormat | null = null;
+let jsonDocumentEmitted = false;
+
+/** Record the format `beginCommand` resolved for the current run (resets the
+ *  emitted-document flag). Pass `null` to clear (tests). */
+export function setActiveCliFormat(format: CliOutputFormat | null): void {
+  activeCliFormat = format;
+  jsonDocumentEmitted = false;
+}
+
+/** The `--format` value the current run resolved via `beginCommand`, or
+ *  `null` before any command began (e.g. commander parse errors). */
+export function getActiveCliFormat(): CliOutputFormat | null {
+  return activeCliFormat;
+}
+
+/** Whether {@link emitJson} has written a document since the last
+ *  {@link setActiveCliFormat} — the exactly-one-envelope guard for the
+ *  top-level error handler. */
+export function wasJsonDocumentEmitted(): boolean {
+  return jsonDocumentEmitted;
 }

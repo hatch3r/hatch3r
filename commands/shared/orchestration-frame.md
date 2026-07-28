@@ -17,7 +17,7 @@ Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` 
 Citation template (drop into the command where the block used to live):
 
 ```
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff | In-Session Plan Gate | Execute-Now Continuation}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff | In-Session Plan Gate | Execute-Now Continuation | Browser Verification (opt-in)}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
 ```
 
 `<…>` slots below are the only text a command varies; everything outside them is invariant and lives here.
@@ -209,3 +209,17 @@ After deliverable consolidation, before the Iteration Summary, ASK: execute now 
 **Deep-run deferral default:** on Deep multi-flow router runs the recommended default flips to (c) stop — the fresh-session context rationale dominates there.
 
 The Iteration Summary covers plan + execution when (a) ran; the handoff block is emitted only on the (c) path.
+
+---
+
+## Browser Verification (opt-in)
+
+Authoritative protocol: `rules/hatch3r-browser-verification.md` (tier definitions, tool selection, evidence contract). Commands that verify UI-affecting changes offer browser verification as a one-time session opt-in ASK at command start. When the user enables it, every browser-verification step follows the tiered contract:
+
+- **Tier 1 — default (spec-first):** write or update a Playwright spec asserting the expected behavior, run `npx playwright test --reporter=line` headless, and read only the failure output — assertions execute in the browser process, not in model context.
+- **Tier 2 — exploration only:** drive the browser step-by-step only when no spec can express the check or the failure is not yet understood; read page state via accessibility snapshots, never screenshots.
+- **Tier 3 — inherently-visual checks only:** screenshot only when the property under test is pixel/visual and neither a `toHaveScreenshot()` diff nor a computed-style/ARIA assertion can express it — viewport-scoped, one per decision, never per-route capture loops.
+
+When the user declines, skip every browser-verification step for the session and do not re-ask; the decline is a user decision recorded once at the opt-in ASK, not a silent tool-absence skip.
+
+Per-command slot: the opt-in ASK phrasing plus the stage list where verification runs, and any command-specific restriction (e.g. observation-only Tier 2 for plan-producing commands that never mutate code).

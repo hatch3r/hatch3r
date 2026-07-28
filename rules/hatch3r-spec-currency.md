@@ -1,0 +1,56 @@
+---
+id: hatch3r-spec-currency
+type: rule
+description: Spec-currency mandate — any diff changing user-observable behavior covered by a docs/specs/ file updates that spec in the same delivery; staleness definition, review-gate drift finding with a named owner, and a release-readiness sweep
+scope: conditional
+globs: "docs/specs/**,src/**"
+tags: [maintenance, spec]
+precedence: normal
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# Spec Currency
+
+**Pillars:** P2 (Scientific & Practical Quality), CQ10 (Product & Spec Quality), CQ8 (Maintainability)
+
+## Scope
+
+Binds every spec file under `docs/specs/` and every code change whose user-observable behavior a spec section describes. User-observable behavior = anything a user can see, invoke, or depend on: UI surfaces, CLI flags and output, API request/response shapes, config keys and defaults, error messages, exit codes.
+
+## Same-Delivery Mandate
+
+A diff that changes user-observable behavior covered by a `docs/specs/` file updates that spec section **in the same delivery** (same PR / same review loop). A spec update is part of the change, not a follow-up task — a merged behavior change with an untouched covering spec is drift by definition.
+
+Ownership split:
+
+- **Implementer proposes** — `hatch3r-implementer` names the affected spec section(s) and drafts the delta in its structured result (`Spec updated:` field). When specs exist under `docs/specs/`, the field is filled or explicitly `none — no covering section`; it is never omitted.
+- **Docs-writer applies** — `hatch3r-docs-writer` lands the spec edit at Phase 4 dispatch (`rules/hatch3r-agent-orchestration.md` → Phase 4). In flows without a Phase 4 (Tier 1), the implementer applies its own proposed delta in the same turn.
+
+## Staleness Threshold
+
+A spec section is **stale** when the behavior it describes changed after the section's last edit — the section is older than the behavior. Detection: compare the spec file's last-edit commit (`git log -1 --format=%cI -- docs/specs/<file>`) against the commit that changed the described surface; the spec losing that comparison on a covered surface is drift.
+
+| Condition | Classification |
+|-----------|----------------|
+| Behavior changed this delivery; covering spec section untouched | Drift finding — blocks the review gate until the section is updated or deferred with a named owner |
+| Spec section describes behavior removed or renamed in an earlier delivery | Drift finding at first detection (review or release sweep) |
+| Changed surface has no covering spec section | Not drift — coverage gap; record for the spec backlog, do not block |
+
+## Review Gate
+
+On every review pass over a diff matching this rule's globs, the reviewer checks spec currency: a user-observable change whose covering spec section the diff leaves untouched produces a **finding with a named owner** —
+
+```
+spec-drift: docs/specs/<file>#<section> — owner: <implementer|docs-writer>
+```
+
+— never the ownerless escape "spec may be outdated". Severity: Warning by default; Critical when the stale section documents a security, auth, or data-loss behavior. Deferral requires a todo anchor plus the named owner; an autonomous run cannot self-approve deferral.
+
+## Release-Readiness Gate
+
+`skills/hatch3r-release/SKILL.md` runs a spec-currency sweep before cut: list `docs/specs/` files, map each release-touched user-observable surface to its covering section, and confirm no drift finding is open. An open drift finding at release-cut blocks the cut until fixed or deferred with a quoted maintainer decision.
+
+## References
+
+- Fern — "Docs-as-code: what is it, how it works, and ways to start": documentation changes flow through the same pull-request review as code; API changes without documentation updates are treated as not ready to ship. https://buildwithfern.com/post/docs-as-code — accessed 2026-07-28 (web search). Trust tier: vendor-note.
+- Falconer — "How to build living documentation that actually stays updated": staleness detection routed to a named owner so fixing drift costs less than ignoring it. https://falconer.com/guides/living-documentation — accessed 2026-07-28 (web search). Trust tier: independent-analysis.

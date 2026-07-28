@@ -130,7 +130,12 @@ export function resolveRepoConfig(
   // is the authoritative effective set; `excludedContent` / `addedContent`
   // are net-delta reports (a later include that re-adds an earlier-excluded id
   // un-records the exclude, and vice versa) so they describe the final state.
-  const contentIds = getAllContentIds(defaults.content);
+  // Legacy workspace manifests can reach here without a defaults.content
+  // block even though the type marks it required — guard instead of crashing
+  // on `Object.values(undefined)` inside getAllContentIds.
+  const contentIds = defaults.content
+    ? getAllContentIds(defaults.content)
+    : new Set<string>();
   const excludedContent: string[] = [];
   const addedContent: string[] = [];
 

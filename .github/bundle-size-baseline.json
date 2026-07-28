@@ -1,9 +1,9 @@
 {
   "$schema-note": "Committed bundle-size baseline for the PR-checks size-check regression gate (governance finding D4-8). Measures ONLY the runtime CLI bundle dist/cli/index.js — dist/content/ is intentional verbatim copy and is excluded by construction. The gate reads only artifact, cliBundleBytes, and tolerancePercent, and fails when current dist/cli/index.js exceeds cliBundleBytes * (1 + tolerancePercent/100). The updatedAt/commit/reason fields attest the current cliBundleBytes anchor — when it was set, which commit set it, and why; the gate ignores them, and they track the value's anchor rather than cosmetic edits to this file. Re-baseline policy: re-anchor in the SAME PR as any intentional bundle-affecting change — do not wait for a gate red, which strands the accumulated sub-tolerance drift on an unrelated later PR. Regenerate after npm run build with: node -e \"const{statSync}=require('fs');const b=statSync('dist/cli/index.js').size;const j={...require('./.github/bundle-size-baseline.json'),cliBundleBytes:b,updatedAt:new Date().toISOString().slice(0,10)};require('fs').writeFileSync('.github/bundle-size-baseline.json',JSON.stringify(j,null,2)+'\\n')\" then hand-set commit (the anchoring commit SHA) and reason (why the increase) in the same edit. h4tcher-release-prep Step 7 re-anchors each release so genuine regressions are measured from a current baseline.",
   "artifact": "dist/cli/index.js",
-  "cliBundleBytes": 1476806,
+  "cliBundleBytes": 1508011,
   "tolerancePercent": 10,
-  "updatedAt": "2026-07-21",
-  "commit": "b534e167",
-  "reason": "v2.8.0 release re-anchor (+0.86%: worktree attach mode, communicationStyle/defaultEffort manifest dials, Tier-1 skip criteria)"
+  "updatedAt": "2026-07-28",
+  "commit": "71442466",
+  "reason": "v2.8.5 release re-anchor (+2.11%: sync error contract + workspace payload, default-on locking + --no-lock, config-ingress parsers, content-selection refresh checkpoint, communication-style prompt)"
 }

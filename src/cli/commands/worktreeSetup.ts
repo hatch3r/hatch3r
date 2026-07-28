@@ -36,7 +36,7 @@ import {
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import type { CliOutputFormat } from "../shared/output.js";
 import { copyToClipboard } from "../shared/clipboard.js";
-import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
+
 
 /**
  * C8-D15-M2 (CWE-552, https://cwe.mitre.org/data/definitions/552.html):
@@ -604,12 +604,11 @@ export async function worktreeSetupCommand(
     interactive: opts.dryRun !== true,
   });
 
-  // D8-M3: worktree contexts multiply the surface for concurrent writes from
-  // the main repo + N worktrees onto the same upstream `.hatch3r/` and copied
-  // `.env.*` files. Default-on cross-process locking closes the silent-clobber
-  // window observed in CHANGELOG #73 without forcing every operator to know
-  // about the `HATCH3R_LOCK=1` env var. Set `HATCH3R_LOCK=0` to opt out.
-  enableDefaultCrossProcessLocking();
+  // DD-A3 (release/2.8.5): the D8-M3 `enableDefaultCrossProcessLocking()`
+  // call that lived here is gone — cross-process locking is default-on
+  // process-wide (src/merge/safeWrite.ts::isLockingEnabled), so the worktree
+  // silent-clobber window (CHANGELOG #73) is closed without a per-command
+  // enable. Opt-outs: `hatch3r --no-lock worktree-setup` or HATCH3R_LOCK=0.
 
   if (opts.fromPath) {
     if (nameOrUndefined) {

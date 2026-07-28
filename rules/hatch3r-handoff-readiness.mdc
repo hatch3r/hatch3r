@@ -30,7 +30,7 @@ Before writing a handoff to `.hatch3r/handoffs/active/`, verify each criterion. 
 
 ## Enforcement
 
-The `hatch3r-handoff-preparer` agent applies this checklist before the handoff bytes are committed. `writeHandoff` (`src/content/handoffs/index.ts`) is the CLI-internal atomic writer, not an agent call target: an LLM skill composes and validates the file, then commits it through the guarded `hatch3r handoff capture` shell gate (queued — D5-SA5.6-02) or, until that ships, writes it with its platform `Write` tool after this checklist passes (a raw `Write` carries no `HATCH3R_LOCK` / atomic-rename guarantee — no concurrent handoff writes). The `validateHandoffContent` function in `src/content/handoffs/validation.ts` runs criteria 1-7 as `errors[]` and 8-10 as `warnings[]`.
+The `hatch3r-handoff-preparer` agent applies this checklist before the handoff bytes are committed. `writeHandoff` (`src/content/handoffs/index.ts`) is the CLI-internal atomic writer, not an agent call target: an LLM skill composes and validates the file, then commits it through the guarded `hatch3r handoff capture` shell gate (queued — D5-SA5.6-02) or, until that ships, writes it with its platform `Write` tool after this checklist passes (a raw `Write` carries no cross-process write-lock / atomic-rename guarantee — hatch3r CLI writes lock by default since 2.8.5, a platform `Write` does not, so no concurrent handoff writes). The `validateHandoffContent` function in `src/content/handoffs/validation.ts` runs criteria 1-7 as `errors[]` and 8-10 as `warnings[]`.
 
 ## Retro-Discredit Rule (D13 — handoff self-assessment trust gate)
 

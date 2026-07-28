@@ -14,7 +14,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 - `ERR_UNSUPPORTED_ESM_URL` or similar module resolution errors
 - `SyntaxError: Unexpected token` when running hatch3r
 
-**Cause:** Node.js version is below 22. hatch3r requires Node.js 22+.
+**Cause:** Node.js version is below 22.13. hatch3r requires Node.js 22.13+.
 
 **Solution:**
 1. Check your version: `node --version` (should show v22.0.0 or higher)
@@ -23,7 +23,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 ### `npm run build` fails with ESM resolution errors
 
-**Cause:** Same as above — Node.js &lt; 22.
+**Cause:** Same as above — Node.js &lt; 22.13.
 
 **Solution:** Confirm Node.js 22+ is active by running `node --version` and reading a value `>= v22.0.0`. If using nvm: `nvm use 22` or `nvm install 22`. Then run `npm run build` again.
 

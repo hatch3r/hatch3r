@@ -43,9 +43,7 @@ At the start of this command, ask the user once:
 
 > "Would you like to enable browser verification for this session? This uses Playwright to observe reported issues in the running application."
 
-If **yes**: the Step 6 validation pass may reproduce user-reported findings in the running application — navigate to affected pages, observe the reported behavior, check the console — to rate finding confidence. Observation only; no fix is applied.
-
-If **no**: all browser verification steps are skipped silently throughout the entire command.
+> Browser-verification contract (spec-first, tiered): see `commands/shared/orchestration-frame.md` → Browser Verification (opt-in); protocol home `rules/hatch3r-browser-verification.md`. Per-command slot: when enabled, the Step 6 validation pass may reproduce user-reported findings to rate finding confidence — Tier 2 only (accessibility-snapshot step-driving + console read; this command never mutates code, so no spec file is written); observation only, no fix applied. If declined, skip every browser-verification step for the session and do not re-ask.
 
 # Rework -- From Implementation to a Validated Rework Plan
 
@@ -564,3 +562,5 @@ The modes file contains: auto-advance mode (`--auto` — unattended plan: scan-o
 Close a **deferred** run (Execute-or-Defer stop, `--auto`, or a non-interactive run) with the Plan-Execution Handoff block immediately after the Iteration Summary recap — a sanctioned post-recap trailer (when the Remaining Work terminal block also fires per `rules/hatch3r-iteration-summary.md`, it renders after this block as the run's very last output) (frontmatter `plan_handoff: true`; format + shapes: `commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
 
 Fill Shape A (direct): first line `/hatch3r-workflow --plan-file=docs/rework/{YYYY-MM-DD}-{branch-slug}.md` (the plan this run wrote); `<one-line scope>` from the Step 2 run context; top-3 criteria from the plan's per-finding acceptance criteria, Critical findings first. When todo.md deferrals were written, append the board-alternative line. **Tier-1 carve-out:** a cleanup-only plan (≤3 single-line findings) MAY substitute `/hatch3r-quick-change` with the findings inlined as its batch input. Suppressed when this flow runs under `/hatch3r-plan` — the router emits one consolidated block. `--review-only` runs emit no block (nothing was produced to execute).
+
+**Plan-file lifecycle:** `docs/rework/{YYYY-MM-DD}-{branch-slug}.md` is a generated working artifact — once its findings are executed and merged, or a newer rework run supersedes it, the file is a cleanup candidate; consolidate stale plan files via the `hatch3r-cleanup` skill (`skills/hatch3r-cleanup/SKILL.md`).

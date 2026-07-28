@@ -29,6 +29,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **dependency-management** | Lockfile discipline, CVE scanning, transitive audits, major-version upgrade protocol, bundle-size gates, and SHA-pinned GitHub Actions. |
 | **container-hardening** | Container image hardening -- digest pinning, distroless / Wolfi base, non-root user, SBOM-in-image, cosign signing + verification, CVE scanning. |
 | **tool-currency** | CLI-tool version pinning, vendor-release research cadence (≤90 days), CVE-feed acknowledgement (≤90 days), and a release-readiness gate. |
+| **spec-currency** | Spec-currency mandate -- any diff changing user-observable behavior covered by a `docs/specs/` file updates that spec in the same delivery; staleness definition, review-gate drift finding with a named owner, release-readiness sweep. |
 
 ### Observability and reliability
 
@@ -110,7 +111,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar-implementation discovery, transitive dependency tracing. |
 | **learning-system** | Project-level learning system -- structured frontmatter, auto-consolidation triggers, a mandatory consultation gate for Implementer/Reviewer/Researcher/Fixer, token-efficiency heuristics, and mid-task consult content-security. |
 | **handoff-readiness** | Handoff readiness checklist -- pre-write validation before persisting a canonical handoff document. |
-| **browser-verification** | Playwright browser verification for UI changes -- visual regression, screenshot capture, console checks, and accessibility spot-checks. |
+| **browser-verification** | Three-tier browser verification for UI changes -- Tier 1 scripted Playwright spec runs (read failures only) as the default, Tier 2 accessibility-snapshot step-driving for exploration, Tier 3 screenshots for inherently-visual checks; non-launderable result tokens (`VERIFIED-SPEC \| VERIFIED-INTERACTIVE \| BLOCKED_MISSING_TOOL \| N/A-NO-UI`). |
 | **tooling-hierarchy** | Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification. |
 
 ### Code standards, CI/CD, and flags

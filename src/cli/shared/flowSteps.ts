@@ -32,13 +32,14 @@ import {
   type CatalogItem,
   type ContentIndex,
 } from "../../content/index.js";
-import type {
-  CliToolId,
-  ConfidenceFloor,
-  Features,
-  MaturityTier,
-  Platform,
-  Tool,
+import {
+  HatchError,
+  type CliToolId,
+  type CommunicationStyle,
+  type ConfidenceFloor,
+  type MaturityTier,
+  type Platform,
+  type Tool,
 } from "../../types.js";
 
 // Leaf casts like `answer.platform as TState["platform"]` close the
@@ -123,9 +124,13 @@ export interface PresetStepOptions<TState extends object> {
   index: ContentIndex;
   projectType: "greenfield" | "brownfield";
   teamSize: "solo" | "team";
-  /** Language filter for the item-count estimate (init flows only). */
+  /**
+   * Language filter for the item-count estimate. init passes the detected
+   * set; config passes `manifest.languages` (release/2.8.5 BUG-4 alignment —
+   * both flows estimate with the same filters they resolve with).
+   */
   projectLanguages?: string[];
-  /** Estimate options (config passes `{ skipContextFilters: true }`). */
+  /** Estimate options (no current caller passes them; kept for API parity with estimatePresetItemCount). */
   estimateOptions?: { skipContextFilters?: boolean };
   /**
    * First-visit default. A thunk defers reads off optional sources —
@@ -247,6 +252,21 @@ export function customItemsStep<
     id: "customItems",
     skip: (s) => (opts.extraSkip ? opts.extraSkip(s) : false) || s.preset !== "custom",
     async run(_state, previous): Promise<StepResult<TState["customItems"]>> {
+      // release/2.8.5 (BUG-2): an empty index used to reach the checkbox
+      // renderer, which threw the opaque upstream ValidationError
+      // "[backable-checkbox] No selectable choices — all are disabled."
+      // (non-TTY: an equally opaque @inquirer/checkbox error). Fail first
+      // with an actionable error naming the real problem and the recovery.
+      if (opts.index.items.length === 0) {
+        throw new HatchError(
+          "Custom content selection has 0 items to choose from — the content index is empty.",
+          undefined,
+          "CONFIG_ERROR",
+          "The bundled canonical content could not be indexed. Reinstall hatch3r " +
+            "(`npm i -g hatch3r`) or run `npm run build` in a source checkout, then re-run. " +
+            "A non-custom preset (e.g. `--preset standard`) also fails until the content is restored.",
+        );
+      }
       const groupedChoices = buildTagGroupedCustomContentChoices(
         opts.index.items,
         opts.baselineChecked(previous),
@@ -276,16 +296,26 @@ export interface ToolsStepOptions {
    * config: `manifest.tools`).
    */
   defaults: Tool[];
-  /**
-   * Substituted when the user submits an empty selection (init falls back
-   * to DEFAULT_TOOLS). Omit to return the empty array as-is — config
-   * validates non-empty after the machine resolves.
-   */
-  emptyFallback?: Tool[];
   wslTheme?: unknown;
 }
 
-/** Multi-select editor-tool picker (`name: "tools"`). */
+/**
+ * Multi-select editor-tool picker (`name: "tools"`).
+ *
+ * release/2.8.5 (BUG-3): two changes vs the 2.8.0 shape.
+ * 1. The active default (`previous ?? defaults`) is ALSO baked into each
+ *    choice's `checked` flag, so the pre-selection renders even through a
+ *    prompt implementation that ignores `default` (the upstream
+ *    `@inquirer/checkbox` has no `default` support; the backable fork now
+ *    seeds from it too — belt and suspenders).
+ * 2. The former `emptyFallback` option is gone: an empty submission was
+ *    silently rewritten to `["claude"]` on init, generating a setup the user
+ *    never picked (Silent Failure Contract violation). Both init and config
+ *    now share required-selection semantics — `required: true` re-prompts in
+ *    a real TTY ("At least one choice must be selected"), and a
+ *    non-interactive resolution that still yields [] throws a
+ *    VALIDATION_ERROR instead of silently substituting a tool.
+ */
 export function toolsStep<TState extends { tools: Tool[] }>(
   opts: ToolsStepOptions,
 ): StepFor<TState, "tools"> {
@@ -293,20 +323,33 @@ export function toolsStep<TState extends { tools: Tool[] }>(
     id: "tools",
     async run(_state, previous): Promise<StepResult<TState["tools"]>> {
       const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
+      const active = previous ?? opts.defaults;
       const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
         {
           type: "checkbox",
           name: "tools",
           message: "Select tools to configure:",
-          choices: TOOL_PROMPT_CHOICES,
-          default: previous ?? opts.defaults,
+          choices: TOOL_PROMPT_CHOICES.map((c) => ({
+            ...c,
+            checked: active.includes(c.value),
+          })),
+          default: active,
+          required: true,
           ...themeOption,
         },
       ]);
       if (isBack(toolAnswers.tools)) return BACK;
       const filtered = (toolAnswers.tools ?? []) as Tool[];
-      if (opts.emptyFallback) {
-        return (filtered.length > 0 ? filtered : opts.emptyFallback) as TState["tools"];
+      if (filtered.length === 0) {
+        // TTY runs never reach this (required: true re-prompts); it fires for
+        // mocked/non-interactive resolutions that answered [].
+        throw new HatchError(
+          "At least one tool must be selected.",
+          undefined,
+          "VALIDATION_ERROR",
+          "Select at least one of claude, cursor, or copilot (space toggles, enter confirms), " +
+            "or pass an explicit `--tools <list>` on headless runs.",
+        );
       }
       return filtered as TState["tools"];
     },
@@ -355,7 +398,7 @@ export function cliToolsStep<TState extends { cliTools: CliToolId[] }>(
 
 // ── mcpGate ─────────────────────────────────────────────────────────
 
-export interface McpGateStepOptions {
+export interface McpGateStepOptions<TState extends object = object> {
   /**
    * Whether the manifest already has MCP servers configured. Re-running
    * config with no prior MCP servers defaults the confirm to No; with
@@ -363,20 +406,28 @@ export interface McpGateStepOptions {
    * their MCP setup by accepting the default (`confirmMcpGate` semantics).
    */
   hasExisting: boolean;
+  /**
+   * release/2.8.5 (BUG-4): skip predicate injected by the caller. The
+   * pre-2.8.5 built-in skip read the in-run `features` checkbox answer, but
+   * the config features prompt was removed (init never had one — the parity
+   * fix), so the gate condition now derives from the PERSISTED
+   * `manifest.features.mcp` the caller closes over. MCP opt-in lives behind
+   * `hatch3r mcp setup` / `init --mcp`.
+   */
+  skip?: (state: Partial<TState>) => boolean;
 }
 
 /**
- * Yes/No MCP gate (`name: "proceed"` via `confirmMcpGate`). Built-in
- * skip: runs only when the in-progress feature selection includes "mcp".
- * `previous` is intentionally not threaded — the confirm default derives
- * from `hasExisting`, matching the pre-extraction config step.
+ * Yes/No MCP gate (`name: "proceed"` via `confirmMcpGate`). `previous` is
+ * intentionally not threaded — the confirm default derives from
+ * `hasExisting`, matching the pre-extraction config step.
  */
-export function mcpGateStep<TState extends { features: (keyof Features)[]; mcpGate: boolean }>(
-  opts: McpGateStepOptions,
+export function mcpGateStep<TState extends { mcpGate: boolean }>(
+  opts: McpGateStepOptions<TState>,
 ): StepFor<TState, "mcpGate"> {
   return {
     id: "mcpGate",
-    skip: (s) => !(s.features?.includes("mcp")),
+    skip: opts.skip,
     async run(): Promise<StepResult<TState["mcpGate"]>> {
       const result = await confirmMcpGate({ hasExisting: opts.hasExisting });
       return result as StepResult<TState["mcpGate"]>;
@@ -525,6 +576,61 @@ export function confidenceFloorStep<TState extends { confidenceFloor: Confidence
         },
       ]);
       return isBack(answer.confidenceFloor) ? BACK : (answer.confidenceFloor as TState["confidenceFloor"]);
+    },
+  };
+}
+
+// ── communicationStyle ──────────────────────────────────────────────
+
+export interface CommunicationStyleStepOptions {
+  /** Prompt copy — init: "How should agents talk to you?"; config: "Communication style:". */
+  message: string;
+  /**
+   * First-visit default. init passes DEFAULT_COMMUNICATION_STYLE ("plain");
+   * config passes the persisted `readCommunicationStyle(manifest)` value.
+   * Builders never read the manifest.
+   */
+  defaultStyle: CommunicationStyle;
+  skip?: (state: Partial<object>) => boolean;
+}
+
+/**
+ * Single-select operator-communication picker (`name: "communicationStyle"`,
+ * release/2.8.5). Choice copy mirrors the per-style effects the adapters stamp
+ * (`communicationStyleDirective` in `src/manifest/hatchJson.ts`). Wired
+ * unconditionally into the config machine and conditionally into init's
+ * single-repo machine (skipped when `--communication-style`, a headless flag
+ * (`--yes`/`--quick`/`--default`), or `--resume` resolved it) — the scalar
+ * `config communication_style=<v>` form remains the headless surface.
+ */
+export function communicationStyleStep<TState extends { communicationStyle: CommunicationStyle }>(
+  opts: CommunicationStyleStepOptions,
+): StepFor<TState, "communicationStyle"> {
+  return {
+    id: "communicationStyle",
+    skip: opts.skip,
+    async run(_state, previous): Promise<StepResult<TState["communicationStyle"]>> {
+      const answer = await inquirer.prompt<{ communicationStyle: CommunicationStyle | typeof BACK }>([
+        {
+          type: "select",
+          name: "communicationStyle",
+          message: opts.message,
+          choices: [
+            {
+              name: "plain — define jargon on first use; lead with outcomes",
+              value: "plain" as CommunicationStyle,
+            },
+            {
+              name: "technical — precise domain terminology; lead with implementation detail",
+              value: "technical" as CommunicationStyle,
+            },
+          ],
+          default: previous ?? opts.defaultStyle,
+        },
+      ]);
+      return isBack(answer.communicationStyle)
+        ? BACK
+        : (answer.communicationStyle as TState["communicationStyle"]);
     },
   };
 }

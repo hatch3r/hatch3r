@@ -11,7 +11,9 @@ import type {
 import { HatchError } from "../types.js";
 import { resolveAgentModel, resolveArtifactModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
+// DD-D3 (release/2.8.5): import from the domain module, not the CLI barrel —
+// this was the one adapter→cli/** import (boundary Rule 1 violation).
+import { generateBridgeOrchestration } from "./shared/bridgeOrchestration.js";
 import { resolveUserContentRoot } from "../content/index.js";
 import { buildAgentsMdOutput, resolveAgentsMdOwner } from "./agentsMd.js";
 import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";

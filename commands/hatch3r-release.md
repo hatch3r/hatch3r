@@ -271,7 +271,7 @@ Spawn `hatch3r-reviewer` with the full release diff (`git diff {lastTag}..HEAD`)
 1. **0 Critical + 0 Warning AND confidence != low:** loop clean → proceed to 7b.
 2. **0 Critical + 0 Warning AND confidence == low:** trigger a second reviewer pass before exiting.
 3. **Critical/Warning findings exist:** spawn `hatch3r-fixer` with the reviewer output (record its `delegation_proof_id`), re-review.
-4. **Repeat** for a maximum of **3 iterations** (code-class cap per `commands/hatch3r-workflow.md` Phase 4a rationale). If still not clean, **ASK** the user (force continue / manual fix / abort the release).
+4. **Repeat** for a maximum of **3 iterations** (code-class cap per `commands/hatch3r-workflow.md` Phase 4a rationale) — iterations >=2 re-review only changed hunks plus findings marked verify-fix; Medium/Low findings carry forward, not re-litigated. If still not clean, cap-out is an UNRESOLVED escalation, never silent continuation — **ASK** the user (force continue / manual fix / abort the release).
 
 Each reviewer/fixer prompt MUST include: the agent protocol, all `scope: always` rules, the release diff, the acceptance criteria, the `correlation_id` (UUID v4 per `rules/hatch3r-agent-orchestration.md` → Correlation ID), and the Confidence expression requirement (verbatim).
 

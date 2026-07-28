@@ -16,7 +16,7 @@
 
 import { HatchError } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { type CliOutputFormat, parseFormatOption, emitJson } from "./output.js";
+import { type CliOutputFormat, parseFormatOption, emitJson, setActiveCliFormat } from "./output.js";
 import {
   resetUiState,
   setJson,
@@ -79,6 +79,11 @@ export function beginCommand(
   const parsed = parseFormatOption(opts.format);
   const format: CliOutputFormat =
     parsed === "json" || opts.json === true ? "json" : parsed;
+  // DD-B7 (release/2.8.5): record the resolved format BEFORE the interactive
+  // rejection below, so even that exit-2 refusal reaches the top-level
+  // handler with json mode known and emits a machine-readable error document
+  // on stdout (src/cli/index.ts) instead of leaving CI to grep stderr.
+  setActiveCliFormat(format);
   if (format === "json" && cfg.interactive === true && opts.yes !== true) {
     throw new HatchError(
       "--format json cannot drive an interactive prompt flow: the prompts would interleave with the single JSON document on stdout.",

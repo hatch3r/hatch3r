@@ -146,6 +146,8 @@ describe("init post-init tip", () => {
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ maturity: "solo" });
+    // release/2.8.5: communication-style prompt follows maturity.
+    inq.mockResolvedValueOnce({ communicationStyle: "plain" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ tools: [] });
 

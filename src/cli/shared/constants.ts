@@ -19,6 +19,12 @@ export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t
   value: t,
 }));
 
+// release/2.8.5 (BUG-4): the config features checkbox that consumed this list
+// was removed (init/config parity — feature flags now derive from the
+// persisted manifest; MCP opt-in lives behind `hatch3r mcp setup` /
+// `init --mcp`). The list is retained as the authoritative feature-surface
+// enumeration (constants.test.ts pins it) and as the candidate choice set for
+// a future scalar `config features.*` surface.
 export const FEATURE_CHOICES: { name: string; value: keyof Features }[] = [
   { name: "Agents", value: "agents" },
   { name: "Skills", value: "skills" },

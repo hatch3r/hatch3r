@@ -26,6 +26,12 @@ Before invoking any tool below, resolve these via `agents/shared/user-question-p
 
 Tier 1 reference card — no fan-out. This skill is a category-indexed selection reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
+## Invoked by
+
+- `rules/hatch3r-tooling-hierarchy.md` §B (Installed CLI Tools) — this registry is that tier's selection reference: platform tools first, then the installed CLI set here, then web research. Consult this skill whenever the task matches a category below.
+- **Implementers and reviewers** — usage pattern: probe with `command -v <bin>`, pick per the category discriminators, prefer `--json`-style structured output, cap payload size before it enters context (Token-cost discipline below). Install gaps via `npx hatch3r cli-tools`.
+- `skills/hatch3r-browser-verify/SKILL.md` — its Tier 2 exploratory driving resolves through the Browser automation category below (`playwright-cli` on hosts with skills support; spec runs stay the Tier 1 default).
+
 ## Category index
 
 | Category | Tools |
@@ -288,10 +294,11 @@ container-use runs each environment as a Dagger-managed container, but the proje
 ## Browser automation
 
 ### playwright
-- **When to use:** end-to-end browser test execution capturing screenshots and traces; deterministic locators, multi-browser.
+- **When to use:** spec-run-first UI verification and E2E execution — write or reuse a durable spec, run it headless, read only the failure output (assertions execute in the browser process, not in agent context). Default for verify/regression gates per `rules/hatch3r-browser-verification.md` → Invocation Contract; deterministic locators, multi-browser.
 - **Recipe:** `npx playwright test --grep '@smoke' --workers=1 --reporter=line`
+- **playwright-cli (agent step driving):** on hosts with skills support (Claude Code, GitHub Copilot), `npx playwright-cli install --skills` registers auto-discovered step-driving skills; the CLI writes accessibility snapshots to YAML files with element refs so page state stays on disk until selectively read. Reserve it for exploratory driving when no spec exists or a failure is not understood, then convert findings into a durable spec. Upstream guidance: CLI for coding agents; Playwright MCP for long-running autonomous loops (github.com/microsoft/playwright-cli, accessed 2026-07-28).
 - **Version floor:** `>=1.55.1` — earlier `npx playwright install` builds carry CVE-2025-59288 (installer man-in-the-middle, CVSS 8.7). Keep current beyond the floor so the bundled Chromium rolls the CVE-2026-2441 fix; pin the sandbox container image to a current `*-noble` tag.
-- **Wrong choice when:** API-only system — use `curl` + `jq`; agent-driven natural-language browsing — use `stagehand`.
+- **Wrong choice when:** API-only system — use `curl` + `jq`; agent-driven natural-language browsing — use `stagehand`; reading page state via screenshots when an accessibility snapshot or locator assertion expresses the same check — use snapshot mode.
 
 #### Sandbox callout — credential isolation when navigating untrusted URLs
 

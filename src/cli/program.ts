@@ -32,6 +32,7 @@ import {
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
 import { parseFormatOption } from "./shared/output.js";
+import { disableCrossProcessLocking } from "../merge/safeWrite.js";
 
 // D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
 // one-liner. The legacy text described a removed SHA-256 crypto-integrity
@@ -111,7 +112,28 @@ export function createProgram(): Command {
     // fires at startup, so it cannot wait for `program.opts()`. This option
     // registration exists for discoverability only; the strip is the source of
     // truth for the runtime effect.
-    .option("--no-update-check", "Skip the daily update-notifier probe for this run");
+    .option("--no-update-check", "Skip the daily update-notifier probe for this run")
+    // DD-A4 (release/2.8.5): global opt-out for the default-on cross-process
+    // write lock (src/merge/safeWrite.ts::isLockingEnabled). Program-level on
+    // purpose (NOT registered per-command): the lock is a process-wide write
+    // policy, and the preAction hook below applies it before any command body
+    // runs. Commander scopes program options to the program parser, so the
+    // flag goes BEFORE the subcommand: `hatch3r --no-lock sync`.
+    // HATCH3R_LOCK=1 force-re-enables over this flag; HATCH3R_LOCK=0 is the
+    // env-level equivalent.
+    .option(
+      "--no-lock",
+      "Disable the default cross-process write lock for this run (place before the subcommand: `hatch3r --no-lock sync`; HATCH3R_LOCK=1 overrides)",
+    );
+
+  // DD-A4: apply the `--no-lock` opt-out before every command action.
+  // Commander maps the negated boolean to `opts().lock === false`
+  // (default true when the flag is absent).
+  program.hook("preAction", () => {
+    if (program.opts().lock === false) {
+      disableCrossProcessLocking();
+    }
+  });
 
   // D10-5 (Cycle 11 Wave 2, P1): route parse errors through the structured
   // funnel. `exitOverride()` makes commander throw a `CommanderError` out of
@@ -127,22 +149,24 @@ export function createProgram(): Command {
   program.exitOverride();
   program.showHelpAfterError("(run `hatch3r --help` for usage)");
 
-  // D11-14 (Cycle 11 Wave 3, P6): document the cross-process write-locking env
-  // var on the global help. By default a single-repo mutating command (init,
-  // sync, update, config, mcp, cli-tools, rollback) takes NO file lock, so two
-  // runs against the same repo from two shells can last-writer-wins clobber a
-  // managed file. Operators had no documented way to discover the serialization
-  // control. `HATCH3R_LOCK=1` opts every write into a `proper-lockfile` advisory
-  // lock; workspace/worktree commands already enable it by default.
+  // D11-14 (Cycle 11 Wave 3, P6) / DD-A5 (release/2.8.5): document the
+  // cross-process write-locking controls on the global help. Since 2.8.5
+  // every mutating command (init, sync, update, config, mcp, cli-tools,
+  // rollback, workspace/worktree) serializes same-file writes across
+  // processes by default via a `proper-lockfile` advisory lock
+  // (<file>.hatch3r.lock beside each target), so two concurrent runs against
+  // the same repo wait instead of clobbering last-writer-wins. The controls
+  // below are the opt-outs / force-on.
   program.addHelpText(
     "after",
     "\nEnvironment:\n" +
-      "  HATCH3R_LOCK=1   Serialize concurrent hatch3r runs against the same repo via a\n" +
-      "                   cross-process advisory lock. The single-repo default takes no\n" +
-      "                   lock, so two runs from two shells can clobber managed files\n" +
-      "                   last-writer-wins; set this on each run to make them wait.\n" +
-      "                   (Workspace/worktree commands enable locking by default;\n" +
-      "                   HATCH3R_LOCK=0 force-disables it there.)\n",
+      "  HATCH3R_LOCK=0   Disable the default cross-process write lock for this run.\n" +
+      "                   By default every mutating command serializes same-file writes\n" +
+      "                   across processes via an advisory lock (<file>.hatch3r.lock), so\n" +
+      "                   concurrent hatch3r runs against the same repo wait instead of\n" +
+      "                   clobbering each other last-writer-wins.\n" +
+      "                   `hatch3r --no-lock <command>` is the flag equivalent.\n" +
+      "  HATCH3R_LOCK=1   Force-enable locking, overriding a --no-lock flag.\n",
   );
 
   program

@@ -711,12 +711,38 @@ async function scanContentRoot(
  */
 export async function buildContentIndex(
   contentRoot: string,
-  options?: { userRoot?: string },
+  options?: { userRoot?: string; allowEmptyCanonical?: boolean },
 ): Promise<ContentIndex> {
   const items: CatalogItem[] = [];
   const warnings: string[] = [];
 
   await scanContentRoot(contentRoot, "canonical", items, warnings);
+
+  // release/2.8.5 (BUG-2 root cause A defence-in-depth): a canonical scan that
+  // yields ZERO items is never a valid state for a production caller — every
+  // one points `contentRoot` at a root that must carry the shipped corpus
+  // (~200 items). The historical failure mode was a caller passing the
+  // PACKAGE root of a published install (content lives under `dist/content/`):
+  // every per-dir read ENOENT'd, the loop continued silently, and the empty
+  // index cascaded into empty preset counts, an empty
+  // `manifest.content.items`, and a crashing Custom picker. Fail loud at the
+  // source instead of letting the empty index propagate. Callers that degrade
+  // gracefully (validate's advisory lint passes, bridgeOrchestration's
+  // best-effort index) already wrap this call in try/catch.
+  // `allowEmptyCanonical` is the explicit opt-out for callers that KNOWINGLY
+  // index a sparse or synthetic root (test fixtures probing non-corpus
+  // behavior); no production call site passes it.
+  if (items.length === 0 && options?.allowEmptyCanonical !== true) {
+    throw new HatchError(
+      `Content index is empty: no canonical content found under ${contentRoot} ` +
+        `(scanned agents/, skills/, rules/, commands/, prompts/, hooks/, github-agents/).`,
+      undefined,
+      "FS_ERROR",
+      "This usually means the content root is wrong or the install is incomplete. " +
+        "Reinstall hatch3r (`npm i -g hatch3r`) to restore the bundled content under `dist/content/`, " +
+        "or run `npm run build` in a source checkout.",
+    );
+  }
 
   if (options?.userRoot) {
     let userRootExists = true;

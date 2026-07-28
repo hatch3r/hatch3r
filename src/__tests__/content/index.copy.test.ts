@@ -287,9 +287,10 @@ describe("content/index — copy & disk emission", () => {
 
     it("handles missing checks/mcp dirs gracefully", async () => {
       const dir = await makeTempDir();
-      // Content root with no checks/ or mcp/
+      // Content root with no checks/ or mcp/ — a deliberately sparse fixture,
+      // so opt out of the release/2.8.5 zero-item canonical guard.
       await mkdir(join(dir, "agents"), { recursive: true });
-      const index = await buildContentIndex(dir);
+      const index = await buildContentIndex(dir, { allowEmptyCanonical: true });
       const agentsDir = join(dir, "output");
 
       const selection = emptySelection();
