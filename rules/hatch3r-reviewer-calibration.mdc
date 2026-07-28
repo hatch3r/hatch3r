@@ -63,11 +63,11 @@ Run one second-pass review of the same diff with an independent judge:
 1. **Documented setup recommendation — a different model class.** A same-model-family critique shares the generator's blind spot, so a same-family second pass cannot detect the error classes the family is systematically biased to produce (Huang et al., ICLR 2024, "Large Language Models Cannot Self-Correct Reasoning Yet"). Route the second pass to a different model class wherever the deployment can — this is the recommended project setup, not best-effort. The second pass renders its own independent verdict + confidence.
 2. **Fallback — same model class re-rolled at higher temperature,** used ONLY when no second model class is routable. Because this fallback does not break the shared-blind-spot, it is a weaker check: emit `calibration: degraded (same-family re-roll)` in the verdict for that run so the weakened independence is visible and never asserted as a clean cross-family check. Record the model class used in the log (`second_pass_model_class: re-roll`).
 
-The second pass applies the same Review Checklist as the first (`agents/hatch3r-reviewer.md` → Review Checklist); it is a full re-review, not a spot check.
+The second pass applies the same Review Checklist as the first (`agents/hatch3r-reviewer.md` → Review Checklist); it is a full re-review, not a spot check — the one deliberate exception to delta-scoped re-review (`agents/hatch3r-reviewer.md` → Delta Re-Review Scope), because it audits the final clean verdict for independence and so reads the full diff. It fires at most once per would-be-clean exit and never at a cap-out: an UNRESOLVED (cap-reached) exit is already an escalation and gets no second pass.
 
 ## Divergence handling
 
-- **Divergent** — the second pass surfaces any Critical or Warning the first pass did not: do NOT exit clean. Revert the loop verdict to REQUEST CHANGES, record both verdicts, and feed the divergence to the next fixer iteration.
+- **Divergent** — the second pass surfaces any Critical or Warning the first pass did not: do NOT exit clean. Revert the loop verdict to REQUEST CHANGES, record both verdicts, and feed the divergence to the next fixer iteration when iteration budget remains under the loop-class cap (`REVIEW_LOOP_CLASS_CAPS` / `DEFAULT_MAX_REVIEW_ITERATIONS`, `rules/hatch3r-agent-orchestration.md` Phase 3); with no budget remaining, exit UNRESOLVED and escalate both verdicts to the user — never iterate past the cap.
 - **Aligned** — both passes agree (both clean): exit clean and record alignment.
 
 A divergent second pass is the failure mode of interest — it is the runtime signal that the first pass was over-confident.

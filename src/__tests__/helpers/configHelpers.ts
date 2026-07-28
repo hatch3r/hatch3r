@@ -10,7 +10,7 @@
  * helper). This helper provides the per-test wiring only.
  */
 import { vi, expect, type MockInstance } from "vitest";
-import type { ContentSelection, Features, HatchManifest, RepoEntry } from "../../types.js";
+import type { ContentSelection, HatchManifest, RepoEntry } from "../../types.js";
 import { DEFAULT_FEATURES, WORKTREE_CAPABLE_TOOLS } from "../../types.js";
 import type { AdapterContext } from "../../adapters/base.js";
 import type {
@@ -259,7 +259,6 @@ export interface PromptOverrides {
   repoAnswers?: Record<string, string>;
   branch?: string;
   tools?: string[];
-  features?: (keyof Features)[];
   mcpServers?: string[];
   contentPreset?: string;
   contentItems?: string[];
@@ -295,6 +294,12 @@ export interface PromptOverrides {
    * scaleup/enterprise→"high"), so accepting the default registers no change.
    */
   confidenceFloor?: "any" | "medium" | "high";
+  /**
+   * release/2.8.5: answer to the unconditional communication-style step.
+   * Defaults to the persisted style (or "plain" when absent), so accepting
+   * the default registers no change.
+   */
+  communicationStyle?: "plain" | "technical";
 }
 
 /**
@@ -349,7 +354,11 @@ export function primeContent(
 
 /**
  * Queue the standard prompt sequence for configCommand:
- * platform → repo identity → branch → tools → features → mcp → worktree → content preset.
+ * platform → repo identity → branch → tools → cliTools → mcp gate/servers →
+ * worktree → content preset → maturity → confidence floor → communication
+ * style. (release/2.8.5 BUG-4: the features prompt was REMOVED — feature
+ * flags derive from the persisted manifest, and the MCP gate keys on
+ * `manifest.features.mcp`.)
  *
  * Requires `inquirerMock` — the already-vi.mocked `inquirer` reference from
  * the caller's test file. See `applyDefaultConfigMocks` for why refs are
@@ -398,18 +407,14 @@ export function setupStandardPrompts(
     tools: overrides.cliTools ?? [],
   });
 
-  // 6. Features prompt
-  const currentFeatureKeys =
-    overrides.features ??
-    (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter((k) => manifest.features[k]);
-  inquirerMock.prompt.mockResolvedValueOnce({ features: currentFeatureKeys });
+  // 6. (release/2.8.5) The features prompt is GONE — nothing to queue.
 
-  // 7. Wave 3 MCP Yes/No gate (plan §4.4). Fires only when the mcp feature
-  // is enabled. Default proceed=true when the manifest already has servers
-  // (matches production `confirmMcpGate` defaultYes semantics). If gate
-  // proceeds, the server picker runs next.
-  const featureSet = new Set(currentFeatureKeys);
-  if (featureSet.has("mcp")) {
+  // 7. Wave 3 MCP Yes/No gate (plan §4.4). Fires only when the PERSISTED
+  // manifest.features.mcp is on (the production skip closes over it).
+  // Default proceed=true when the manifest already has servers (matches
+  // production `confirmMcpGate` defaultYes semantics). If gate proceeds,
+  // the server picker runs next.
+  if (manifest.features.mcp === true) {
     const hasExistingMcp = (manifest.mcp.servers ?? []).length > 0;
     const proceedMcp = overrides.mcpGateProceed ?? hasExistingMcp;
     inquirerMock.prompt.mockResolvedValueOnce({ proceed: proceedMcp });
@@ -454,6 +459,11 @@ export function setupStandardPrompts(
   const tierFloor = resolvedTier === "scaleup" || resolvedTier === "enterprise" ? "high" : "any";
   const queuedFloor = overrides.confidenceFloor ?? manifest.confidenceFloor ?? tierFloor;
   inquirerMock.prompt.mockResolvedValueOnce({ confidenceFloor: queuedFloor });
+  // 11.6. release/2.8.5: unconditional communication-style step, sequenced
+  // after the confidence floor. Default mirrors readCommunicationStyle so
+  // accepting it registers no change.
+  const queuedStyle = overrides.communicationStyle ?? manifest.communicationStyle ?? "plain";
+  inquirerMock.prompt.mockResolvedValueOnce({ communicationStyle: queuedStyle });
 
   // 12. D10-M14 (Cycle 10): tool-removal archive confirm. Fires only when
   // the standard prompts above drop at least one tool relative to the

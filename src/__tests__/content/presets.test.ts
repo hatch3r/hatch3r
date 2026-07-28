@@ -362,6 +362,21 @@ describe("project-archetype presets", () => {
     expect(omittedCapabilityClusters(monorepo)).toEqual([]);
   });
 
+  it("release/2.8.5: monorepo + web-app carry full's includeIds carve-out so their 'vs Full' claims hold", () => {
+    // monorepo's description promises "Drops nothing vs Full" and web-app's
+    // promises only-the-AI-dial-off — capability parity alone missed full's
+    // per-id `includeIds` carve-out, silently dropping exactly that artifact
+    // from both (BUG-1 secondary). Every id full admits by carve-out must
+    // appear on both archetypes too.
+    const fullIncludeIds = getPreset("full").includeIds ?? [];
+    expect(fullIncludeIds.length).toBeGreaterThan(0);
+    for (const preset of [getPreset("monorepo"), getPreset("web-app")]) {
+      for (const id of fullIncludeIds) {
+        expect(preset.includeIds ?? [], `${preset.id} must carry full's includeIds entry "${id}"`).toContain(id);
+      }
+    }
+  });
+
   it("security preset opts out of customize; the lifecycle archetypes opt in", () => {
     expect(getPreset("security").includeCustomize).toBe(false);
     for (const id of ["web-app", "api-service", "cli-tool", "monorepo", "legacy"] as PresetId[]) {

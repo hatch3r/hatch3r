@@ -777,7 +777,7 @@ For issues where the reviewer returned `REQUEST CHANGES`:
 
 #### 7.9d. Loop Termination
 
-Per-issue loop, max 4 iterations (spec-class cap). Loop semantics mirror `src/pipeline/reviewLoop.ts`.
+Per-issue loop, max 4 iterations (spec-class cap). Iterations >=2 re-review only changed hunks (for this spec-class loop: the re-drafted body sections) plus findings marked verify-fix; Medium/Low findings carry forward, not re-litigated; cap-out is an UNRESOLVED escalation, never silent continuation — the Forced termination branch below. Loop semantics mirror `src/pipeline/reviewLoop.ts`.
 
 > **Iteration-cap rationale (D10-SA10.7-F10.7.7).** This spec-class loop caps at 4 (matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) because issue-spec reviews converge more slowly and deterministically — they refine text against the production-readiness checklist with no runtime regressions feeding back. Code-class loops (`hatch3r-workflow` Phase 4a, `hatch3r-board-pickup` Step 7a review loop, `hatch3r-quick-change` Step 6a) cap at 3 because code reviews diverge faster (a fix can spawn a regression the next iteration must catch). Expected convergence is 1–2 iterations (informed estimate — `CALIBRATION.basis` in `src/pipeline/reviewLoop.ts`, unmeasured on hatch3r runs until the runtime telemetry ledger `.hatch3r/review-loop-metrics.jsonl`, read by `scripts/calibrate-review-loop.ts`, reaches its 30-sample threshold); the cap is the divergence backstop, not the target.
 

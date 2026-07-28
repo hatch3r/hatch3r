@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
 import { formatActionableError, writeFormattedCliError } from "./shared/errors.js";
+import { emitJson, getActiveCliFormat, wasJsonDocumentEmitted } from "./shared/output.js";
+import { HatchError } from "../types.js";
 import { checkForUpdates } from "./shared/updateNotifier.js";
 import { registerBackablePrompts } from "./shared/backablePrompts.js";
 import { resolveInvokedCommand } from "./shared/invokedCommand.js";
@@ -257,6 +259,38 @@ try {
     formatted.kind !== "shutting-down"
   ) {
     await recordTopLevelFailure("cli:top-level", err);
+  }
+  // DD-B7 (release/2.8.5): a failed `--format json` run previously wrote its
+  // error ONLY as a boxen block on stderr — stdout carried zero bytes, so a
+  // CI consumer piping stdout to `jq` saw an empty document for a non-zero
+  // exit. Emit exactly one machine-readable error document on stdout when
+  // (a) this run resolved json mode via beginCommand, (b) the command has
+  // NOT already emitted its JSON envelope (verify/status FAIL paths and
+  // sync's partial-cascade throw emit first, then throw for the exit code —
+  // the first document already carries the outcome, and a second would break
+  // the single-document contract), and (c) this is a real failure, not a
+  // clean cancellation. The stderr rendering below still runs in every mode
+  // so humans watching CI logs keep the boxed message.
+  if (
+    getActiveCliFormat() === "json" &&
+    !wasJsonDocumentEmitted() &&
+    formatted.exitCode !== 0 &&
+    formatted.kind !== "exit-prompt" &&
+    formatted.kind !== "shutting-down"
+  ) {
+    emitJson({
+      status: "failed",
+      errorCode:
+        err instanceof HatchError
+          ? err.errorCode
+          : formatted.kind === "usage"
+            ? "VALIDATION_ERROR"
+            : "UNKNOWN_ERROR",
+      message: err instanceof Error ? err.message : String(err),
+      ...(formatted.hint !== undefined ? { recoveryHint: formatted.hint } : {}),
+      command: invokedCommand ?? "unknown",
+      runId,
+    });
   }
   writeFormattedCliError(formatted);
   if (process.env.DEBUG) {

@@ -171,13 +171,22 @@ The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGat
 
 **Gate:** `Status: SUCCESS` requires census ∈ {`clean`, `reconciled(N)`, `N/A`}; any `unreconciled` consumer without a named justification caps Status at `PARTIAL`, with the unreconciled consumers listed under Notes.
 
+### 5c. Browser Re-Verify (UI-affecting fixes)
+
+**Trigger:** any fixed file matches a UI surface (`**/*.{tsx,jsx,vue,svelte}`, `**/components/**`, route/page files). No trigger → record `Browser spec re-run: N/A (no UI-affecting fix)` and skip.
+
+- Re-run the EXISTING Playwright spec covering the fixed surface — the Tier 1 artifact from `agents/hatch3r-implementer.md` §5b: `npx playwright test <spec> --reporter=line` headless; read only the failure output. A spec re-run costs seconds and zero screenshots — never re-drive the browser interactively by default.
+- When the fix intentionally changes asserted behavior, update the spec's assertions in the same change set (a fix deliverable, not scope expansion).
+- Step-drive (accessibility snapshots, never screenshots for state-reading) only when no spec covers the fixed surface — then add the missing spec so the next iteration re-runs it.
+- Record the outcome on the `Browser spec re-run:` line in Verification.
+
 ### 6. Return Structured Result
 
 Report back to the parent orchestrator with:
 
 The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Derive it so the token co-varies with the work product, not with values the orchestrator already holds: a memorable prefix plus a short hash (6-8 hex chars) of the `Files changed` list below concatenated with a one-line digest of the fix content — e.g., `fix-#34-pr-iter2-a3f9c1`. Do NOT derive it from only the issue number and iteration index (a bare `fix-#34-pr-iter2`): those are known to the orchestrator a priori, so such a token attributes nothing. Binding the hash to the actual diff is what raises forgery friction — an orchestrator that skipped spawning this agent has no fix output to hash, so a fabricated value cannot match the files it claims. Treat the field as a self-quoted (class-3) attribution signal: it raises the cost of a forged attestation but is not unforgeable, so when a stronger evidence class exists cite that instead — the on-disk fix-result file (class 2) or a platform-recorded Task invocation (class 1). It attributes files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
 
-The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
+The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. The mandated re-run is **delta-scoped**, not a full re-review: the `Files changed` list (with its hunks) is the delta seed the orchestrator passes to the next `hatch3r-reviewer` pass, which scopes iteration ≥ 2 to those hunks plus `verify-fix` findings per `agents/hatch3r-reviewer.md` -> Delta Re-Review Scope — so a 1-line fix triggers a delta re-review, never a full-checklist pass. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
 
 ```
 ## Fix Result
@@ -205,6 +214,7 @@ The `Reviewer re-run required` field is an **advisory** signal to the parent orc
 - Lint: PASS | FAIL (details)
 - Typecheck: PASS | FAIL (details)
 - Tests: PASS | FAIL (details)
+- Browser spec re-run: PASS (<spec>) | FAIL (<failure excerpt>) | N/A (no UI-affecting fix) | BLOCKED_MISSING_TOOL (<missing tool + install one-liner>)
 
 **Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
@@ -232,7 +242,7 @@ At quality gates, the orchestrator MAY delegate to one or more of the 10 CQ spec
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
 1. **Clean verdict** -- The reviewer returns 0 Critical + 0 Warning findings. The loop exits successfully.
-2. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user for manual resolution.
+2. **Loop-class cap reached** -- After the class cap (3 code-diff / 4 spec-text iterations per `REVIEW_LOOP_CLASS_CAPS`; protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS=4`, overrides clamped to `HARD_MAX_REVIEW_ITERATIONS=10` — unified scheme: `rules/hatch3r-agent-orchestration.md` Phase 3), the loop exits with status UNRESOLVED and escalates. Remaining findings are surfaced to the user for manual resolution; a cap-out never triggers a further fixer or reviewer pass.
 3. **Manual termination** -- The orchestrator or user explicitly halts the loop.
 
 When producing fix results, be aware that a PARTIAL status with unresolved findings may trigger another review-fix iteration. A BLOCKED status signals the orchestrator to escalate to the user rather than retry.
@@ -283,6 +293,7 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 - Lint: PASS
 - Typecheck: PASS
 - Tests: PASS (42 passed, 0 failed)
+- Browser spec re-run: N/A (no UI-affecting fix)
 
 **Consumer census:** clean
 
@@ -302,3 +313,4 @@ Rationale for absence (D5 universal checklist row 6): this agent is an LLM promp
 
 - Conventional Comments. "Conventional Comments — a standard for formatting review feedback." `https://conventionalcomments.org/` (accessed 2026-05-28, Conventional Comments maintainers, established-library). Source for the labeled-finding model this agent consumes from `hatch3r-reviewer` — `issue` / `suggestion` / `nitpick` labels map to the Critical/Warning/Suggestion triage that decides which findings this agent fixes versus surfaces.
 - Google. "The Standard of Code Review." `https://google.github.io/eng-practices/review/reviewer/standard.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for the minimal-targeted-fix principle this agent applies — address exactly the cited defect, do not refactor surrounding code or expand scope, and treat root-cause resolution over symptom suppression as the bar (no `eslint-disable`/`as any`/`.skip()` escape hatches).
+- Playwright. "Test agents." `https://playwright.dev/docs/test-agents` (accessed 2026-07-28, Microsoft/Playwright, official-docs). Source for the healer maintenance loop — replay the existing spec, inspect the UI change, patch the assertion/locator, re-run — that grounds Step 5c's re-run-the-existing-spec-and-update-assertions contract over interactive re-driving.

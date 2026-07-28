@@ -34,9 +34,19 @@ describe("D8-8.6: EACCES actionable error messages", () => {
     return err;
   }
 
+  const origLock = process.env.HATCH3R_LOCK;
+
   beforeEach(async () => {
     vi.resetModules();
     vi.resetAllMocks();
+
+    // DD-A1 (release/2.8.5): locking is default-on, and the lock-acquire path
+    // runs a REAL `mkdir(dirname(filePath))` on absolute fixture paths like
+    // /some/protected/dir before the mocked writer is reached. This suite
+    // tests the WRITE BODY's errno mapping — opt out so the mocked
+    // writeFile/rename/open are the first fs calls again (lock behavior has
+    // its own suites: merge/safeWrite.fileLock + cli/lockOutcomes).
+    process.env.HATCH3R_LOCK = "0";
 
     mockWriteFile.mockResolvedValue(undefined);
     mockRename.mockResolvedValue(undefined);
@@ -62,6 +72,8 @@ describe("D8-8.6: EACCES actionable error messages", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (origLock === undefined) delete process.env.HATCH3R_LOCK;
+    else process.env.HATCH3R_LOCK = origLock;
   });
 
   it("throws actionable message for EACCES on writeFile", async () => {

@@ -69,6 +69,7 @@ Skills are grouped below by capability area. Each is invoked inside your coding 
 | **board-init** | Initialize a project board (GitHub Projects V2, Azure Boards, or GitLab Issue Boards) with hatch3r's label taxonomy, status fields, and structure. |
 | **board-refresh** | Regenerate the living board-overview dashboard from current board state -- scan open issues, compute health metrics, update the `meta:board-overview` issue. |
 | **board-shared** | Shared, platform-agnostic context for all board commands -- board config, label taxonomy, branch conventions, sync enforcement, tooling directives. |
+| **cleanup** | Repo-state cleanup pass -- inventories accumulated hatch3r working state (plan files, workspace dirs, review telemetry, ledgers, learnings, handoffs, board staleness), asks once with per-category counts, dispatches each owned surface to its owning skill, prunes only the unowned remainder. |
 | **feedback** | Capture user feedback on an agent recommendation, classify and sanitize it, and route it to a local record, a GitHub issue, or a learning. |
 | **handoff-prepare** | Capture mid-work session state into a canonical handoff document at `.hatch3r/handoffs/active/`. |
 | **handoff-resume** | Load and resume a handoff document -- validates schema, integrity, expiry, and `git_ref` drift before surfacing content as user-tier context. |

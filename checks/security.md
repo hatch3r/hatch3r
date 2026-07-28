@@ -37,7 +37,7 @@ Review criteria for evaluating security posture in pull requests.
 ## Dependency Safety
 
 - `[CRITICAL]` New dependencies are from trusted sources with active maintenance (recent commits, multiple maintainers).
-- `[CRITICAL]` No known critical or high vulnerabilities in new or updated dependencies (`npm audit`, `pip audit`, etc.).
+- `[CRITICAL]` No known critical or high vulnerabilities in new or updated dependencies — scan the OSV/GHSA advisory feeds via `npm audit --audit-level=high`, `osv-scanner -r .`, or the per-ecosystem equivalent (`pip-audit`, `cargo audit`, `govulncheck`); every open advisory ≤90 days old carries a `mitigated` or `accepted` acknowledgement with an evidence URL.
 - `[RECOMMENDED]` Each added runtime dependency is justified in the PR description; a standard-library or already-present-dependency equivalent that covers the same use case is preferred over a new transitive dependency tree.
 - `[RECOMMENDED]` New dependencies carry an OSI-approved license compatible with the project license (no GPL/AGPL copyleft in a permissively-licensed product unless legal-approved).
 

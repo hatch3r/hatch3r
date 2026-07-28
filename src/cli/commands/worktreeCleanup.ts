@@ -32,7 +32,7 @@ import {
   error as logError,
 } from "../shared/ui.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
-import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
+
 
 interface CleanupOptions {
   dryRun?: boolean;
@@ -406,11 +406,11 @@ export async function worktreeCleanupCommand(
     interactive: opts.all !== true && opts.yes !== true,
   });
 
-  // D8-M3: worktree cleanup races the main repo's `.hatch3r/` writes during
-  // partial-cleanup rollback. Default-on cross-process locking serializes the
-  // window without forcing operators to discover `HATCH3R_LOCK=1`. Set
-  // `HATCH3R_LOCK=0` to opt out.
-  enableDefaultCrossProcessLocking();
+  // DD-A3 (release/2.8.5): the D8-M3 `enableDefaultCrossProcessLocking()`
+  // call that lived here is gone — cross-process locking is default-on
+  // process-wide (src/merge/safeWrite.ts::isLockingEnabled), so the
+  // partial-cleanup rollback window is serialized without a per-command
+  // enable. Opt-outs: `hatch3r --no-lock worktree-cleanup` or HATCH3R_LOCK=0.
 
   const cwd = process.cwd();
   // D1-13 (Cycle 11 Wave 2, D1, P1/CQ4): canonicalize the main-repo root on BOTH

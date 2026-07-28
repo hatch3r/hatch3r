@@ -1,6 +1,5 @@
 import { access, mkdir, readdir, realpath } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
@@ -20,6 +19,7 @@ import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { safeWriteFile, atomicWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
   COMMUNICATION_STYLES,
@@ -70,7 +70,6 @@ import {
 } from "../shared/ui.js";
 import { emitJson } from "../shared/output.js";
 import { beginCommand } from "../shared/commandOutput.js";
-import { findPackageRoot } from "../shared/paths.js";
 import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import {
   runStepMachine,
@@ -78,6 +77,7 @@ import {
 } from "../shared/initSteps.js";
 import {
   cliToolsStep,
+  communicationStyleStep,
   customItemsStep,
   identityStep,
   maturityStep,
@@ -121,9 +121,15 @@ import { recordFirstRunSuccess, recordSpaceMetric } from "../../pipeline/spaceTe
 import { readCheckpoint, writeCheckpoint, checkpointPath, workspaceDir, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { execFileSync } from "node:child_process";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONTENT_ROOT = findPackageRoot(__dirname);
-
+// release/2.8.5 BUG-2/BUG-1 root cause A: the content index used to be built
+// against `findPackageRoot(__dirname)` — the PACKAGE root. The published npm
+// tarball ships canonical content under `dist/content/` only (no root
+// `agents/`), so every published install silently indexed 0 items: empty
+// preset counts, empty `manifest.content.items`, and a crashing Custom picker.
+// Every index build now resolves through `resolveBundledContentRoot()` (the
+// same chokepoint the adapter emission path already used at runInitInner),
+// which probes `dist/content/` first, falls back to the dev checkout layout,
+// and throws an actionable HatchError instead of resolving an empty root.
 const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
@@ -647,10 +653,10 @@ export interface RunInitOptions {
    */
   maturity?: MaturityTier;
   /**
-   * 2.8.0 additive scalar (flag-only — `--communication-style`; no
-   * interactive prompt, init stays at its 6-prompt ceiling per CONSTITUTION
-   * §6 row 32): how generated agents talk to the human operator. Persisted
-   * under `manifest.communicationStyle`; omission preserves an existing
+   * How generated agents talk to the human operator (2.8.0 additive scalar;
+   * release/2.8.5 also prompts for it on init's interactive path — see the
+   * honest prompt-count note in `initCommand`). Persisted under
+   * `manifest.communicationStyle`; omission preserves an existing
    * manifest's value, else writes no field (consumers default to "plain"
    * via `readCommunicationStyle`).
    */
@@ -663,6 +669,15 @@ export interface RunInitOptions {
    * run flag overrides — see `readDefaultEffort`).
    */
   defaultEffort?: OrchestrationEffort;
+  /**
+   * release/2.8.5 (BUG-4): the effective `--role` / `--facets` selection
+   * filter this init resolved `contentSelection` with. Persisted under
+   * `manifest.contentFilter` so `hatch3r config`'s re-resolution and the
+   * `hatch3r update` selection refresh apply the SAME filter instead of
+   * silently widening the set. Omission preserves an existing manifest's
+   * filter; absent everywhere ⇒ no field is written.
+   */
+  contentFilter?: { role?: RoleId; facets?: FacetId[] };
   /**
    * D14-SA14.2-H1 (D14, P4/P1): opt-in for per-package monorepo emission.
    * When false/omitted (the default), `runInit` writes adapter output only to
@@ -924,6 +939,20 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   } else if (existingManifest?.defaultEffort) {
     manifest.defaultEffort = existingManifest.defaultEffort;
   }
+  // release/2.8.5 (BUG-4): persist the effective --role/--facets filter with
+  // the same precedence family — init-supplied wins; else preserve an existing
+  // manifest's filter; absent everywhere ⇒ no field (byte-identity for
+  // unfiltered repos). Consumers: config's selection re-resolution + update's
+  // content-selection-refresh checkpoint (both via readContentFilter).
+  const suppliedFilter = options.contentFilter;
+  if (suppliedFilter && (suppliedFilter.role !== undefined || (suppliedFilter.facets?.length ?? 0) > 0)) {
+    manifest.contentFilter = {
+      ...(suppliedFilter.role !== undefined ? { role: suppliedFilter.role } : {}),
+      ...((suppliedFilter.facets?.length ?? 0) > 0 ? { facets: [...suppliedFilter.facets!] } : {}),
+    };
+  } else if (existingManifest?.contentFilter) {
+    manifest.contentFilter = existingManifest.contentFilter;
+  }
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   // F2.3-H1 (Cycle 10 Phase B Wave 1A): materialize Layer-4 manifest
@@ -1173,6 +1202,17 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       mutationPaths.push(join(rootDir, out.path));
     }
   }
+  // release/2.8.5 (BUG-3 secondary — stale-adapter reclamation): adapters the
+  // PREVIOUS manifest recorded but this init no longer selects. Their recorded
+  // outputs are swept after generation (with consent — see the reclamation
+  // block below), so include them in the pre-mutation snapshot: a
+  // `hatch3r rollback --session=<id>` then restores the reclaimed files too.
+  const staleAdapterEntries: Array<[string, string[]]> = Object.entries(
+    existingManifest?.managedFilesByAdapter ?? {},
+  ).filter(([adapter, paths]) => !tools.includes(adapter as Tool) && paths.length > 0);
+  for (const [, paths] of staleAdapterEntries) {
+    for (const rel of paths) mutationPaths.push(join(rootDir, rel));
+  }
   // F14.2-H1: include per-package emission targets in the pre-mutation
   // snapshot so `hatch3r rollback --session=<id>` can revert them too. Only
   // when per-package emission is opted in (D14-SA14.2-H1) and the package
@@ -1329,6 +1369,81 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 
   // F16.1-C1: adapter generation/write phase done.
   await recordPhase(INIT_GENERATION_WAVE, "passed");
+
+  // release/2.8.5 (BUG-3 secondary): reclaim stale adapter outputs. Before
+  // this, a re-init that switched tools (e.g. claude → cursor) rebuilt the
+  // manifest WITHOUT the dropped adapter's `managedFilesByAdapter` entry and
+  // never touched its files — `.claude/` + CLAUDE.md stayed on disk forever
+  // (update/sync deliberately preserve non-run adapters, so no later command
+  // reclaimed them either). Diff the PREVIOUS manifest's recorded adapters
+  // against the newly selected tools and orphan-sweep the dropped adapters'
+  // recorded paths through `sweepOrphansForAdapter` (same safety filters as
+  // the sync/update orphan sweep: adapter-root containment, hatch3r-basename,
+  // user-wrapped veto). Consent semantics:
+  //   - interactive TTY → explicit confirm (default Yes), listing the files;
+  //   - `--yes` → the flag IS the consent (proceed, then report);
+  //   - non-interactive without `--yes` → never delete silently: skip + warn.
+  // The reclaimed paths were added to the pre-mutation snapshot above, so
+  // `hatch3r rollback --session=<id>` restores them.
+  if (staleAdapterEntries.length > 0) {
+    const emittedThisRun = new Set<string>();
+    for (const pa of pendingAdapters) {
+      for (const rel of manifest.managedFilesByAdapter[pa.tool] ?? []) emittedThisRun.add(rel);
+    }
+    let proceedWithReclaim: boolean;
+    if (options.yes === true) {
+      proceedWithReclaim = true;
+    } else if (process.stdin.isTTY) {
+      if (!isQuiet()) {
+        console.log();
+        console.log(chalk.yellow("Stale adapter output detected (tools no longer selected):"));
+        for (const [adapter, paths] of staleAdapterEntries) {
+          console.log(`  ${chalk.red("-")} ${TOOL_DISPLAY_NAMES[adapter as Tool] ?? adapter}: ${paths.length} recorded file(s)`);
+          for (const p of paths.slice(0, 10)) console.log(`      ${chalk.dim(p)}`);
+          if (paths.length > 10) console.log(`      ${chalk.dim(`… and ${paths.length - 10} more`)}`);
+        }
+        console.log();
+      }
+      const { confirmReclaim } = await inquirer.prompt<{ confirmReclaim: boolean }>([
+        {
+          type: "confirm",
+          name: "confirmReclaim",
+          message: `Remove these files from the deselected tool(s)? (revert later: hatch3r rollback --session=${initSessionId})`,
+          default: true,
+        },
+      ]);
+      proceedWithReclaim = confirmReclaim === true;
+    } else {
+      proceedWithReclaim = false;
+      warn(
+        `init: ${staleAdapterEntries.length} deselected adapter(s) left recorded output on disk ` +
+          `(${staleAdapterEntries.map(([a]) => a).join(", ")}). Skipping removal — non-interactive run without --yes. ` +
+          `Re-run \`hatch3r init --yes\` (or interactively) to reclaim them.`,
+      );
+    }
+    if (proceedWithReclaim) {
+      const reclaimEntries = [];
+      for (const [adapter, paths] of staleAdapterEntries) {
+        // trustedExactPaths: these exact paths are manifest-recorded outputs
+        // of the deselected adapter, swept under explicit consent — so
+        // non-`hatch3r-*` managed artifacts (CLAUDE.md) are reclaimable; the
+        // containment + user-wrapped safety filters still apply.
+        reclaimEntries.push(
+          ...(await sweepOrphansForAdapter(adapter, rootDir, paths, emittedThisRun, undefined, {
+            trustedExactPaths: new Set(paths.map((p) => p.replace(/\\/g, "/"))),
+          })),
+        );
+      }
+      const reclaimDiag = formatOrphanCleanupDiagnostic(reclaimEntries);
+      if (reclaimDiag) warn(reclaimDiag);
+      const removedCount = reclaimEntries.filter((e) => e.removed).length;
+      if (removedCount > 0 && !isQuiet()) {
+        info(`Reclaimed ${removedCount} stale adapter file(s) from deselected tool(s).`);
+      }
+    } else if (options.yes !== true && process.stdin.isTTY) {
+      info(chalk.dim("Stale adapter files kept. Remove them later by re-running `hatch3r init` or with `hatch3r clean`."));
+    }
+  }
 
   // D1-SA1.1-04 (D1, P2): mark entry to the finalize phase (worktree include +
   // manifest + provenance + seeds + mcp + env + .gitignore). Without this
@@ -2174,11 +2289,13 @@ export async function initCommand(
      */
     maturity?: string;
     /**
-     * 2.8.0: `--communication-style <plain|technical>` — flag-only additive
-     * scalar (no interactive prompt; init stays at its 6-prompt ceiling per
-     * CONSTITUTION §6 row 32). Persisted under
-     * `manifest.communicationStyle`; absent flag preserves an existing
-     * manifest's value or writes no field. Validated via `validateFlag`.
+     * 2.8.0: `--communication-style <plain|technical>` additive scalar.
+     * release/2.8.5: also PROMPTED on the interactive path (7th calibration
+     * prompt; skipped when this flag or `--resume` resolves it — see the
+     * honest prompt-count note at the step machine). Persisted under
+     * `manifest.communicationStyle`; absent flag on a headless run preserves
+     * an existing manifest's value or writes no field. Validated via
+     * `validateFlag`.
      */
     communicationStyle?: string;
     /**
@@ -2417,7 +2534,7 @@ export async function initCommand(
   // selected. Once the corpus is role-tagged this guard lifts automatically.
   // Extends `setup`'s existing discipline (it never exposes --role) to raw init.
   if (cliRole !== undefined) {
-    const roleProbeIndex = await buildContentIndex(CONTENT_ROOT);
+    const roleProbeIndex = await buildContentIndex(resolveBundledContentRoot());
     const roleTag = `role:${cliRole}`;
     const roleTaggedCount = roleProbeIndex.items.filter((i) => i.tags.includes(roleTag)).length;
     if (roleTaggedCount === 0) {
@@ -2435,6 +2552,18 @@ export async function initCommand(
         .map((s) => s.trim())
         .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
     : [];
+  // release/2.8.5 (BUG-4): the EFFECTIVE filter (post role-probe) that every
+  // selection site below applies — persisted to `manifest.contentFilter` via
+  // runInit so `hatch3r config` and the update-time selection refresh keep
+  // filtering the same way. Undefined when no filter is active (no field
+  // written; byte-identity preserved for unfiltered repos).
+  const cliContentFilter: { role?: RoleId; facets?: FacetId[] } | undefined =
+    cliRole !== undefined || cliFacets.length > 0
+      ? {
+          ...(cliRole !== undefined ? { role: cliRole } : {}),
+          ...(cliFacets.length > 0 ? { facets: cliFacets } : {}),
+        }
+      : undefined;
 
   // D3-SA3.2-11 (D3, CQ5 / P1): non-TTY preflight — the init-side mirror of
   // config's D1-18 guard (src/cli/commands/config.ts). The interactive flow
@@ -2651,7 +2780,7 @@ export async function initCommand(
     // D1-SA1.2-H1: role/facets are parsed once at the entry point (`cliRole` /
     // `cliFacets`) and threaded into every selection site, including this one.
     const preset = resolvePresetArg(presetArg);
-    const index = await buildContentIndex(CONTENT_ROOT);
+    const index = await buildContentIndex(resolveBundledContentRoot());
     const projectLanguages = languagesForSelection(repoInfo);
     const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role: cliRole, facets: cliFacets });
 
@@ -2673,7 +2802,7 @@ export async function initCommand(
     // manifest, no adapter output) and self-creates its target dir, so it runs
     // safely ahead of runInit.
     await runToolImport(rootDir, opts.import, true, opts.dryRun);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
     return;
   }
 
@@ -2682,7 +2811,7 @@ export async function initCommand(
   const remoteUrl = getGitRemoteUrl();
   const detectedPlatform = detectPlatformFromRemote(remoteUrl);
 
-  const filterIndex = await buildContentIndex(CONTENT_ROOT);
+  const filterIndex = await buildContentIndex(resolveBundledContentRoot());
   const projectLanguages = languagesForSelection(repoInfo);
   const detection = await detectProjectType(repoInfo, rootDir);
   const wslTheme = isWSL()
@@ -2759,6 +2888,16 @@ export async function initCommand(
   // "Maturity" line still surfaces the resolved tier.
   const promptMaturity = opts.maturity === undefined;
 
+  // release/2.8.5: communication style graduates from flag-only to a prompted
+  // calibration input on the interactive path. Skips: the
+  // `--communication-style` flag (authoritative), `--resume` (a resumed run
+  // re-executes with prior intent — no new dial questions), and the headless
+  // `--yes` / `--quick` / `--default` paths (structurally: they return before
+  // this block; the flag remains their only surface). Enter-through keeps the
+  // documented "plain" default, so the pre-2.8.5 no-flag outcome reproduces.
+  const promptCommunicationStyle =
+    opts.communicationStyle === undefined && opts.resume !== true;
+
   // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
   // path too (flag semantics are path-independent). An explicit selection
   // skips the picker step below; without a flag the picker runs with tier-1 +
@@ -2773,20 +2912,29 @@ export async function initCommand(
   // pre-Slice-E inline prompts used so existing test queues match
   // unchanged. The orchestrator awaits `runStepMachine` and consumes
   // the resolved state below.
-  // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤6 prompts
-  // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark; raised 5→6 in 2.1.0
-  // to add the maturity calibration prompt). The six retained prompts are:
-  // platform, identity, preset, maturity, tools, and the CLI-tools picker
+  // F10.3-2 (D10, P1) — honest prompt count as of release/2.8.5: the
+  // interactive first-run max path is SEVEN prompts — platform, identity,
+  // preset, maturity, communication style, tools, and the CLI-tools picker
   // (W3-mcp-optin: the collapsed MCP multi-select moved behind the `--mcp`
-  // flag / `hatch3r mcp setup` side-door). The dropped prompts use smart
-  // defaults, each overridable post-init:
+  // flag / `hatch3r mcp setup` side-door). This EXCEEDS the Decision 25
+  // ≤6-prompt ceiling (Vercel-Heroku OSS-onboarding benchmark; raised 5→6 in
+  // 2.1.0 for maturity) by one: the communication-style dial was judged
+  // first-run-calibration-worthy in 2.8.5 and a governance amendment raising
+  // the ceiling 6→7 is QUEUED for the next /h4tcher-evolve session — this
+  // comment records the overage honestly rather than restating a ceiling the
+  // code no longer meets (CONSTITUTION amendments are out of scope for a
+  // release branch). Two of the seven are conditionally skipped by flags
+  // (`--maturity`, `--communication-style`), so a flag-driven run stays ≤6.
+  // The dropped prompts use smart defaults, each overridable post-init:
   //   - defaultBranch → `parseGitDefaultBranch()` (git-detected)
   //   - projectType   → `detectProjectType()` (auto-detected)
   //   - teamSize      → `inferTeamSizeFromGit()` (recommendation step d)
   //   - mcp           → off unless `--mcp` (opt in later via `hatch3r mcp setup`)
   // `customItems` stays as a conditional power-user prompt (preset=custom only),
   // so it does not count against the common-path ceiling. The maturity prompt
-  // is skipped only when `--maturity` resolved the tier from the flag.
+  // is skipped only when `--maturity` resolved the tier from the flag; the
+  // communication-style prompt is skipped for `--communication-style` and
+  // `--resume` (see `promptCommunicationStyle` above).
   interface SingleRepoState {
     platform: Platform;
     identity: { owner: string; repo: string; namespace: string; project: string };
@@ -2795,6 +2943,10 @@ export async function initCommand(
     // `promptMaturity` above). Undefined only when `--maturity` gated the prompt
     // off — the resolved tier then falls back to `inferredMaturity` below.
     maturity: MaturityTier;
+    // release/2.8.5: operator-communication dial. Undefined only when the
+    // `--communication-style` flag (or `--resume`) gated the prompt off — the
+    // resolved value then falls back to the flag / manifest-preservation path.
+    communicationStyle: CommunicationStyle;
     customItems: string[] | undefined;
     tools: Tool[];
     // W3-mcp-optin: 3-tier CLI-tools picker result. Empty selection = CLI
@@ -2851,6 +3003,17 @@ export async function initCommand(
           }),
         ]
       : []),
+    // release/2.8.5: communication-style dial, sequenced with the maturity
+    // calibration prompt. Conditionally spread (absent, not just skipped)
+    // when the flag or --resume resolved it — matching the maturity gate.
+    ...(promptCommunicationStyle
+      ? [
+          communicationStyleStep<SingleRepoState>({
+            message: "How should agents talk to you?",
+            defaultStyle: DEFAULT_COMMUNICATION_STYLE,
+          }),
+        ]
+      : []),
     customItemsStep<SingleRepoState>({
       index: filterIndex,
       // D10-13: floor + protected rows are locked-on by the picker itself;
@@ -2859,9 +3022,13 @@ export async function initCommand(
       previousAsDefault: true,
       wslTheme,
     }),
+    // release/2.8.5 (BUG-3): no more `emptyFallback` — an empty submission
+    // used to be silently rewritten to DEFAULT_TOOLS (claude), generating a
+    // .claude/ setup the user never picked. The shared toolsStep now enforces
+    // required-selection semantics (TTY re-prompt / VALIDATION_ERROR
+    // otherwise), aligning init with config.
     toolsStep<SingleRepoState>({
       defaults: toolDefaults,
-      emptyFallback: DEFAULT_TOOLS,
       wslTheme,
     }),
     // W3-mcp-optin: the 5th prompt is the CLI-tools picker (the collapsed MCP
@@ -2895,6 +3062,11 @@ export async function initCommand(
   // C (2.1.0): use the prompted tier when the maturity step ran (the common
   // interactive path); otherwise (`--maturity` flag) the value inferred above.
   const maturity: MaturityTier = stepState.maturity ?? inferredMaturity;
+  // release/2.8.5: the prompted style when the step ran; otherwise the
+  // `--communication-style` flag value (or undefined ⇒ runInit preserves an
+  // existing manifest's style / writes no field, the pre-2.8.5 semantics).
+  const resolvedCommunicationStyle: CommunicationStyle | undefined =
+    stepState.communicationStyle ?? cliCommunicationStyle;
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
@@ -2982,7 +3154,7 @@ export async function initCommand(
   // preview + confirm now precede the generation spinner — acceptable per the
   // finding, since a declined confirm still leaves disk untouched before init.
   await runToolImport(rootDir, opts.import, false, opts.dryRun);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, communicationStyle: resolvedCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────
@@ -3054,7 +3226,7 @@ async function runToolImport(
   // Existing rule ids (canonical + user) for conflict detection. Build a fresh
   // index that includes the project's `.hatch3r/overrides/` so a re-run detects
   // already-imported rules as conflicts rather than silently re-writing them.
-  const importIndex = await buildContentIndex(CONTENT_ROOT, {
+  const importIndex = await buildContentIndex(resolveBundledContentRoot(), {
     userRoot: resolveUserContentRoot(rootDir),
   });
   const existingRuleIds = new Set<string>(
@@ -3173,7 +3345,7 @@ async function runWorkspaceInit(
           ]));
           return { enabled: selected.length > 0, selected };
         })();
-    const index = await buildContentIndex(CONTENT_ROOT);
+    const index = await buildContentIndex(resolveBundledContentRoot());
     const projectLanguages = languagesForSelection(repoInfo);
     // `--maturity` is validated early in runInit (no longer a selection input under Decision 16);
     // the workspace manifest persists no maturity on this path.
@@ -3306,7 +3478,7 @@ async function runWorkspaceInit(
     // headless workspace branch with canonical "solo" default.
     wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
     const preset = resolvePresetArg(presetArg);
-    const index = await buildContentIndex(CONTENT_ROOT);
+    const index = await buildContentIndex(resolveBundledContentRoot());
     const projectLanguages = languagesForSelection(repoInfo);
     // D1-SA1.2-H1: thread the forwarded role/facets into the headless
     // workspace selection (was dropped — `--workspace --yes --role <r>` no-op).
@@ -3323,7 +3495,7 @@ async function runWorkspaceInit(
       ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
       : undefined;
 
-    const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
+    const wsFilterIndex = await buildContentIndex(resolveBundledContentRoot());
     const projectLanguages = languagesForSelection(repoInfo);
     const wsDetection = await detectProjectType(repoInfo, rootDir);
     const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
@@ -3402,9 +3574,10 @@ async function runWorkspaceInit(
         previousAsDefault: true,
         wslTheme,
       }),
+      // release/2.8.5 (BUG-3): required-selection semantics replace the
+      // silent DEFAULT_TOOLS substitution (see the single-repo machine note).
       toolsStep<WorkspaceState>({
         defaults: wsToolDefaults,
-        emptyFallback: DEFAULT_TOOLS,
         wslTheme,
       }),
       // W3-mcp-optin: CLI-tools picker (workspace parity with the single-repo
@@ -3524,6 +3697,15 @@ async function runWorkspaceInit(
     // 2.8.0: forward the flag-only additive scalars alongside maturity.
     communicationStyle: wsCommunicationStyle,
     defaultEffort: wsDefaultEffort,
+    // release/2.8.5 (BUG-4): persist the effective --role/--facets filter on
+    // the workspace-root manifest too (same shape as the single-repo paths).
+    contentFilter:
+      selectionFilter.role !== undefined || selectionFilter.facets.length > 0
+        ? {
+            ...(selectionFilter.role !== undefined ? { role: selectionFilter.role } : {}),
+            ...(selectionFilter.facets.length > 0 ? { facets: selectionFilter.facets } : {}),
+          }
+        : undefined,
     // D14-SA14.2-H1: forward the per-package opt-in to the workspace-root init.
     perPackage: opts.perPackage,
     // W5-bigfour: forward `--dry-run` so the workspace-root init previews

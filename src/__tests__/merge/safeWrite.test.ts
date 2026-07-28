@@ -1480,16 +1480,32 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
     return tempDir;
   }
 
-  it("returns a HATCH3R_LOCK=1 warning when a fresh (young) tmp file is present", async () => {
+  it("warns to drop the opt-out when a fresh (young) tmp file is present on an opted-out run (DD-A9)", async () => {
     const dir = await createTempDir();
     const fresh = join(dir, "managed.md.tmp.abcd1234");
     await writeFile(fresh, "in-flight", "utf-8"); // mtime ~ now, under the 60s gate
 
+    // DD-A1: locking is default-on, and the check returns null whenever a
+    // lock would serialize the overlap — the scan only fires on an
+    // explicitly opted-out run.
+    process.env.HATCH3R_LOCK = "0";
     const warning = await detectConcurrentWriteRisk(dir);
 
     expect(warning).not.toBeNull();
-    expect(warning).toContain("HATCH3R_LOCK=1");
+    expect(warning).toContain("--no-lock / HATCH3R_LOCK=0");
+    expect(warning).toContain("Drop the opt-out");
     expect(warning).toContain(fresh);
+  });
+
+  it("returns null on the DEFAULT path — locking is on, so overlap serializes (DD-A1)", async () => {
+    const dir = await createTempDir();
+    const fresh = join(dir, "managed.md.tmp.abcd1234");
+    await writeFile(fresh, "in-flight", "utf-8");
+
+    delete process.env.HATCH3R_LOCK;
+    const warning = await detectConcurrentWriteRisk(dir);
+
+    expect(warning).toBeNull();
   });
 
   it("returns null when the only tmp file is aged (a crash orphan, not live contention)", async () => {
@@ -1499,6 +1515,7 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
     const past = new Date(Date.now() - 120_000);
     await utimes(aged, past, past);
 
+    process.env.HATCH3R_LOCK = "0"; // DD-A1: opt out so the scan actually runs
     const warning = await detectConcurrentWriteRisk(dir);
 
     expect(warning).toBeNull();
@@ -1508,6 +1525,7 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
     const dir = await createTempDir();
     await writeFile(join(dir, "regular.md"), "x", "utf-8");
 
+    process.env.HATCH3R_LOCK = "0"; // DD-A1: opt out so the scan actually runs
     const warning = await detectConcurrentWriteRisk(dir);
 
     expect(warning).toBeNull();
@@ -1525,6 +1543,7 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
   });
 
   it("returns null (no throw) when the directory does not exist", async () => {
+    process.env.HATCH3R_LOCK = "0"; // DD-A1: opt out so the scan actually runs
     const warning = await detectConcurrentWriteRisk(
       "/definitely-missing-hatch3r-concurrency-dir",
     );
@@ -1539,6 +1558,7 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
     const fresh = join(nested, "CLAUDE.md.tmp.99887766");
     await writeFile(fresh, "in-flight", "utf-8");
 
+    process.env.HATCH3R_LOCK = "0"; // DD-A1: opt out so the scan actually runs
     const warning = await detectConcurrentWriteRisk(dir, { recursive: true });
 
     expect(warning).not.toBeNull();

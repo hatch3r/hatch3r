@@ -127,9 +127,10 @@ async function sweepOrphanTmpAtEntry(rootDir: string): Promise<void> {
  * picker wait. Holding the lock across the whole critical section (fn runs every
  * early return inside it) closes that race. Reentrant via HELD_LOCKS: the inner
  * writeManifest -> atomicWriteFile acquire on the same path re-uses this lock
- * instead of self-deadlocking. A no-op unless HATCH3R_LOCK is set or a
- * workspace/worktree context enabled the default (D8-M3), so single-repo runs are
- * unchanged. Release failures are surfaced per the Silent Failure Contract (P5),
+ * instead of self-deadlocking. DD-A1 (release/2.8.5): locking is default-on
+ * process-wide, so this lock is live on every run unless the operator opted
+ * out (`--no-lock` / HATCH3R_LOCK=0 — then it is a no-op).
+ * Release failures are surfaced per the Silent Failure Contract (P5),
  * never swallowed. Local helper rather than the shared `withManifestMutation` the
  * finding suggests long-term — safeWrite.ts / hatchJson.ts are outside scope here.
  */

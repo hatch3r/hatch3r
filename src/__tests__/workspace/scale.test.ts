@@ -67,8 +67,14 @@ describeScale("workspace sync scale benchmark (D14-SA14.2-F6)", () => {
   // N values per the D14-SA14.2-F6 reference grid. All three rungs are
   // HATCH3R_SCALE-gated (describeScale); none runs in the default suite —
   // 100 is the upper documented rung.
+  // Per-rung timeout: the default 30s test timeout terminated the 50/100
+  // rungs before the harness could log their wall-clock (and N=10 on slower
+  // reference machines), which is why the governance/SCALE.md grid stayed
+  // "(measure)" — a benchmark that self-terminates below its measurement
+  // ceiling can never record the figures it exists to produce. 10 minutes
+  // bounds a hung run without capping a legitimate 100-repo measurement.
   for (const repoCount of [10, 50, 100] as const) {
-    it(`syncs a ${repoCount}-repo workspace and records wall-clock`, async () => {
+    it(`syncs a ${repoCount}-repo workspace and records wall-clock`, { timeout: 600_000 }, async () => {
       tempDir = await mkdtemp(join(tmpdir(), `hatch3r-scale-${repoCount}-`));
       await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
 

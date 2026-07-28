@@ -12,6 +12,7 @@ import {
   offerInstaller,
   printMissingCliToolsDisclaimer,
 } from "../../cliTools/install.js";
+import inquirer from "inquirer";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -28,6 +29,19 @@ import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { pickCliTools } from "../shared/pickers.js";
 import { isBack } from "../shared/initSteps.js";
 import { isWSL } from "../shared/constants.js";
+
+/**
+ * DD-D4 (release/2.8.5): inquirer-backed confirm threaded into
+ * `offerInstaller` so the PROMPT lives in the CLI layer — the domain module
+ * (`src/cliTools/install.ts`) no longer statically imports inquirer
+ * (import-boundary Rule 2).
+ */
+async function confirmInstallPending(message: string): Promise<boolean> {
+  const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
+    { type: "confirm", name: "proceed", message, default: true },
+  ]);
+  return proceed;
+}
 
 /** W5: standardized flags for the read-only cli-tools subcommands. */
 export interface CliToolsCommandOptions {
@@ -126,7 +140,7 @@ export async function cliToolsCommand(opts: CliToolsBareOptions = {}): Promise<v
       spinner.succeed(`All ${selected.length} CLI tool(s) detected on PATH`);
     } else {
       spinner.warn(`${selected.length - missing.length}/${selected.length} CLI tool(s) detected; ${missing.length} missing`);
-      await offerInstaller(missing, { interactive: true });
+      await offerInstaller(missing, { interactive: true, confirm: confirmInstallPending });
     }
 
     const secretNotes: string[] = [];
@@ -256,7 +270,7 @@ export async function cliToolsInstallCommand(opts: CliToolsCommandOptions = {}):
     return;
   }
   spinner.warn(`${missing.length}/${selected.length} CLI tool(s) missing`);
-  await offerInstaller(missing, { interactive: true });
+  await offerInstaller(missing, { interactive: true, confirm: confirmInstallPending });
 
   if (selected.length > 0) {
     const finalMissing = await findMissingCliTools(selected);

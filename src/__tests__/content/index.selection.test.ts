@@ -331,11 +331,17 @@ describe("content/index — selection & index", () => {
       expect(index.items[0]!.id).toBe("valid-agent");
     });
 
-    it("handles missing directories gracefully (ENOENT)", async () => {
+    it("throws a loud FS_ERROR when the canonical scan yields zero items (release/2.8.5 guard)", async () => {
       const dir = await makeTempDir();
-      // Empty dir — no agents/, rules/, etc.
-      const index = await buildContentIndex(dir);
-      expect(index.items).toEqual([]);
+      // Empty dir — no agents/, rules/, etc. Pre-2.8.5 this resolved to a
+      // SILENT empty index (per-dir ENOENT swallowed), which cascaded into
+      // empty preset counts + an empty manifest.content on published installs
+      // (BUG-2). The scan-level ENOENT handling is still graceful per dir; the
+      // aggregate zero-item outcome now fails loud with an actionable hint.
+      await expect(buildContentIndex(dir)).rejects.toMatchObject({
+        errorCode: "FS_ERROR",
+        message: expect.stringContaining("Content index is empty"),
+      });
     });
 
     it("builds byType index correctly", async () => {
@@ -363,19 +369,24 @@ describe("content/index — selection & index", () => {
       expect(index.byId.get("nonexistent")).toBeUndefined();
     });
 
-    it("returns empty items for empty directories", async () => {
+    it("throws the loud guard for present-but-empty content directories (release/2.8.5)", async () => {
       const dir = await makeTempDir();
       await mkdir(join(dir, "agents"), { recursive: true });
       await mkdir(join(dir, "rules"), { recursive: true });
-      // dirs exist but have no .md files
-      const index = await buildContentIndex(dir);
-      expect(index.items).toEqual([]);
+      // dirs exist but have no .md files — still a zero-item canonical scan.
+      await expect(buildContentIndex(dir)).rejects.toMatchObject({
+        errorCode: "FS_ERROR",
+      });
     });
 
     it("skips non-directory entries in skills/", async () => {
       const dir = await makeTempDir();
       await mkdir(join(dir, "skills"), { recursive: true });
       await writeFile(join(dir, "skills", "not-a-dir.md"), "# stray file");
+      // Seed one agent so the release/2.8.5 zero-item guard (a corpus-level
+      // invariant) does not mask the skill-scan behavior under test.
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(join(dir, "agents", "seed.md"), mdFile({ id: "seed-agent", type: "agent" }));
       const index = await buildContentIndex(dir);
       const skills = index.items.filter((i) => i.type === "skill");
       expect(skills.length).toBe(0);
@@ -385,6 +396,9 @@ describe("content/index — selection & index", () => {
       const dir = await makeTempDir();
       await mkdir(join(dir, "skills", "empty-skill"), { recursive: true });
       await writeFile(join(dir, "skills", "empty-skill", "README.md"), "# not a skill");
+      // Seed one agent — see the zero-item-guard note in the sibling test.
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(join(dir, "agents", "seed.md"), mdFile({ id: "seed-agent", type: "agent" }));
       const index = await buildContentIndex(dir);
       const skills = index.items.filter((i) => i.type === "skill");
       expect(skills.length).toBe(0);

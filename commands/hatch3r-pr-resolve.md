@@ -573,7 +573,7 @@ If any gate fails, identify failures and either fix inline (single-line lint/typ
 
 #### 7b. Review Loop (Tier 2/3 only; Tier 1 skips)
 
-Run the Stage-1 review loop: spawn `hatch3r-reviewer`; on Critical/Warning findings spawn `hatch3r-fixer` with the reviewer output, then re-review (max 3 iterations, oscillation detection, confidence decay per `src/pipeline/reviewLoop.ts`) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
+Run the Stage-1 review loop: spawn `hatch3r-reviewer`; on Critical/Warning findings spawn `hatch3r-fixer` with the reviewer output, then re-review (max 3 iterations, oscillation detection, confidence decay per `src/pipeline/reviewLoop.ts`; iterations >=2 re-review only changed hunks plus findings marked verify-fix — Medium/Low findings carry forward, not re-litigated; cap-out is an UNRESOLVED escalation, never silent continuation) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
 - The cached diff from Step 1e.
 - All `scope: always` rule directives.
 - Iteration number and prior findings.
@@ -797,7 +797,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Sub-agent (Step 6) reports BLOCKED on a finding | Skip the finding for FIX NOW; surface in Step 10 `Not Done`; reply with "Attempted but blocked" template. |
 | Sub-agent (Step 6) returns PARTIAL | Apply partial changes; mark the unaddressed sub-findings as deferred; reply notes partial implementation. |
 | Reply POST persistently fails (Step 8c) | Continue run; record in `run_cache.reply_post_results`; surface in Step 10. |
-| Review loop hits 3 iterations with findings remaining | ASK the user how to proceed — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`) on exit. |
+| Review loop hits 3 iterations with findings remaining | Cap-out is an UNRESOLVED escalation, never silent continuation — ASK the user how to proceed; the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`) on exit. |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
 | `git push` rejected (e.g., upstream changed mid-run) | Route into the Step 1.6 gate flow: re-run the 1.6a recipe with `origin/{pr.headRefName}` as the comparison ref, present the 1.6b table + 1.6c bundled ASK, resolve via 1.6d, then retry the push once. A second rejection halts with `Status: BLOCKED` and the recorded `sync_gate` state. |
 | Step 9.5 poll budget exhausted (5 × 60s) with zero new comments | Report "No new comments after 300s."; re-ask 9.5a (keep polling / done). |

@@ -1,9 +1,8 @@
-import { fileURLToPath } from "node:url";
 import { access, readFile, readdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor, readCommunicationStyle, readDefaultEffort } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor, readCommunicationStyle, readContentFilter, readDefaultEffort } from "../../manifest/hatchJson.js";
 import {
   ARCHIVE_DIR,
   COMMUNICATION_STYLES,
@@ -50,12 +49,11 @@ import { type CliOutputFormat } from "../shared/output.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
 import { archiveToolOutputs, collectToolFiles, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
-import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
-import { TOOL_DISPLAY_NAMES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
+import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
 import {
   BACK,
   isBack,
@@ -65,6 +63,7 @@ import {
 } from "../shared/initSteps.js";
 import {
   cliToolsStep,
+  communicationStyleStep,
   confidenceFloorStep,
   customItemsStep,
   identityStep,
@@ -88,13 +87,12 @@ import {
 } from "../../content/index.js";
 import { getPreset, type PresetId } from "../../content/presets.js";
 import { acquireWriteLock, safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic } from "../../merge/orphanCleanup.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { writeCheckpoint, workspaceDir, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface ConfigDiff {
   addedTools: Tool[];
@@ -190,33 +188,11 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
   );
 }
 
-/**
- * Task D (2.1.0, CQ8 maintainability): rebuild the {@link Features} map from an
- * interactive checkbox selection without dropping live-but-unlisted features.
- *
- * The config feature picker renders only the features in
- * {@link FEATURE_CHOICES}, so the rebuild must flip ONLY the keys the picker
- * actually offered (`pickerVisible`) and RETAIN every other key from the prior
- * manifest. The pre-2.1.0 loop flipped EVERY {@link DEFAULT_FEATURES} key to
- * `selected.includes(k)`, which forced any feature absent from the picker to
- * `false` on every config run — silently disabling `handoffs` (a live control
- * surface, `DEFAULT_FEATURES.handoffs === true`) because it was not a choice.
- *
- * `prev` seeds the result so unlisted keys survive; spreading over
- * {@link DEFAULT_FEATURES} first fills any key a legacy manifest omits. Exported
- * for direct unit testing with a synthetic unlisted feature.
- */
-export function rebuildFeaturesFromSelection(
-  prev: Features,
-  selected: (keyof Features)[],
-  pickerVisible: Iterable<keyof Features>,
-): Features {
-  const features: Features = { ...DEFAULT_FEATURES, ...prev };
-  for (const k of pickerVisible) {
-    features[k] = selected.includes(k);
-  }
-  return features;
-}
+// release/2.8.5 (BUG-4): `rebuildFeaturesFromSelection` (Task D, 2.1.0) was
+// removed with the config features checkbox it served — features now derive
+// from the persisted manifest (`{ ...DEFAULT_FEATURES, ...manifest.features }`
+// in configCommandImpl), which subsumes the "retain unlisted keys" guarantee
+// the helper existed to provide.
 
 /**
  * W5-bigfour (P1): render the per-change diff lines of the config summary.
@@ -788,11 +764,11 @@ export async function configCommand(arg1?: string, arg2?: string, opts?: ConfigC
   // across the full read-modify-write window — `readManifest` happens after
   // acquire, every `writeManifest` happens before release. Without this, a
   // concurrent `hatch3r config | init | sync` running between our read and
-  // write silently clobbers one side (safeWrite.ts: documented silent-clobber
-  // risk is opt-in-only). Locking is opt-in via `HATCH3R_LOCK=1` so the
-  // default single-process behavior is unchanged. The lock is reentrant
-  // within this process so inner `atomicWriteFile` calls (invoked by
-  // `writeManifest`) re-use the held lock instead of self-deadlocking.
+  // write silently clobbers one side. release/2.8.5: locking is DEFAULT-ON —
+  // opt out via `HATCH3R_LOCK=0` or `--no-lock` (the pre-2.8.5 posture was
+  // inverted: opt-in via `HATCH3R_LOCK=1`). The lock is reentrant within this
+  // process so inner `atomicWriteFile` calls (invoked by `writeManifest`)
+  // re-use the held lock instead of self-deadlocking.
   const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
   const releaseManifestLock = await acquireWriteLock(manifestPath);
   try {
@@ -804,8 +780,8 @@ export async function configCommand(arg1?: string, arg2?: string, opts?: ConfigC
       // Silent Failure Contract (P5): surface release failures so operators
       // can clear a stale lockfile before re-running. The release function
       // returned by acquireWriteLock is a no-op when locking was inactive,
-      // so reaching this catch implies a real lock was taken (either via
-      // env-var opt-in or D8-M3 workspace/worktree default-on).
+      // so reaching this catch implies a real lock was taken (release/2.8.5:
+      // the default — locking is on unless HATCH3R_LOCK=0 / --no-lock).
       console.error(
         `hatch3r: failed to release manifest write lock at ${manifestPath}: ` +
           `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
@@ -965,7 +941,12 @@ async function configCommandImpl(
     // distinction is now surfaced at the top of `configCommandImpl` via a
     // printBox(..., 'info') visible on every interactive invocation; no need
     // to restate the one-liner mid-flow.
-    contentRoot = findPackageRoot(__dirname);
+    // release/2.8.5 BUG-2 root cause A: `findPackageRoot(__dirname)` pointed
+    // at the PACKAGE root, which in the published tarball carries no root
+    // `agents/` (content ships under `dist/content/`) — so the index was
+    // silently empty on every published install. Resolve through the bundled
+    // chokepoint instead (throws actionably when no content is locatable).
+    contentRoot = resolveBundledContentRoot();
     contentIndex = await buildContentIndex(contentRoot);
     contentProjectType = manifest.content.projectType;
     contentTeamSize = manifest.content.teamSize;
@@ -982,7 +963,10 @@ async function configCommandImpl(
     defaultBranch: string;
     tools: Tool[];
     cliTools: CliToolId[];
-    features: (keyof Features)[];
+    // release/2.8.5 (BUG-4): no `features` slot — the features checkbox was
+    // removed for init/config parity (init never prompted features; the config
+    // prompt let an accept-defaults run silently flip live feature flags).
+    // Features now derive from the persisted manifest below the machine.
     mcpGate: boolean;
     mcpServers: string[];
     worktreeEnabled: boolean;
@@ -993,6 +977,9 @@ async function configCommandImpl(
     // readConfidenceFloor (the latter tier-aware). Persisted after the machine.
     maturity: MaturityTier;
     confidenceFloor: ConfidenceFloor;
+    // release/2.8.5: operator-communication dial (plain|technical), the third
+    // calibration step — shared builder, persisted after the machine.
+    communicationStyle: CommunicationStyle;
   }
 
   // W2-flowsteps: shared prompt steps are composed from the builders in
@@ -1042,8 +1029,10 @@ async function configCommandImpl(
         return (answers.defaultBranch as string).trim() || currentBranch;
       },
     },
-    // No emptyFallback: config returns the raw (possibly empty) selection
-    // and validates non-empty after the machine resolves.
+    // release/2.8.5 (BUG-3): the shared toolsStep enforces required-selection
+    // semantics itself (TTY re-prompt / VALIDATION_ERROR on a non-interactive
+    // empty resolution); config's post-machine non-empty check below stays as
+    // defense-in-depth.
     toolsStep<ConfigState>({
       defaults: manifest.tools,
       wslTheme,
@@ -1052,45 +1041,25 @@ async function configCommandImpl(
       existing: manifest.cliTools?.selected,
       wslTheme,
     }),
-    {
-      id: "features",
-      async run(_state, previous): Promise<StepResult<(keyof Features)[]>> {
-        // A manifest written before a feature joined the schema OMITS its key;
-        // DEFAULT_FEATURES treats a missing key as its schema default (e.g.
-        // `handoffs === true`). Fall back to that default instead of the falsy
-        // `undefined` — otherwise the checkbox renders the feature UNCHECKED and
-        // an accept-defaults run persists it `false`, silently disabling it on
-        // upgraded manifests (Cursor Bugbot — handoffs default unchecked).
-        const currentFeatureKeys =
-          previous ??
-          (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter(
-            (k) => manifest.features[k] ?? DEFAULT_FEATURES[k],
-          );
-        const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "features",
-            message: "Select features:",
-            choices: FEATURE_CHOICES,
-            default: currentFeatureKeys,
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(featureAnswers.features)) return BACK;
-        return (featureAnswers.features ?? []) as (keyof Features)[];
-      },
-    },
+    // release/2.8.5 (BUG-4): the features checkbox that used to sit here was
+    // REMOVED for init/config parity. Init never prompted for features (they
+    // derive from DEFAULT_FEATURES + the MCP opt-in), and the config prompt
+    // made an accept-defaults run silently rewrite live feature flags. The MCP
+    // gate below now keys on the PERSISTED `manifest.features.mcp`; MCP
+    // opt-in/out lives behind `hatch3r mcp setup` / `init --mcp`.
+    //
     // Re-running config with no prior MCP servers defaults the gate to No;
     // re-running with existing servers defaults to Yes so users don't
     // accidentally wipe their MCP setup by accepting the default
     // (plan §4.4 / `confirmMcpGate` semantics).
     mcpGateStep<ConfigState>({
       hasExisting: manifest.mcp.servers.length > 0,
+      skip: () => !manifest.features.mcp,
     }),
     mcpServersStep<ConfigState>({
       platform: (s) => s.platform!,
       existing: manifest.mcp.servers,
-      skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,
+      skip: (s) => !manifest.features.mcp || !s.mcpGate,
       wslTheme,
     }),
     {
@@ -1109,15 +1078,16 @@ async function configCommandImpl(
     },
     // F10.6-1 (D10) / D10-12 (Cycle 11): the shared presetStep surfaces the
     // omitted clusters by name from the realized post-floor delta so
-    // reconfiguring a preset is an informed choice. Config passes
-    // `skipContextFilters` (estimates ignore project-type/team-size
-    // filtering here) and no `customUniverseHint` — same rendering as the
-    // pre-extraction inline step.
+    // reconfiguring a preset is an informed choice. release/2.8.5 (BUG-4):
+    // the estimates now apply the SAME context/language filters init's picker
+    // applies (config used to pass `skipContextFilters`, so its "(~N items)"
+    // counts disagreed with init's on the same repo). No `customUniverseHint`
+    // — same rendering as the pre-extraction inline step otherwise.
     presetStep<ConfigState>({
       index: contentIndex,
       projectType: contentProjectType!,
       teamSize: contentTeamSize!,
-      estimateOptions: { skipContextFilters: true },
+      projectLanguages: manifest.languages,
       defaultPreset: () => manifest.content!.preset as PresetId,
       skip: () => !manifest.content,
     }),
@@ -1156,6 +1126,13 @@ async function configCommandImpl(
       defaultFloor: (state) =>
         readConfidenceFloor({ ...manifest, maturity: state.maturity ?? manifest.maturity }),
     }),
+    // release/2.8.5: interactive communication-style surface — parity with the
+    // scalar `config communication_style=<v>` form. Unconditional (no prompt
+    // ceiling binds config); default = the persisted style ("plain" absent).
+    communicationStyleStep<ConfigState>({
+      message: "Communication style (how agents talk to you):",
+      defaultStyle: readCommunicationStyle(manifest),
+    }),
   ];
 
   const stepState = await runStepMachine<ConfigState>(steps);
@@ -1178,6 +1155,12 @@ async function configCommandImpl(
   const confidenceFloorChanged =
     selectedConfidenceFloor !== undefined &&
     selectedConfidenceFloor !== readConfidenceFloor(manifest);
+  // release/2.8.5: third calibration dial — same changed-detection shape so a
+  // style-only change survives the no-changes early return below.
+  const selectedCommunicationStyle = stepState.communicationStyle;
+  const communicationStyleChanged =
+    selectedCommunicationStyle !== undefined &&
+    selectedCommunicationStyle !== readCommunicationStyle(manifest);
 
   if (tools.length === 0) {
     logError("At least one tool must be selected.");
@@ -1208,16 +1191,15 @@ async function configCommandImpl(
   };
 
   // --- Features ---
-  // Task D (2.1.0, CQ8): the checkbox only renders the features in
-  // FEATURE_CHOICES, so a feature ABSENT from the picker must RETAIN its prior
-  // manifest value — not be forced false (the pre-2.1.0 `handoffs` bug, now also
-  // listed in FEATURE_CHOICES). Logic single-sourced in the exported pure
-  // helper below so it is unit-testable with a synthetic unlisted feature.
-  const features: Features = rebuildFeaturesFromSelection(
-    manifest.features,
-    stepState.features,
-    FEATURE_CHOICES.map((c) => c.value),
-  );
+  // release/2.8.5 (BUG-4): the features checkbox is gone (init/config parity —
+  // init never prompted features, and the config prompt let an accept-defaults
+  // run silently flip live flags such as `handoffs`). Features derive from the
+  // persisted manifest, with DEFAULT_FEATURES filling any key a legacy
+  // manifest omits (a missing key means its schema default, e.g.
+  // `handoffs === true`). The interactive flow no longer mutates feature
+  // flags; the MCP feature tracks the `hatch3r mcp setup` / `init --mcp`
+  // opt-in surface.
+  const features: Features = { ...DEFAULT_FEATURES, ...manifest.features };
 
   // --- MCP servers ---
   // When the mcp feature is on but the user declined the gate, preserve
@@ -1255,7 +1237,24 @@ async function configCommandImpl(
     const customSelections = stepState.customItems;
 
     // --- Resolve new selection and diff against current ---
-    const newSelection = resolveSelection(selectedPreset, projectType, teamSize, index, customSelections, undefined, { skipContextFilters: true });
+    // release/2.8.5 (BUG-4): align config's re-resolution with init's shape.
+    // Config used to pass NO languages + `skipContextFilters: true`, so on the
+    // same repo it resolved a DIFFERENT (wider) set than init — an
+    // accept-defaults config run reported phantom "Content added" items (the
+    // language/context-filtered ones) and rewrote the manifest with them, and
+    // the persisted --role/--facets filter was silently dropped. Thread the
+    // stored language set + the persisted filter and let the context stages
+    // run, exactly as init resolves.
+    const persistedFilter = readContentFilter(manifest);
+    const newSelection = resolveSelection(
+      selectedPreset,
+      projectType,
+      teamSize,
+      index,
+      customSelections,
+      manifest.languages,
+      { role: persistedFilter.role, facets: persistedFilter.facets },
+    );
     const oldIds = getAllContentIds(manifest.content);
     const newIds = getAllContentIds(newSelection);
 
@@ -1415,7 +1414,8 @@ async function configCommandImpl(
     defaultBranch === currentBranch &&
     !contentMetadataChanged &&
     !maturityChanged &&
-    !confidenceFloorChanged
+    !confidenceFloorChanged &&
+    !communicationStyleChanged
   ) {
     // W5-bigfour: blank-line separators are stdout chrome — gate behind quiet
     // (info() is already self-gated).
@@ -1441,6 +1441,9 @@ async function configCommandImpl(
     }
     if (confidenceFloorChanged && selectedConfidenceFloor !== undefined) {
       dryLines.push(`${chalk.cyan("~")} Confidence floor: ${selectedConfidenceFloor}`);
+    }
+    if (communicationStyleChanged && selectedCommunicationStyle !== undefined) {
+      dryLines.push(`${chalk.cyan("~")} Communication style: ${selectedCommunicationStyle}`);
     }
     dryLines.push("");
     dryLines.push(
@@ -1595,12 +1598,84 @@ async function configCommandImpl(
 
       const result = await archiveToolOutputs(rootDir, tool);
       removeManagedFilesForPaths(manifest, result.archivedFiles);
+      // release/2.8.5 (BUG-3 secondary): drop the archived tool's
+      // per-adapter record too — its files just moved to the archive, and a
+      // surviving entry would make the NEXT config run misreport the tool as
+      // a stale-recorded adapter (runRegenerate's merge preserves entries for
+      // adapters it does not run, so nothing else clears it).
+      if (manifest.managedFilesByAdapter) {
+        delete manifest.managedFilesByAdapter[tool];
+      }
       allArchivedFiles.push(...result.archivedFiles);
       allMigrations.push(...result.migrations);
 
       s.succeed(
         step(i + 1, totalArchiveSteps, `Archived ${result.archivedFiles.length} files from ${TOOL_DISPLAY_NAMES[tool] ?? tool}`),
       );
+    }
+  }
+
+  // release/2.8.5 (BUG-3 secondary): reclaim STALE recorded adapters — entries
+  // in `managedFilesByAdapter` whose adapter is neither in the new tool set
+  // nor in this run's `diff.removedTools` (those were archived above). Such
+  // entries survive from a manifest whose `tools` already dropped the adapter
+  // (e.g. an older init that rewrote `tools` without cleaning up), so the
+  // ordinary removed-tool archive path never fires for them and their files
+  // linger forever. Config is interactive by construction (TTY-gated at
+  // entry), so consent is an explicit confirm; the sweep reuses the
+  // safety-filtered orphan cleaner (adapter-root containment, hatch3r
+  // basename, user-wrapped veto).
+  const removedToolSet = new Set<string>(diff.removedTools);
+  const staleRecordedAdapters: Array<[string, string[]]> = Object.entries(
+    manifest.managedFilesByAdapter ?? {},
+  ).filter(
+    ([adapter, paths]) =>
+      !tools.includes(adapter as Tool) && !removedToolSet.has(adapter) && paths.length > 0,
+  );
+  if (staleRecordedAdapters.length > 0) {
+    if (!isQuiet()) {
+      console.log();
+      console.log(chalk.yellow("Stale adapter records detected (adapters not in your tool set):"));
+      for (const [adapter, paths] of staleRecordedAdapters) {
+        console.log(`  ${chalk.red("-")} ${TOOL_DISPLAY_NAMES[adapter as Tool] ?? adapter}: ${paths.length} recorded file(s)`);
+        for (const p of paths.slice(0, 10)) console.log(`      ${chalk.dim(p)}`);
+        if (paths.length > 10) console.log(`      ${chalk.dim(`… and ${paths.length - 10} more`)}`);
+      }
+      console.log();
+    }
+    const { confirmStaleReclaim } = await inquirer.prompt<{ confirmStaleReclaim: boolean }>([
+      {
+        type: "confirm",
+        name: "confirmStaleReclaim",
+        message: "Remove these leftover files from adapters that are no longer configured?",
+        default: true,
+      },
+    ]);
+    if (confirmStaleReclaim === true) {
+      const staleSweepEntries = [];
+      const sweptPaths: string[] = [];
+      for (const [adapter, paths] of staleRecordedAdapters) {
+        // trustedExactPaths: manifest-recorded outputs of the stale adapter,
+        // swept under the explicit confirm above — lets non-`hatch3r-*`
+        // managed artifacts (CLAUDE.md) be reclaimed; containment + the
+        // user-wrapped veto still apply.
+        const entries = await sweepOrphansForAdapter(adapter, rootDir, paths, [], undefined, {
+          trustedExactPaths: new Set(paths.map((p) => p.replace(/\\/g, "/"))),
+        });
+        staleSweepEntries.push(...entries);
+        sweptPaths.push(...entries.filter((e) => e.removed).map((e) => e.path));
+        if (manifest.managedFilesByAdapter) {
+          delete manifest.managedFilesByAdapter[adapter];
+        }
+      }
+      removeManagedFilesForPaths(manifest, sweptPaths);
+      const staleDiag = formatOrphanCleanupDiagnostic(staleSweepEntries);
+      if (staleDiag) warn(staleDiag);
+      if (sweptPaths.length > 0) {
+        info(`Reclaimed ${sweptPaths.length} stale adapter file(s).`);
+      }
+    } else {
+      info(chalk.dim("Stale adapter files kept (their manifest records are preserved)."));
     }
   }
 
@@ -1620,6 +1695,9 @@ async function configCommandImpl(
   // value; the guard is defensive against a future skip predicate.
   if (selectedMaturity !== undefined) manifest.maturity = selectedMaturity;
   if (selectedConfidenceFloor !== undefined) manifest.confidenceFloor = selectedConfidenceFloor;
+  // release/2.8.5: persist the communication style from the interactive step
+  // (parity with the scalar `config communication_style=` setter).
+  if (selectedCommunicationStyle !== undefined) manifest.communicationStyle = selectedCommunicationStyle;
 
   if (manifest.board) {
     manifest.board.owner = owner;
@@ -1742,6 +1820,9 @@ async function configCommandImpl(
   }
   if (confidenceFloorChanged && selectedConfidenceFloor !== undefined) {
     summaryLines.push(`${chalk.cyan("~")} Confidence floor: ${selectedConfidenceFloor}`);
+  }
+  if (communicationStyleChanged && selectedCommunicationStyle !== undefined) {
+    summaryLines.push(`${chalk.cyan("~")} Communication style: ${selectedCommunicationStyle}`);
   }
 
   summaryLines.push("");

@@ -29,6 +29,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **dependency-management** | Lockfile discipline, CVE scanning, transitive audits, major-version upgrade protocol, bundle-size gates, and SHA-pinned GitHub Actions. |
 | **container-hardening** | Container image hardening -- digest pinning, distroless / Wolfi base, non-root user, SBOM-in-image, cosign signing + verification, CVE scanning. |
 | **tool-currency** | CLI-tool version pinning, vendor-release research cadence (≤90 days), CVE-feed acknowledgement (≤90 days), and a release-readiness gate. |
+| **spec-currency** | Spec-currency mandate -- any diff changing user-observable behavior covered by a `docs/specs/` file updates that spec in the same delivery; staleness definition, review-gate drift finding with a named owner, release-readiness sweep. |
 
 ### Observability and reliability
 

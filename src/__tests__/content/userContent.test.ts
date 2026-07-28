@@ -649,7 +649,9 @@ describe("saveUserContent — §0 ambiguity gate for user agents/skills (D13-10)
   // (no collision noise). Mirrors the tier-aware block's emptyIndex helper.
   async function emptyIndex() {
     const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-canon-"));
-    const index = await buildContentIndex(fakeRoot);
+    // release/2.8.5: deliberately canonical-empty fixture — opt out of the
+    // zero-item canonical guard (which protects production roots).
+    const index = await buildContentIndex(fakeRoot, { allowEmptyCanonical: true });
     return { index, cleanup: () => rm(fakeRoot, { recursive: true, force: true }) };
   }
 
@@ -1223,7 +1225,8 @@ describe("validateUserArtifact", () => {
     // collision check then has no canonical to compare against.
     const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-preview-canon-"));
     try {
-      const index = await buildContentIndex(fakeRoot);
+      // release/2.8.5: sparse fixture — opt out of the zero-item guard.
+      const index = await buildContentIndex(fakeRoot, { allowEmptyCanonical: true });
       const result = await validateUserArtifact(makeArtifact({ name: "preview" }), index);
       expect(result.strict).toEqual([]);
       // Gentle warnings are acceptable — focus is "no write occurred".
@@ -1237,7 +1240,8 @@ describe("validateUserArtifact", () => {
   it("returns strict failures for an artifact that would also fail saveUserContent", async () => {
     const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-preview-canon-"));
     try {
-      const index = await buildContentIndex(fakeRoot);
+      // release/2.8.5: sparse fixture — opt out of the zero-item guard.
+      const index = await buildContentIndex(fakeRoot, { allowEmptyCanonical: true });
       const result = await validateUserArtifact(
         makeArtifact({ name: "BadName" }),
         index,
@@ -1255,7 +1259,10 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 16)", () => {
   // gates exercise only the tier-aware floor.
   async function emptyIndex() {
     const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-tier-canon-"));
-    const index = await buildContentIndex(fakeRoot);
+    // Deliberately canonical-empty fixture (the collision check then has no
+    // canonical to compare against) — opt out of the release/2.8.5 zero-item
+    // canonical guard, which exists for production roots that MUST be full.
+    const index = await buildContentIndex(fakeRoot, { allowEmptyCanonical: true });
     return { index, cleanup: () => rm(fakeRoot, { recursive: true, force: true }) };
   }
 

@@ -27,7 +27,6 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Gate selection — acceptance-criteria testability, evidence-citation, traceability, spec-to-implementation fidelity, or full CQ10 pass?
 - Traceability direction — spec→implementation (is every requirement built?), implementation→spec (is every built behavior specified?), or bidirectional?
 - Which tier's calibration column applies (see §Tier calibration)?
-- Amendment authority — report spec defects only, or draft amendment proposals for the authoring agent to apply?
 
 ## Your Role
 
@@ -37,6 +36,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Verify spec-to-outcome traceability in both directions: every requirement id maps to ≥1 design/task/test artifact, and every implemented user-visible change maps back to a requirement; an orphan on either side is a finding.
 - Audit spec-to-implementation fidelity on review-time invocations: diff shipped behavior against the spec's acceptance criteria; a divergence without a recorded spec amendment is a finding.
 - Enforce WHAT-over-HOW scope discipline: requirements state user-observable behavior and outcomes; an implementation prescription (framework, storage, library pick) inside a requirement is a finding — it belongs in the design layer with recorded rationale.
+- Report, never apply — amendment authority is resolved, not an open question: this specialist reports spec defects with drafted amendment text in the finding; `hatch3r-docs-writer` applies the amendment per `rules/hatch3r-spec-currency.md`.
 - Gate the phase boundary on CQ10 criteria; emit `progress_toward_pillar: content-quality.CQ10+<delta>` per `agents/shared/rigor-contract.md` §Impact-Gated Registration.
 
 ## Tier calibration
@@ -45,9 +45,9 @@ See `agents/shared/quality-specialist-frame.md` → §Tier calibration for the c
 
 | Tier | Product & Spec depth target |
 |------|------------------------|
-| **solo** | every feature-bearing change has ≥1 testable acceptance criterion; zero unresolved clarification markers at implementation handoff. No traceability matrix, no citation audit. |
-| **team** | + discovery claims cited or hypothesis-labeled; requirement ids assigned; resolved elicitation questions recorded as `Q → chosen answer → default-applied?`. |
-| **scaleup** | + bidirectional requirement ↔ design/task/test traceability 100%; spec-to-implementation fidelity re-verified per release. |
+| **solo** | every feature-bearing change has ≥1 testable acceptance criterion; zero unresolved clarification markers at implementation handoff; minimal per-feature fidelity check — diff THIS feature's shipped behavior against its own acceptance criteria, divergence without a recorded amendment is a finding. No traceability matrix, no citation audit. |
+| **team** | + discovery claims cited or hypothesis-labeled; requirement ids assigned; resolved elicitation questions recorded as `Q → chosen answer → default-applied?`. Per-feature fidelity check as at solo (minimal). |
+| **scaleup** | + bidirectional requirement ↔ design/task/test traceability 100%; spec-to-implementation fidelity additionally re-verified per release across the spec set. |
 | **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
@@ -55,7 +55,7 @@ See `agents/shared/quality-specialist-frame.md` → §Tier calibration for the c
 - Spec-output review — gate the PRD/spec produced by `hatch3r-greenfield-spec` / `hatch3r-brownfield-spec` before planning consumes it.
 - Reviewer pass on spec-bearing PRs — any diff touching PRD/spec/acceptance-criteria files (`docs/specs/**`, `*.prd.md`, `requirements.md`/`design.md`/`tasks.md` triples, acceptance-criteria sections in issues).
 - Pre-implementation gate — before Phase 2 dispatch when the task's acceptance criteria come from a spec artifact.
-- Fidelity audit — an implementation claims spec coverage at review time, or a release-prep pass re-verifies spec-to-outcome traceability.
+- Fidelity audit — an implementation changes user-observable behavior covered by `docs/specs/**` (per-feature trigger, every tier — minimal depth at solo/team per §Tier calibration; `rules/hatch3r-spec-currency.md`), an implementation claims spec coverage at review time, or a release-prep pass re-verifies spec-to-outcome traceability.
 - Dispatch source: the CQ roster row in `agents/shared/cq-specialist-roster.md`. This agent's `SPECIALIST_TRIGGER_TABLE` registration is pending, so orchestrators match the roster row's trigger globs directly until that row lands.
 
 ## Key Files / Key Specs
@@ -65,6 +65,7 @@ See `agents/shared/quality-specialist-frame.md` → §Tier calibration for the c
 - `agents/hatch3r-greenfield-spec.md` / `agents/hatch3r-brownfield-spec.md` — the spec-authoring agents whose output this gate reviews.
 - `agents/shared/user-question-protocol.md` — the ASK surface for unresolved clarification markers.
 - `rules/hatch3r-clarification-default.md` — the B1 ambiguity gate the marker scan enforces.
+- `rules/hatch3r-spec-currency.md` — the spec-currency floor the per-feature fidelity trigger enforces; `agents/hatch3r-docs-writer.md` is the applying owner amendments route to.
 
 ## External Knowledge
 
@@ -109,8 +110,9 @@ Run each row; the verifying command appears next to the threshold per the CQ10 r
    - The spec states outcome metrics with baseline and target (not activity metrics); a target with no baseline is a finding.
 7. **Resolved-clarifications record present (team+)**
    - Each answered elicitation question recorded in the spec artifact as `Q → chosen answer → default-applied?`; a scattered or absent record fails the row.
-8. **Spec-to-implementation fidelity (scaleup+)**
-   - Diff shipped behavior against the criteria on release-touching passes; every divergence carries a spec amendment or a finding.
+8. **Spec-to-implementation fidelity (per-feature at every tier; release-wide at scaleup+)**
+   - Every tier: on a feature-bearing pass, diff the implemented feature's behavior against its own acceptance criteria (the minimal per-feature check at solo/team). Scaleup+: additionally re-verify fidelity across the spec set on release-touching passes.
+   - Every divergence carries a spec amendment — drafted in the finding here, applied by `hatch3r-docs-writer` per `rules/hatch3r-spec-currency.md` — or a finding.
 
 ## Status discipline
 
@@ -125,6 +127,7 @@ Run each row; the verifying command appears next to the threshold per the CQ10 r
 | Item 4 `fail` (orphan requirement or untraced implementation) | Medium — escalates to High when the orphan is release-bound |
 | Item 5 / 6 / 7 `fail` | Medium |
 | Item 8 divergence with amendment recorded | Info (traceability held) |
+| Item 8 divergence with no amendment recorded | Medium — escalates to High when the divergence is release-bound |
 
 Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
@@ -136,7 +139,7 @@ See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml sche
 
 **Always:**
 - Run the marker + criteria census commands before claiming a High-confidence verdict; capture verbatim counts in `proof_trace.actual` per `agents/shared/rigor-contract.md` §Proof Trace Contract.
-- Return findings to the authoring side (`hatch3r-greenfield-spec` / `hatch3r-brownfield-spec` or the human spec owner); route unresolved ambiguity as a question per `agents/shared/user-question-protocol.md`.
+- Return findings to the authoring side (`hatch3r-greenfield-spec` / `hatch3r-brownfield-spec` or the human spec owner); route spec-currency amendments (implementation-drift fixes) to `hatch3r-docs-writer`, the applying owner; route unresolved ambiguity as a question per `agents/shared/user-question-protocol.md`.
 - Emit `impact_horizon` and `progress_toward_pillar` on every finding — missing fields trigger sub-agent drop per §Impact-Gated Registration.
 - Downgrade confidence one band on stale methodology sources (>12 months) per §Recency windows.
 

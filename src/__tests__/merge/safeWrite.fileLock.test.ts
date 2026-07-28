@@ -6,7 +6,9 @@ import {
   acquireWriteLock,
   atomicWriteFile,
   enableDefaultCrossProcessLocking,
-  resetDefaultCrossProcessLocking,
+  disableCrossProcessLocking,
+  resetCrossProcessLocking,
+  isCrossProcessLockingEnabled,
 } from "../../merge/safeWrite.js";
 import { HatchError } from "../../types.js";
 
@@ -14,10 +16,11 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 // ──────────────────────────────────────────────────────────────────────────
 // D1-SA1.5.1: File-locking primitive for concurrent hatch3r processes.
-// Locking is opt-in via HATCH3R_LOCK=1. Default behavior must be unchanged.
+// DD-A1 (release/2.8.5): locking is DEFAULT-ON; opt-outs are `--no-lock`
+// (disableCrossProcessLocking) and HATCH3R_LOCK=0; HATCH3R_LOCK=1 force-on.
 // ──────────────────────────────────────────────────────────────────────────
 
-describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", () => {
+describe("atomicWriteFile — cross-process file locking (D1-SA1.5.1 / DD-A1 default-on)", () => {
   let tempDir: string;
   const origLock = process.env.HATCH3R_LOCK;
 
@@ -29,48 +32,64 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
     if (origLock === undefined) delete process.env.HATCH3R_LOCK;
     else process.env.HATCH3R_LOCK = origLock;
-    // D8-M3: clear any default-on state set by the per-test block so each test
-    // starts from the single-process default.
-    resetDefaultCrossProcessLocking();
+    // DD-A2: clear any per-test --no-lock state so each test starts from the
+    // shipped default (locking on).
+    resetCrossProcessLocking();
   });
 
-  describe("default behavior (HATCH3R_LOCK unset)", () => {
-    it("writes the file successfully without creating a .lock file", async () => {
+  describe("DD-A1 default behavior (HATCH3R_LOCK unset) — locking is ON", () => {
+    it("takes the on-disk lock by default: a fresh pre-held lockfile blocks the write with LOCK_TIMEOUT", async () => {
       delete process.env.HATCH3R_LOCK;
-      const filePath = join(tempDir, "no-lock.md");
+      const filePath = join(tempDir, "default-locked.md");
+      const lockfilePath = filePath + ".hatch3r.lock";
+
+      // Pre-create a fresh lock dir: if the default really locks, the write
+      // must contend and time out — a bypassing writer would just succeed.
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(lockfilePath, { recursive: true });
+
+      await expect(atomicWriteFile(filePath, "blocked")).rejects.toMatchObject({
+        name: "HatchError",
+        errorCode: "LOCK_TIMEOUT",
+      });
+
+      await rm(lockfilePath, { recursive: true, force: true });
+    }, 20_000);
+
+    it("a clean default write succeeds and leaves no lingering lockfile", async () => {
+      delete process.env.HATCH3R_LOCK;
+      const filePath = join(tempDir, "default-clean.md");
 
       await atomicWriteFile(filePath, "default-behavior content");
 
-      const content = await readFile(filePath, "utf-8");
-      expect(content).toBe("default-behavior content");
-
-      // No .hatch3r.lock directory should be created when the env var is unset.
-      const lockPath = filePath + ".hatch3r.lock";
-      const lockExists = await access(lockPath).then(() => true).catch(() => false);
+      expect(await readFile(filePath, "utf-8")).toBe("default-behavior content");
+      // proper-lockfile removes its lock dir on release.
+      const lockExists = await access(filePath + ".hatch3r.lock").then(() => true).catch(() => false);
       expect(lockExists).toBe(false);
     });
 
-    it("HATCH3R_LOCK set to '' (falsy string) leaves locking disabled", async () => {
+    it("HATCH3R_LOCK set to '' (falsy string) is no signal — default-on stands", () => {
       process.env.HATCH3R_LOCK = "";
-      const filePath = join(tempDir, "empty-flag.md");
-
-      await atomicWriteFile(filePath, "content");
-      expect(await readFile(filePath, "utf-8")).toBe("content");
-
-      const lockExists = await access(filePath + ".hatch3r.lock").then(() => true).catch(() => false);
-      expect(lockExists).toBe(false);
+      expect(isCrossProcessLockingEnabled()).toBe(true);
     });
 
-    it("HATCH3R_LOCK set to 'true' (not '1') leaves locking disabled", async () => {
-      // Gate is strictly === "1" so only explicit opt-in enables locks.
+    it("HATCH3R_LOCK set to 'true' (not '1') is no signal — default-on stands", () => {
+      // Gate is strictly "1"/"0" (config/parse.ts readEnvBool).
       process.env.HATCH3R_LOCK = "true";
-      const filePath = join(tempDir, "non-one-flag.md");
+      expect(isCrossProcessLockingEnabled()).toBe(true);
+    });
 
-      await atomicWriteFile(filePath, "content");
-      expect(await readFile(filePath, "utf-8")).toBe("content");
+    it("HATCH3R_LOCK=0 disables locking: the write succeeds DESPITE a pre-held lockfile", async () => {
+      process.env.HATCH3R_LOCK = "0";
+      const filePath = join(tempDir, "env-opt-out.md");
+      const lockfilePath = filePath + ".hatch3r.lock";
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(lockfilePath, { recursive: true });
 
-      const lockExists = await access(filePath + ".hatch3r.lock").then(() => true).catch(() => false);
-      expect(lockExists).toBe(false);
+      await atomicWriteFile(filePath, "unlocked write");
+      expect(await readFile(filePath, "utf-8")).toBe("unlocked write");
+
+      await rm(lockfilePath, { recursive: true, force: true });
     });
   });
 
@@ -317,59 +336,53 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
     });
   });
 
-  // D8-M3 (Cycle 10 rollover): default-on locking for workspace/worktree
-  // contexts. Workspace/worktree command entry points call
-  // `enableDefaultCrossProcessLocking()` so concurrent writes are serialized
-  // without requiring operators to know `HATCH3R_LOCK=1`. `HATCH3R_LOCK=0`
-  // still wins as an explicit opt-out.
-  describe("D8-M3 default-on locking for workspace/worktree contexts", () => {
-    it("enableDefaultCrossProcessLocking() activates locking without env var", async () => {
+  // DD-A2 (release/2.8.5): the --no-lock opt-out surface and the deprecated
+  // former enable/reset pair.
+  describe("DD-A2 process-level opt-out (--no-lock) and deprecated aliases", () => {
+    it("disableCrossProcessLocking() suppresses the lock: write succeeds DESPITE a pre-held lockfile", async () => {
       delete process.env.HATCH3R_LOCK;
-      enableDefaultCrossProcessLocking();
+      disableCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(false);
 
-      const filePath = join(tempDir, "default-on.md");
+      const filePath = join(tempDir, "flag-opt-out.md");
       const lockfilePath = filePath + ".hatch3r.lock";
-
-      // Pre-create a stale lockfile to force ELOCKED → LOCK_TIMEOUT, which
-      // proves that the lock was actually attempted (not bypassed).
       const { mkdir } = await import("node:fs/promises");
       await mkdir(lockfilePath, { recursive: true });
 
-      await expect(
-        atomicWriteFile(filePath, "blocked-by-default-on"),
-      ).rejects.toMatchObject({
-        name: "HatchError",
-        errorCode: "LOCK_TIMEOUT",
-      });
+      await atomicWriteFile(filePath, "no-lock write");
+      expect(await readFile(filePath, "utf-8")).toBe("no-lock write");
 
       await rm(lockfilePath, { recursive: true, force: true });
-    }, 20_000);
-
-    it("HATCH3R_LOCK=0 wins over default-on (explicit opt-out)", async () => {
-      process.env.HATCH3R_LOCK = "0";
-      enableDefaultCrossProcessLocking();
-
-      const filePath = join(tempDir, "opt-out.md");
-      await atomicWriteFile(filePath, "no-lock-content");
-
-      expect(await readFile(filePath, "utf-8")).toBe("no-lock-content");
-
-      // No lockfile dir should have been created when opt-out is set.
-      const lockExists = await access(filePath + ".hatch3r.lock")
-        .then(() => true)
-        .catch(() => false);
-      expect(lockExists).toBe(false);
     });
 
-    it("resetDefaultCrossProcessLocking() returns to single-process default", async () => {
+    it("HATCH3R_LOCK=1 force-enables over disableCrossProcessLocking()", () => {
+      process.env.HATCH3R_LOCK = "1";
+      disableCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(true);
+    });
+
+    it("HATCH3R_LOCK=0 also wins (env opt-out and flag opt-out agree)", () => {
+      process.env.HATCH3R_LOCK = "0";
+      disableCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(false);
+    });
+
+    it("resetCrossProcessLocking() restores the default-on state after --no-lock", () => {
+      delete process.env.HATCH3R_LOCK;
+      disableCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(false);
+      resetCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(true);
+    });
+
+    it("deprecated enableDefaultCrossProcessLocking() is a harmless no-op (locking already on)", async () => {
       delete process.env.HATCH3R_LOCK;
       enableDefaultCrossProcessLocking();
-      resetDefaultCrossProcessLocking();
+      expect(isCrossProcessLockingEnabled()).toBe(true);
 
-      const filePath = join(tempDir, "after-reset.md");
-      await atomicWriteFile(filePath, "single-process");
-
-      expect(await readFile(filePath, "utf-8")).toBe("single-process");
+      const filePath = join(tempDir, "deprecated-enable.md");
+      await atomicWriteFile(filePath, "still fine");
+      expect(await readFile(filePath, "utf-8")).toBe("still fine");
       const lockExists = await access(filePath + ".hatch3r.lock")
         .then(() => true)
         .catch(() => false);

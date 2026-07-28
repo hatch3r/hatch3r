@@ -2,7 +2,59 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveBundledContentRoot } from "../content/contentRoot.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { isPlainObject } from "../config/parse.js";
 import { HATCH3R_DIR } from "../types.js";
+
+/**
+ * DD-C5 (release/2.8.5): validated parse result for an mcp.json document —
+ * replaces this module's three trusting `JSON.parse(raw) as
+ * Record<string, unknown>` casts, which accepted a top-level array/string/
+ * number and let it flow into `{ ...base, mcpServers }` (spreading a string
+ * enumerates its characters into numeric keys — real file corruption on the
+ * rewrite path).
+ */
+export type McpJsonParseResult =
+  | {
+      kind: "ok";
+      /** The full top-level object (sibling fields preserved verbatim). */
+      doc: Record<string, unknown>;
+      /** `mcpServers` restricted to object-valued entries (absent or
+       *  non-object map → empty). */
+      servers: Record<string, Record<string, unknown>>;
+      /** Server names whose entries were not objects and were dropped. */
+      droppedServers: string[];
+    }
+  | { kind: "syntax"; message: string }
+  | { kind: "not-object"; message: string };
+
+/** DD-C5: parse + shape-validate an mcp.json text. Never throws. */
+export function parseMcpJsonDocument(raw: string): McpJsonParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+    // reason: not silent — the parse failure is returned as a structured
+    // `{ kind: "syntax", message }` result that every caller surfaces via
+    // its warn channel (the diagnostic emission happens one frame up).
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch (err) {
+    return { kind: "syntax", message: err instanceof Error ? err.message : String(err) };
+  }
+  if (!isPlainObject(parsed)) {
+    return {
+      kind: "not-object",
+      message: `top-level value is ${parsed === null ? "null" : Array.isArray(parsed) ? "an array" : `a ${typeof parsed}`}, expected a JSON object`,
+    };
+  }
+  const servers: Record<string, Record<string, unknown>> = {};
+  const droppedServers: string[] = [];
+  if (isPlainObject(parsed.mcpServers)) {
+    for (const [name, entry] of Object.entries(parsed.mcpServers)) {
+      if (isPlainObject(entry)) servers[name] = entry;
+      else droppedServers.push(name);
+    }
+  }
+  return { kind: "ok", doc: parsed, servers, droppedServers };
+}
 
 /**
  * Filter the on-disk `mcp.json` to only the selected MCP server names.
@@ -65,35 +117,43 @@ export async function filterMcpJsonOnDisk(
     throw err;
   }
 
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(raw) as Record<string, unknown>;
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      // D1-SA1.6-10 (Cycle 12 Wave 4, D1, P6): a present-but-unparseable
-      // mcp.json previously no-op'd here with zero signal, silently dropping
-      // the user's server deselection — a trust decision per the MCP
-      // blast-radius doc — which is a Silent Failure Contract violation
-      // (CONSTITUTION §2 P5). Mirror the sibling readCustomizationWithWarnings
-      // (D2-12) and materializeUserMcpJson: surface a named warning through
-      // `onWarn`, and still no-op the write (never clobber a file we cannot
-      // parse). Wiring status: `init.ts` (the sole caller) passes its `warn`
-      // sink as `onWarn` — a one-line follow-up owned by the concurrent
-      // Cycle-12 init.ts work unit; until wired, the default sink swallows it.
-      warn(
-        `mcp.json is not valid JSON — server selection was NOT applied; ` +
-          `fix or delete ${targetPath}, then re-run.`,
-      );
-      return;
-    }
-    throw err;
+  // DD-C5 (release/2.8.5): validated parse — the prior
+  // `JSON.parse(raw) as Record<string, unknown>` cast trusted the shape.
+  const parseResult = parseMcpJsonDocument(raw);
+  if (parseResult.kind === "syntax") {
+    // D1-SA1.6-10 (Cycle 12 Wave 4, D1, P6): a present-but-unparseable
+    // mcp.json previously no-op'd here with zero signal, silently dropping
+    // the user's server deselection — a trust decision per the MCP
+    // blast-radius doc — which is a Silent Failure Contract violation
+    // (CONSTITUTION §2 P5). Mirror the sibling readCustomizationWithWarnings
+    // (D2-12) and materializeUserMcpJson: surface a named warning through
+    // `onWarn`, and still no-op the write (never clobber a file we cannot
+    // parse). Wiring status: `init.ts` (the sole caller) passes its `warn`
+    // sink as `onWarn` — a one-line follow-up owned by the concurrent
+    // Cycle-12 init.ts work unit; until wired, the default sink swallows it.
+    warn(
+      `mcp.json is not valid JSON — server selection was NOT applied; ` +
+        `fix or delete ${targetPath}, then re-run.`,
+    );
+    return;
   }
+  if (parseResult.kind === "not-object") {
+    // DD-C5: same never-clobber posture for a parseable-but-wrong-shape file.
+    warn(
+      `mcp.json is valid JSON but ${parseResult.message} — server selection was NOT applied; ` +
+        `fix or delete ${targetPath}, then re-run.`,
+    );
+    return;
+  }
+  if (parseResult.droppedServers.length > 0) {
+    warn(
+      `mcp.json: ignoring non-object mcpServers entr${parseResult.droppedServers.length === 1 ? "y" : "ies"}: ` +
+        `${parseResult.droppedServers.join(", ")}.`,
+    );
+  }
+  if (Object.keys(parseResult.servers).length === 0) return;
 
-  const rawServers = parsed.mcpServers;
-  if (!rawServers || typeof rawServers !== "object") return;
-  const mcpServers = rawServers as Record<string, Record<string, unknown>>;
-
-  const filtered = filterServers(mcpServers, selectedIds);
+  const filtered = filterServers(parseResult.servers, selectedIds);
 
   // D11-M6 (Cycle 10 Wave-3 Medium, P2): preserve every top-level field beyond
   // `mcpServers` (e.g., `protocolVersion`, user-added documentation keys).
@@ -102,7 +162,7 @@ export async function filterMcpJsonOnDisk(
   // and the Claude/Cursor/Copilot schemas all allow additional top-level
   // fields; restricting the rewrite to `mcpServers` is the minimal change
   // that preserves user state across the filter.
-  const rewritten: Record<string, unknown> = { ...parsed, mcpServers: filtered };
+  const rewritten: Record<string, unknown> = { ...parseResult.doc, mcpServers: filtered };
 
   await atomicWriteFile(targetPath, JSON.stringify(rewritten, null, 2) + "\n");
 }
@@ -176,34 +236,37 @@ export async function materializeUserMcpJson(
     }
     throw err;
   }
-  let bundledParsed: Record<string, unknown>;
-  try {
-    bundledParsed = JSON.parse(bundledRaw) as Record<string, unknown>;
-  } catch {
+  // DD-C5 (release/2.8.5): validated parse — the prior cast accepted a
+  // top-level array/string, whose `{ ...base }` spread below corrupts the
+  // rewritten document (a string spreads its characters into numeric keys).
+  const bundledResult = parseMcpJsonDocument(bundledRaw);
+  if (bundledResult.kind !== "ok") {
     warn(
-      `Bundled MCP template at ${bundledMcpPath} is not valid JSON; ` +
+      `Bundled MCP template at ${bundledMcpPath} is ${bundledResult.kind === "syntax" ? "not valid JSON" : `malformed (${bundledResult.message})`}; ` +
         `${HATCH3R_DIR}/mcp/mcp.json not written.`,
     );
     return false;
   }
 
   // 2. Existing target (optional) — the source of user sibling fields.
-  let existingParsed: Record<string, unknown> | undefined;
+  let existingDoc: Record<string, unknown> | undefined;
   let targetExists = false;
   try {
     const existingRaw = await readFile(targetPath, "utf-8");
     targetExists = true;
-    existingParsed = JSON.parse(existingRaw) as Record<string, unknown>;
-  } catch (err) {
-    if (targetExists) {
-      // Read succeeded but parse failed: never overwrite a user file we
-      // cannot merge (same fail-safe posture as filterMcpJsonOnDisk).
+    const existingResult = parseMcpJsonDocument(existingRaw);
+    if (existingResult.kind !== "ok") {
+      // Parse or shape failure: never overwrite a user file we cannot merge
+      // (same fail-safe posture as filterMcpJsonOnDisk; DD-C5 extends it to
+      // the parseable-but-not-an-object case).
       warn(
-        `${HATCH3R_DIR}/mcp/mcp.json exists but is not valid JSON; ` +
+        `${HATCH3R_DIR}/mcp/mcp.json exists but is ${existingResult.kind === "syntax" ? "not valid JSON" : `malformed (${existingResult.message})`}; ` +
           `left untouched — fix or delete it, then re-run.`,
       );
       return false;
     }
+    existingDoc = existingResult.doc;
+  } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
@@ -211,16 +274,11 @@ export async function materializeUserMcpJson(
   if (selectedIds.size === 0 && !targetExists) return false;
 
   // 4. Filter the BUNDLED server set (fresh definitions, `_disabled` dropped).
-  const rawServers = bundledParsed.mcpServers;
-  const bundledServers =
-    rawServers && typeof rawServers === "object"
-      ? (rawServers as Record<string, Record<string, unknown>>)
-      : {};
-  const filtered = filterServers(bundledServers, selectedIds);
+  const filtered = filterServers(bundledResult.servers, selectedIds);
 
   // 5. Merge: user siblings (when present) win the frame; bundled siblings
   //    seed a fresh materialization; `mcpServers` is always the filtered set.
-  const base = existingParsed ?? bundledParsed;
+  const base = existingDoc ?? bundledResult.doc;
   const rewritten: Record<string, unknown> = { ...base, mcpServers: filtered };
 
   await mkdir(targetDir, { recursive: true });

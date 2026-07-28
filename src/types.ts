@@ -1332,13 +1332,26 @@ export class HatchError extends Error {
   public readonly errorCode: HatchErrorCode;
   public readonly recoveryHint?: string;
 
+  /**
+   * DD-B1 (release/2.8.5): accept the standard `ErrorOptions.cause` so a
+   * wrapping HatchError preserves the underlying failure instead of
+   * flattening it to a message string (the workspace sync catch previously
+   * lost errorCode/recoveryHint/stack when re-boxing). Read it back via the
+   * ES2022 `Error.prototype.cause` field (`err.cause`); consumers that need
+   * a serializable trail walk the cause chain (see
+   * `src/workspace/sync.ts::toRepoSyncError`). No field is declared on the
+   * class body on purpose: with `target: ES2022` a declared class field
+   * would re-initialize AFTER `super()` and wipe the value the Error
+   * constructor set.
+   */
   constructor(
     message: string,
     exitCode?: number,
     errorCode: HatchErrorCode = "UNKNOWN_ERROR",
     recoveryHint?: string,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.errorCode = errorCode;
     this.exitCode = exitCode ?? ERROR_CODE_TO_EXIT_CODE[errorCode];
     this.recoveryHint = recoveryHint;

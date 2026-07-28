@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, addManagedFile, readContentFilter } from "../../manifest/hatchJson.js";
 import { writeProvenance, type PerAdapterOutputs, type ProvenanceCommand } from "../../manifest/provenance.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
@@ -68,7 +68,14 @@ import {
 } from "../shared/requireManifest.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
-import { buildSelectionsFromDisk } from "../../content/index.js";
+import {
+  buildContentIndex,
+  buildSelectionsFromDisk,
+  countSelectionItems,
+  getAllContentIds,
+  resolveSelection,
+} from "../../content/index.js";
+import { getPreset, type PresetId } from "../../content/presets.js";
 import { detectLanguages } from "../../detect/repoAnalyzer.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
@@ -1312,6 +1319,76 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         appendIfNoBlock: true,
       });
       return { manifest: updated, notices: ["Worktree isolation enabled — .worktreeinclude generated"] };
+    },
+  },
+  {
+    // release/2.8.5 (BUG-1 root cause C): the tracked selection was frozen at
+    // init time. `manifest.content.items` was written once by init and never
+    // re-resolved — the only prior checkpoint fired when `content` was ABSENT
+    // entirely, and `redetectLanguages` refreshed only `manifest.languages`.
+    // So a repo initialized at 2.0.0 carried its 2.0.0-era item lists forever:
+    // artifacts shipped by later versions (e.g. the qa-path cluster) never
+    // appeared in the tracked selection, and every consumer of that list
+    // (sync summaries, status, explain, workspace resolve, config's diff
+    // baseline) reported the stale set.
+    //
+    // When the manifest's recorded hatch3rVersion differs from the running
+    // one, re-resolve the selection against the freshly bundled corpus:
+    //   - preset / projectType / teamSize are PRESERVED verbatim;
+    //   - the persisted --role/--facets filter (readContentFilter) and stored
+    //     language set are re-applied so the refresh matches init's own
+    //     resolution shape;
+    //   - `custom` honours the stored id list as the explicit selection —
+    //     resolveSelection's custom stage is additive ONLY for floor/protected
+    //     artifacts (new floor items are admitted; ids the user removed are
+    //     NOT resurrected; ids removed from the corpus drop out naturally).
+    //
+    // In-memory only: the refreshed manifest is persisted by the regenerate's
+    // normal writeManifest (skipped wholesale under --dry-run), matching the
+    // other non-disk checkpoints. Best-effort: an index/resolution failure
+    // keeps the stored selection and surfaces under --verbose (Silent Failure
+    // Contract — the refresh is bookkeeping, not a correctness gate).
+    id: "content-selection-refresh",
+    condition: async (manifest) =>
+      manifest.content !== undefined && manifest.hatch3rVersion !== HATCH3R_VERSION,
+    execute: async (manifest, _rootDir, _headless) => {
+      const content = manifest.content!;
+      try {
+        const index = await buildContentIndex(resolveBundledContentRoot());
+        const preset = getPreset(content.preset as PresetId);
+        const filter = readContentFilter(manifest);
+        const storedIds = getAllContentIds(content);
+        const refreshed = resolveSelection(
+          preset,
+          content.projectType,
+          content.teamSize,
+          index,
+          content.preset === "custom" ? [...storedIds] : undefined,
+          manifest.languages,
+          { role: filter.role, facets: filter.facets },
+        );
+        const refreshedIds = getAllContentIds(refreshed);
+        const unchanged =
+          refreshedIds.size === storedIds.size &&
+          [...refreshedIds].every((id) => storedIds.has(id));
+        if (unchanged) return { manifest, notices: [] };
+        const added = [...refreshedIds].filter((id) => !storedIds.has(id)).length;
+        const removed = [...storedIds].filter((id) => !refreshedIds.has(id)).length;
+        return {
+          manifest: { ...manifest, content: refreshed },
+          notices: [
+            `Tracked content selection refreshed for hatch3r v${HATCH3R_VERSION}: ` +
+              `${countSelectionItems(refreshed)} item(s) (was ${countSelectionItems(content)}; ` +
+              `+${added} new, -${removed} retired). Preset "${content.preset}", ` +
+              `projectType "${content.projectType}", and teamSize "${content.teamSize}" preserved.`,
+          ],
+        };
+      } catch (err) {
+        verbose(
+          `update: content-selection refresh skipped — ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { manifest, notices: [] };
+      }
     },
   },
 ];

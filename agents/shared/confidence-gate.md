@@ -8,7 +8,7 @@ cache_friendly: true
 
 ## Confidence-Aware Review Gate
 
-> Last updated: 2026-06-09
+> Last updated: 2026-07-28
 
 This is the canonical body of the Stage-1 review-loop gate that closes the reviewer ↔ fixer loop. It is the runtime twin of `evaluateReviewGate` in `src/pipeline/reviewLoop.ts` (the same decision matrix tested at `src/__tests__/pipeline/reviewLoop.test.ts` → "D13-3: confidence floor"). Consuming command sub-files (`commands/board/pickup-delegation.md`, `commands/board/pickup-delegation-multi.md`, `commands/rework/rework-plan.md` — the latter consumes the floor branches only, with no fixer branch: rework validation findings feed a plan, never a fixer spawn) cite this file via a one-line pointer so the floor logic lives in one place rather than re-stated per sub-file (D13-SA13.3-F3, single-source-of-truth per CONSTITUTION §2 P4).
 
@@ -17,8 +17,8 @@ This is the canonical body of the Stage-1 review-loop gate that closes the revie
 1. **Severity counts** — Critical / Warning / Suggestion from the latest `hatch3r-reviewer` pass.
 2. **Reviewer confidence** — the top-level `confidence: high | medium | low` field the reviewer emits (per the Confidence Propagation Contract; an absent or unparseable value is treated as `low`, never as a pass).
 3. **Confidence floor** — the resolved `--confidence-floor` value (`any` | `medium` | `high`), passed in verbatim by the core orchestrator (`commands/hatch3r-board-pickup.md` → Confidence Floor; `commands/hatch3r-rework.md` → Confidence Floor). Default `any`.
-4. **Iteration budget** — iterations remaining against the code-class cap (`DEFAULT_MAX_REVIEW_ITERATIONS` floor of 3).
-5. **Deterministic iteration confidence** — the iteration-derived signal `reviewLoopConfidence` (`src/pipeline/reviewLoop.ts`): `low` when the loop took ≥3 iterations or terminated non-clean (max-iterations / oscillation / divergence / design-objection), else `high` (clean on iteration 1) or `medium` (clean on iteration 2). Unlike input 2 this is computed from the loop, not self-assigned, so it caps an over-confident self-rating (Finding D13-21).
+4. **Iteration budget** — iterations remaining against the loop-class cap (3 code-diff / 4 spec-text per `REVIEW_LOOP_CLASS_CAPS` in `src/pipeline/reviewLoop.ts`, under the protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = 4` — `rules/hatch3r-agent-orchestration.md` Phase 3).
+5. **Deterministic iteration confidence** — the iteration-derived signal `reviewLoopConfidence` (`src/pipeline/reviewLoop.ts`): `low` when the loop took ≥3 iterations or terminated non-clean (max-iterations / oscillation / divergence / design-objection), else `high` (clean on iteration 1) or `medium` (clean on iteration 2). Unlike input 2 this is computed from the loop, not self-assigned, so it caps an over-confident self-rating (Finding D13-21). Once the loop has run ≥3 iterations this signal is permanently `low` — repeated passes cannot raise it — so it justifies at most ONE forced second pass (Decision step 3); at the class cap it routes to escalation, never to an additional pass (Decision step 4).
 
 ### Decision (apply in order)
 
@@ -28,8 +28,8 @@ This is the canonical body of the Stage-1 review-loop gate that closes the revie
    - **`any`** (default): pass when the reconciled confidence is `high` or `medium`. Force a second reviewer pass when it is `low` (or absent/unparseable).
    - **`medium`**: same pass surface as `any` — `high`/`medium` pass, `low` forces a second pass — but the gate records that it evaluated under floor `medium`.
    - **`high`**: `medium` no longer passes. Force a second pass when confidence is anything other than `high` (i.e. `medium`, `low`, or absent), AND surface every `low`-confidence finding to the user via the platform-native ASK regardless of severity.
-3. **Below-floor with iteration budget remaining →** run the forced second pass; do not exit the loop. The second pass should route to a different model class when one is available (`rules/hatch3r-reviewer-calibration.md` → Action).
-4. **Below-floor with no iteration budget remaining →** escalate: **ASK** the user. Do not exit clean. The user may explicitly accept the below-floor PASS, or direct another fix.
+3. **Below-floor with iteration budget remaining →** run ONE forced second pass; do not exit the loop yet. The forced pass consumes one iteration of the class-cap budget, reviews the same diff (no fixer ran, so there is no delta), and should route to a different model class when one is available (`rules/hatch3r-reviewer-calibration.md` → Action). It fires at most once per loop exit: when the reconciled confidence is still below floor after it — the iteration-derived signal cannot rise once the loop has run ≥3 iterations — do not chain further passes; proceed to step 4.
+4. **Below-floor with no iteration budget remaining, or still below floor after the single forced pass (cap-out) →** exit **UNRESOLVED** and escalate: **ASK** the user. Do not exit clean, and never run another reviewer pass past the cap — a cap-out yields UNRESOLVED escalation, not a second full re-review (the pre-2.8.5 second-full-pass-at-cap amplifier is removed). The user may explicitly accept the below-floor PASS, or direct another fix.
 
 After each reviewer iteration, if the reviewer rates any individual finding as `low`-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings — independent of the floor decision above.
 

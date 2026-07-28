@@ -234,6 +234,74 @@ describe("backableCheckbox — fork body", () => {
     keypress(SHIFT_TAB); // exit cleanly
     expect(isBack(await answer)).toBe(true);
   });
+
+  // release/2.8.5 (BUG-3 root cause B): the fork declared `default?: V[]` but
+  // never read it — every default-carrying caller (init/config toolsStep)
+  // rendered all rows unchecked and Enter-through submitted []. The fork now
+  // seeds `checked` from `default` for choices without an explicit `checked`.
+  it("pre-checks rows named in config.default and submits them on Enter-through", async () => {
+    const { answer, keypress, getRawScreen } = render(backableCheckbox, {
+      message: "Tools",
+      choices: [
+        { value: "claude", name: "Claude Code" },
+        { value: "cursor", name: "Cursor" },
+        { value: "copilot", name: "GitHub Copilot" },
+      ],
+      default: ["cursor"],
+    });
+    await tick();
+    // Render assertion: the checked glyph (green filled circle / [x] theme)
+    // must decorate the defaulted row. The raw screen keeps SGR codes; the
+    // filled-circle glyph (or ASCII fallback) differs from the unchecked one,
+    // so assert via the done-line after submit instead of glyph matching:
+    keypress({ name: "return" });
+    const submitted = await answer;
+    expect(submitted).toEqual(["cursor"]);
+    // The final render echoes the selected choice names on the answer line.
+    expect(getRawScreen()).toContain("Cursor");
+  });
+
+  it("explicit checked on a choice wins over config.default (both directions)", async () => {
+    const { answer, keypress } = render(backableCheckbox, {
+      message: "Pick",
+      choices: [
+        // checked:false + listed in default → stays unchecked (explicit wins)
+        { value: "a", name: "A", checked: false },
+        // checked:true + absent from default → stays checked (explicit wins)
+        { value: "b", name: "B", checked: true },
+        // no explicit checked + listed in default → seeded checked
+        { value: "c", name: "C" },
+      ],
+      default: ["a", "c"],
+    });
+    await tick();
+    keypress({ name: "return" });
+    expect(await answer).toEqual(["b", "c"]);
+  });
+
+  it("renders the default-seeded row with the checked glyph before any keypress", async () => {
+    const { answer, keypress, getScreen } = render(backableCheckbox, {
+      message: "Pick",
+      choices: [
+        { value: "on", name: "OnByDefault" },
+        { value: "off", name: "OffByDefault" },
+      ],
+      default: ["on"],
+    });
+    await tick();
+    const screen = plain(getScreen());
+    const onLine = screen.split("\n").find((l) => l.includes("OnByDefault"));
+    const offLine = screen.split("\n").find((l) => l.includes("OffByDefault"));
+    expect(onLine).toBeDefined();
+    expect(offLine).toBeDefined();
+    // The checked and unchecked glyphs must differ between the two rows —
+    // proving the default visually pre-checks its row at first render.
+    const onGlyph = onLine!.replace("OnByDefault", "").trim();
+    const offGlyph = offLine!.replace("OffByDefault", "").trim();
+    expect(onGlyph).not.toEqual(offGlyph);
+    keypress({ name: "return" });
+    expect(await answer).toEqual(["on"]);
+  });
 });
 
 describe("backableInput — fork body", () => {

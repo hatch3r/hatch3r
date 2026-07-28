@@ -301,6 +301,19 @@ async function fileExists(absPath: string): Promise<boolean> {
  *                     accepted in the containment check so a removed package's
  *                     outputs can be reclaimed (D14-5). Omit / pass `undefined`
  *                     for single-package repos.
+ * @param options release/2.8.5 (BUG-3 secondary): `trustedExactPaths` — repo-
+ *                relative posix paths allowed to bypass ONLY the
+ *                hatch3r-basename filter (filter 2). Callers pass the exact
+ *                paths the manifest's `managedFilesByAdapter` recorded for a
+ *                DESELECTED adapter, after explicit user consent: provenance
+ *                is manifest-recorded, not inferred, so a non-`hatch3r-*`
+ *                managed artifact like `CLAUDE.md` can be reclaimed. Every
+ *                other safety filter still applies unconditionally — adapter-
+ *                root containment (filters 1 + the symlink re-check) and the
+ *                user-wrapped veto (filter 4), so a `CLAUDE.md` carrying user
+ *                content outside the HATCH3R markers is still refused and
+ *                disclosed. The default sync/update sweeps pass no option and
+ *                keep the strict basename filter.
  * @returns One entry per candidate, including skipped entries. Empty when
  *          `previousPaths` is undefined/empty.
  */
@@ -310,6 +323,7 @@ export async function sweepOrphansForAdapter(
   previousPaths: string[] | undefined,
   currentPaths: Iterable<string>,
   packageRoots?: readonly string[],
+  options?: { trustedExactPaths?: ReadonlySet<string> },
 ): Promise<OrphanCleanupEntry[]> {
   const candidates = diffOrphanCandidates(previousPaths, currentPaths);
   if (candidates.length === 0) return [];
@@ -345,9 +359,14 @@ export async function sweepOrphansForAdapter(
     }
     // Filter 2: basename must be hatch3r-* or NN-hatch3r-*. A path inside
     // an adapter root but with a non-hatch3r basename is one we never
-    // emitted; refuse the unlink.
+    // emitted; refuse the unlink. release/2.8.5: a caller-supplied
+    // `trustedExactPaths` entry (manifest-recorded output of a deselected
+    // adapter, swept under explicit consent) bypasses ONLY this filter —
+    // containment already passed above and the user-wrapped veto below still
+    // protects files carrying user content outside the managed markers.
     const name = basename(relPath);
-    if (!isManagedOutputBasename(name)) {
+    const trusted = options?.trustedExactPaths?.has(relPath.replace(/\\/g, "/")) === true;
+    if (!isManagedOutputBasename(name) && !trusted) {
       results.push({ adapter, path: relPath, removed: false, reason: "not-managed-basename" });
       continue;
     }

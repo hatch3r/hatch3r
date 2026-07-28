@@ -1,4 +1,4 @@
-import type { CliToolsConfig, ContentSelection, Features, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
+import type { CliToolsConfig, ContentSelection, Features, HatchErrorCode, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
 
 // ── Workspace Manifest ──────────────────────────────────────────
 
@@ -148,8 +148,45 @@ export interface WorkspaceRepoOverrides {
 
 // ── Sync Results ────────────────────────────────────────────────
 
+/**
+ * DD-B4 (release/2.8.5): aggregate disposition of one workspace cascade.
+ * `passed` = zero `action: "error"` repos; `failed` = every targeted repo
+ * errored; `partial` = a mix. Dry-run and skipped rows count as
+ * non-failures. The CLI maps this onto the JSON envelope status and the
+ * exit code (`hatch3r sync` now exits non-zero on `partial`/`failed` —
+ * see the 2.8.5 CHANGELOG BREAKING note).
+ */
+export type WorkspaceSyncOutcome = "passed" | "partial" | "failed";
+
+/** DD-B4: per-action tallies backing {@link WorkspaceSyncOutcome}. */
+export interface WorkspaceSyncCounts {
+  total: number;
+  synced: number;
+  failed: number;
+  skipped: number;
+  dryRun: number;
+}
+
+/**
+ * DD-B2 (release/2.8.5): structured per-repo sync failure. Preserves the
+ * fields a flattened `err.message` string used to destroy — the
+ * machine-readable `errorCode`, the operator-facing `recoveryHint`, and the
+ * `Error.cause` chain (outermost first, bounded) — so the CLI and JSON
+ * consumers can branch on the failure class instead of grepping prose.
+ */
+export interface WorkspaceRepoSyncError {
+  message: string;
+  errorCode?: HatchErrorCode;
+  recoveryHint?: string;
+  causeChain?: string[];
+}
+
 export interface WorkspaceSyncResult {
   repos: WorkspaceRepoSyncResult[];
+  /** DD-B4: aggregate disposition (computed in `syncWorkspaceRepos`). */
+  outcome: WorkspaceSyncOutcome;
+  /** DD-B4: per-action tallies backing `outcome`. */
+  counts: WorkspaceSyncCounts;
 }
 
 export interface WorkspaceRepoSyncResult {
@@ -158,7 +195,17 @@ export interface WorkspaceRepoSyncResult {
   removed: string[];
   toolsSynced: string[];
   action: "synced" | "dry-run" | "skipped" | "error";
+  /**
+   * Flattened failure message. Kept as a plain string (not widened in
+   * place, DD-B2 deviation) because renderers outside this slice
+   * interpolate it directly (`init.ts:3646` template literal) — a silent
+   * `[object Object]` regression. The structured twin is
+   * {@link errorDetail}; the two are set together and `error` always equals
+   * `errorDetail.message`.
+   */
   error?: string;
+  /** DD-B2: structured failure detail (errorCode / recoveryHint / causeChain). */
+  errorDetail?: WorkspaceRepoSyncError;
   /** Estimated token count for content being synced (populated in dry-run mode). */
   estimatedTokens?: number;
 }

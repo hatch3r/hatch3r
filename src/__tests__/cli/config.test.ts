@@ -77,6 +77,21 @@ vi.mock("../../manifest/hatchJson.js", () => ({
     const value = m?.defaultEffort;
     return value && ["light", "standard", "deep"].includes(value) ? value : undefined;
   }),
+  // release/2.8.5 (BUG-4): config threads the persisted --role/--facets filter
+  // into resolveSelection via `readContentFilter`. Mirror the real helper:
+  // known-id narrowing with fail-open-to-no-filtering semantics.
+  readContentFilter: vi.fn(
+    (m: { contentFilter?: { role?: string; facets?: string[] } } | null | undefined) => {
+      const role = m?.contentFilter?.role;
+      const facets = m?.contentFilter?.facets ?? [];
+      const knownRoles = ["reviewer", "security-lead", "senior-eng"];
+      const knownFacets = ["a11y", "performance", "observability"];
+      return {
+        role: role && knownRoles.includes(role) ? role : undefined,
+        facets: facets.filter((f) => knownFacets.includes(f)),
+      };
+    },
+  ),
   isValidGitBranchName: vi.fn(() => true),
 }));
 
@@ -94,11 +109,19 @@ vi.mock("../../cli/commands/update.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../archive/index.js", () => ({
-  archiveToolOutputs: vi.fn(),
-  collectToolFiles: vi.fn(),
-  removeManagedFilesForPaths: vi.fn(),
-}));
+vi.mock("../../archive/index.js", async (importOriginal) => {
+  // release/2.8.5: the stale-adapter reclamation runs the REAL
+  // merge/orphanCleanup sweep, which reads `TOOL_PATH_PREFIXES` from this
+  // module for its containment safety filter — pass the real constant through
+  // while keeping the write-path entry points stubbed.
+  const actual = await importOriginal<typeof import("../../archive/index.js")>();
+  return {
+    archiveToolOutputs: vi.fn(),
+    collectToolFiles: vi.fn(),
+    removeManagedFilesForPaths: vi.fn(),
+    TOOL_PATH_PREFIXES: actual.TOOL_PATH_PREFIXES,
+  };
+});
 
 vi.mock("../../content/index.js", () => ({
   buildContentIndex: vi.fn(),
@@ -191,6 +214,16 @@ vi.mock("../../env/mcpEnv.js", () => ({
 
 vi.mock("../../cli/shared/paths.js", () => ({
   findPackageRoot: vi.fn(),
+}));
+
+// release/2.8.5 (BUG-2): config resolves the content root through
+// `resolveBundledContentRoot()` (the bundled chokepoint) instead of
+// `findPackageRoot(__dirname)`. The real resolver walks the mocked
+// findPackageRoot above to "/fake/package/root" and throws "Bundled content
+// not found"; stub the chokepoint — buildContentIndex is mocked in this file,
+// so the returned path is never read from disk.
+vi.mock("../../content/contentRoot.js", () => ({
+  resolveBundledContentRoot: vi.fn(() => "/fake/package/root"),
 }));
 
 vi.mock("../../workspace/detect.js", () => ({
@@ -591,6 +624,48 @@ describe("config command", () => {
       expect(writtenManifest.tools).toContain("claude");
     });
 
+    it("release/2.8.5 (BUG-3 secondary): reclaims a stale recorded adapter after explicit consent", async () => {
+      // A `managedFilesByAdapter` entry for an adapter that is neither in the
+      // tool set nor being removed this run — leftover state no other path
+      // ever cleans. The confirm fires after the machine; answering Yes drops
+      // the record (the sweep itself no-ops here: the files do not exist).
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        managedFilesByAdapter: {
+          cursor: [".cursor/rules/50-hatch3r-testing.mdc"],
+          claude: ["CLAUDE.md", ".claude/agents/hatch3r-implementer.md"],
+        },
+      });
+      primeConfig(manifest, { tools: ["cursor", "copilot"] });
+      // Extra consent prompt appended after the standard queue.
+      vi.mocked(inquirer.prompt).mockResolvedValueOnce({ confirmStaleReclaim: true });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.managedFilesByAdapter?.claude).toBeUndefined();
+      // The in-set adapter's record is untouched.
+      expect(writtenManifest.managedFilesByAdapter?.cursor).toEqual([
+        ".cursor/rules/50-hatch3r-testing.mdc",
+      ]);
+    });
+
+    it("release/2.8.5 (BUG-3 secondary): declining the stale-adapter reclaim keeps the record", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        managedFilesByAdapter: {
+          claude: ["CLAUDE.md"],
+        },
+      });
+      primeConfig(manifest, { tools: ["cursor", "copilot"] });
+      vi.mocked(inquirer.prompt).mockResolvedValueOnce({ confirmStaleReclaim: false });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.managedFilesByAdapter?.claude).toEqual(["CLAUDE.md"]);
+    });
+
     it("should detect removed tools in diff", async () => {
       const manifest = makeManifest({ tools: ["cursor", "claude"] });
       primeConfig(manifest, { tools: ["cursor"] });
@@ -616,39 +691,41 @@ describe("config command", () => {
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
 
-    it("should detect enabled features in diff", async () => {
-      const manifest = makeManifest({
-        features: { ...DEFAULT_FEATURES, hooks: false },
-      });
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
-      });
+    it("release/2.8.5: never issues a features prompt (init/config parity)", async () => {
+      const manifest = makeManifest();
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = getWrittenManifest(writeManifest);
-      expect(writtenManifest.features.hooks).toBe(true);
+      const featuresCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "features");
+      });
+      expect(featuresCall).toBeUndefined();
     });
 
-    it("should detect disabled features in diff", async () => {
-      const manifest = makeManifest();
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents"],
+    it("release/2.8.5: does not mutate persisted feature flags from the interactive flow", async () => {
+      const manifest = makeManifest({
+        features: { ...DEFAULT_FEATURES, hooks: false, mcp: false },
+        mcp: { servers: [] },
       });
+      // A tool add forces the write past the no-changes guard.
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
       const writtenManifest = getWrittenManifest(writeManifest);
+      // Flags survive verbatim — the flow derives features from the manifest.
       expect(writtenManifest.features.hooks).toBe(false);
       expect(writtenManifest.features.mcp).toBe(false);
+      expect(writtenManifest.features.agents).toBe(true);
     });
   });
 
   // ── 2.1.0: handoffs fix + maturity/confidence interactive surfaces ──
   describe("handoffs feature-rebuild fix (Task D, 2.1.0)", () => {
-    it("FEATURE_CHOICES offers handoffs (default-checked) so it round-trips", async () => {
+    it("FEATURE_CHOICES still enumerates handoffs (release/2.8.5: retained as the feature-surface enumeration)", async () => {
       const { FEATURE_CHOICES } = await import("../../cli/shared/constants.js");
       expect(FEATURE_CHOICES.some((c) => c.value === "handoffs")).toBe(true);
     });
@@ -666,57 +743,20 @@ describe("config command", () => {
       expect(writtenManifest.features.handoffs).toBe(true);
     });
 
-    it("rebuildFeaturesFromSelection preserves a feature absent from the picker", async () => {
-      const { rebuildFeaturesFromSelection } = await import("../../cli/commands/config.js");
-      const prev: Features = { ...DEFAULT_FEATURES, handoffs: true, mcp: true };
-      // Simulate the pre-2.1.0 picker that did NOT render handoffs.
-      const pickerVisible: (keyof Features)[] = [
-        "agents", "skills", "rules", "prompts", "commands", "mcp", "hooks", "githubAgents",
-      ];
-      // User unchecks hooks; handoffs is not offered at all.
-      const selected: (keyof Features)[] = [
-        "agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents",
-      ];
-
-      const result = rebuildFeaturesFromSelection(prev, selected, pickerVisible);
-
-      expect(result.handoffs).toBe(true); // unlisted → prior value preserved
-      expect(result.hooks).toBe(false);   // listed + unselected → off
-      expect(result.mcp).toBe(true);      // listed + selected → on
-    });
-
-    it("renders Handoffs checked when the manifest OMITS the key, and keeps it enabled on accept-defaults", async () => {
-      // Upgraded manifests written before `handoffs` joined the schema omit the
-      // key entirely. DEFAULT_FEATURES.handoffs === true, so the checkbox
-      // default must fall back to the schema default and render handoffs CHECKED
-      // — otherwise an accept-defaults run rebuilds features.handoffs = false and
-      // silently disables it (the existing handoffs tests above use a manifest
-      // where the key is present, so they miss this missing-key path).
+    it("release/2.8.5: a manifest that OMITS the handoffs key gets the schema default materialized (no prompt involved)", async () => {
+      // Upgraded manifests written before `handoffs` joined the schema omit
+      // the key entirely. The manifest-derived features object fills it from
+      // DEFAULT_FEATURES (`handoffs === true`), so an accept-defaults run
+      // persists it enabled — the 2.1.0 silent-disable regression stays dead
+      // even without the (removed) features checkbox.
       const manifest = makeManifest();
       delete (manifest.features as Partial<Features>).handoffs;
       expect(manifest.features.handoffs).toBeUndefined();
 
-      // Accept the (now-checked) default set including handoffs; adding a tool
-      // forces the write past the no-changes guard.
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "commands", "mcp", "githubAgents", "hooks", "handoffs"],
-        tools: ["cursor", "claude"],
-      });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
-      // 1. The features prompt seeded handoffs as a checked default (the fix:
-      //    `manifest.features[k] ?? DEFAULT_FEATURES[k]`). Pre-fix the missing
-      //    key read as falsy and handoffs was absent from the default set.
-      const featuresCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
-        const questions = call[0] as unknown as PromptQuestion[];
-        return Array.isArray(questions) && questions.some((q) => q.name === "features");
-      });
-      expect(featuresCall).toBeDefined();
-      const featuresQuestion = (featuresCall![0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
-      expect(featuresQuestion.default).toContain("handoffs");
-
-      // 2. The accepted selection persists handoffs enabled — no silent disable.
       const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.handoffs).toBe(true);
     });
@@ -796,6 +836,32 @@ describe("config command", () => {
       expect(writtenManifest.confidenceFloor).toBe("high");
     });
 
+    it("release/2.8.5: the communication-style step fires and persists the chosen style", async () => {
+      const manifest = makeManifest(); // no communicationStyle → resolves "plain"
+      primeConfig(manifest, { communicationStyle: "technical" });
+
+      await (await importConfigCommand())();
+
+      const sawStylePrompt = vi.mocked(inquirer.prompt).mock.calls.some((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "communicationStyle");
+      });
+      expect(sawStylePrompt).toBe(true);
+      // The style change alone forces the write (not gated by "No changes").
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.communicationStyle).toBe("technical");
+    });
+
+    it("release/2.8.5: accepting the communication-style default registers no change", async () => {
+      const manifest = makeManifest(); // absent style → default "plain" queued
+      primeConfig(manifest);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
     it("dry-run preview includes the maturity dial line (Bugbot: config dry-run omits dial lines)", async () => {
       // The live "Config updated" box appends `~ Maturity:` / `~ Confidence
       // floor:` after buildDiffSummaryLines; the `--dry-run` terminus must show
@@ -820,10 +886,11 @@ describe("config command", () => {
   // ── MCP servers ──────────────────────────────────────────────
 
   describe("MCP servers", () => {
-    it("should show MCP prompts when mcp feature enabled", async () => {
+    it("should show MCP prompts when the persisted mcp feature is enabled", async () => {
+      // makeManifest pins features.mcp = true; the gate keys on that
+      // persisted flag (release/2.8.5: no features prompt to flip it).
       const manifest = makeManifest();
       primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
         mcpServers: ["github", "context7"],
       });
 
@@ -837,14 +904,12 @@ describe("config command", () => {
       expect(mcpCall).toBeDefined();
     });
 
-    it("should not show MCP prompts when mcp feature disabled", async () => {
+    it("should not show MCP prompts when the persisted mcp feature is disabled", async () => {
       const manifest = makeManifest({
         features: { ...DEFAULT_FEATURES, mcp: false },
         mcp: { servers: [] },
       });
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
-      });
+      primeConfig(manifest);
 
       await (await importConfigCommand())();
 
@@ -903,6 +968,35 @@ describe("config command", () => {
 
       expect(vi.mocked(buildContentIndex)).toHaveBeenCalled();
       expect(vi.mocked(resolveSelection)).toHaveBeenCalled();
+    });
+
+    it("release/2.8.5 (BUG-4): re-resolution threads the persisted --role/--facets filter + languages, init-style", async () => {
+      const manifest = makeManifest({
+        content: makeContentSelection({
+          items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+        }),
+        languages: ["typescript", "python"],
+        contentFilter: { role: "reviewer", facets: ["a11y", "not-a-facet"] },
+      });
+      primeContent(manifest, ["hatch3r-implementer"]);
+      vi.mocked(getAllContentIds).mockReturnValue(new Set(["hatch3r-implementer"]));
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"]);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(resolveSelection)).toHaveBeenCalled();
+      const call = vi.mocked(resolveSelection).mock.calls[0];
+      // Args: preset, projectType, teamSize, index, customSelections,
+      // projectLanguages, options. Pre-2.8.5 config passed `undefined`
+      // languages + `{ skipContextFilters: true }` and NO role/facets — a
+      // wider resolution than init's on the same repo (phantom "Content
+      // added" on an accept-defaults run) that silently dropped the filter.
+      expect(call[5]).toEqual(["typescript", "python"]);
+      const options = call[6] as { skipContextFilters?: boolean; role?: string; facets?: string[] };
+      expect(options.skipContextFilters).toBeUndefined();
+      expect(options.role).toBe("reviewer");
+      // Unknown facet ids are dropped by readContentFilter (fail-open).
+      expect(options.facets).toEqual(["a11y"]);
     });
 
     it("should record added content items manifest-only (no .agents/ materialization)", async () => {
@@ -1425,10 +1519,9 @@ describe("config command", () => {
         features: { ...DEFAULT_FEATURES, mcp: false },
         mcp: { servers: [] },
       });
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
-        tools: ["cursor", "claude"],
-      });
+      // release/2.8.5: no features prompt — the persisted flag alone gates the
+      // env write; a tool add forces the write path past the no-changes guard.
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
@@ -1604,30 +1697,29 @@ describe("config command", () => {
       expectSummaryLine(lines, "MCP removed", "context7");
     });
 
-    it("should show enabled features in summary", async () => {
-      const manifest = makeManifest({
-        features: { ...DEFAULT_FEATURES, hooks: false },
-      });
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
-      });
+    it("release/2.8.5: shows Features enabled only for schema-default materialization (omitted key filled)", async () => {
+      // The only remaining feature-diff source is a legacy manifest omitting a
+      // schema key: the derived object fills `handoffs: true`, computeDiff
+      // reports it enabled, and the summary discloses the materialization.
+      const manifest = makeManifest();
+      delete (manifest.features as Partial<Features>).handoffs;
+      primeConfig(manifest);
 
       await (await importConfigCommand())();
 
       const lines = getConfigUpdatedBox(printBox);
-      expectSummaryLine(lines, "Features enabled", "hooks");
+      expectSummaryLine(lines, "Features enabled", "handoffs");
     });
 
-    it("should show disabled features in summary", async () => {
+    it("release/2.8.5: an accept-defaults run emits no feature diff lines", async () => {
       const manifest = makeManifest();
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents"],
-      });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
       const lines = getConfigUpdatedBox(printBox);
-      expectSummaryLine(lines, "Features disabled");
+      expect(lines.some((l) => typeof l === "string" && l.includes("Features enabled"))).toBe(false);
+      expect(lines.some((l) => typeof l === "string" && l.includes("Features disabled"))).toBe(false);
     });
 
     it("should show repo change in summary", async () => {
@@ -1712,11 +1804,12 @@ describe("config command", () => {
       expect(writtenManifest.tools).toEqual(["cursor", "claude", "copilot"]);
     });
 
-    it("should apply features to manifest", async () => {
-      const manifest = makeManifest();
-      primeConfig(manifest, {
-        features: ["agents", "rules"],
+    it("release/2.8.5: applies the manifest-derived feature set unchanged", async () => {
+      const manifest = makeManifest({
+        features: { ...DEFAULT_FEATURES, skills: false, mcp: false },
+        mcp: { servers: [] },
       });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
@@ -1766,16 +1859,17 @@ describe("config command", () => {
       expect(writtenManifest.board?.branchConvention).toBe("{type}/{short-description}");
     });
 
-    it("preserves existing MCP servers when mcp feature is disabled (Wave 3 plan §4.4)", async () => {
-      // Wave 3 (CLI-tooling pivot, plan §4.4): disabling the mcp feature no
-      // longer wipes the server list — the user may toggle the feature off
-      // temporarily and expects their setup intact when toggling back on.
-      // The gate runs only when features.mcp is true; otherwise mcpServers
-      // is initialised from the existing manifest entry and passed through.
-      const manifest = makeManifest();
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
+    it("preserves existing MCP servers when the persisted mcp feature is off (Wave 3 plan §4.4)", async () => {
+      // Wave 3 (CLI-tooling pivot, plan §4.4): a disabled mcp feature never
+      // wipes the server list — the user may have toggled the feature off
+      // (via `hatch3r mcp remove` paths) and expects their setup intact when
+      // toggling back on. release/2.8.5: the gate keys on the PERSISTED
+      // manifest.features.mcp; when off, mcpServers passes through verbatim.
+      const manifest = makeManifest({
+        features: { ...DEFAULT_FEATURES, mcp: false },
+        mcp: { servers: ["github"] },
       });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
@@ -1880,11 +1974,10 @@ describe("config command", () => {
       expect(lines.some((l) => typeof l === "string" && l.includes("MCP removed"))).toBe(true);
     });
 
-    it("computeDiff: detects feature enables", async () => {
-      const manifest = makeManifest({ features: { ...DEFAULT_FEATURES, hooks: false, mcp: false } });
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
-      });
+    it("computeDiff: release/2.8.5 — feature enables only from schema-default materialization", async () => {
+      const manifest = makeManifest();
+      delete (manifest.features as Partial<Features>).handoffs;
+      primeConfig(manifest);
 
       await (await importConfigCommand())();
 
@@ -1892,16 +1985,14 @@ describe("config command", () => {
       expect(lines.some((l) => typeof l === "string" && l.includes("Features enabled"))).toBe(true);
     });
 
-    it("computeDiff: detects feature disables", async () => {
+    it("computeDiff: release/2.8.5 — no feature disables from the interactive flow", async () => {
       const manifest = makeManifest();
-      primeConfig(manifest, {
-        features: ["agents", "skills", "rules"],
-      });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
       const lines = getConfigUpdatedBox(printBox);
-      expect(lines.some((l) => typeof l === "string" && l.includes("Features disabled"))).toBe(true);
+      expect(lines.some((l) => typeof l === "string" && l.includes("Features disabled"))).toBe(false);
     });
 
     it("isDiffEmpty: returns true when nothing changed", async () => {
@@ -2208,7 +2299,7 @@ describe("config command", () => {
         const callOrder: string[] = [];
         vi.mocked(syncWorkspaceRepos).mockImplementation(async () => {
           callOrder.push("sync");
-          return { repos: [{ path: "repo-a", added: [], removed: [], toolsSynced: ["cursor"], action: "synced" }] };
+          return { repos: [{ path: "repo-a", added: [], removed: [], toolsSynced: ["cursor"], action: "synced" as const }], outcome: "passed" as const, counts: { total: 1, synced: 1, failed: 0, skipped: 0, dryRun: 0 } };
         });
         vi.mocked(writeWorkspaceManifest).mockImplementation(async () => {
           callOrder.push("write");
@@ -2269,6 +2360,8 @@ describe("config command", () => {
             action: "error",
             error: "Directory not found: repo-a",
           }],
+          outcome: "failed",
+          counts: { total: 1, synced: 0, failed: 1, skipped: 0, dryRun: 0 },
         });
 
         await (await importConfigCommand())();

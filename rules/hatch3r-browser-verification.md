@@ -1,7 +1,7 @@
 ---
 id: hatch3r-browser-verification
 type: rule
-description: Playwright browser verification protocol for UI changes covering visual regression, screenshot capture, console checks, and accessibility spot-checks
+description: Playwright browser verification protocol for UI changes — spec-run-first invocation contract with non-launderable result tokens, exploratory snapshot-mode driving, and accessibility spot-checks
 scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*.css,**/*.scss"
 tags: [review]
@@ -42,7 +42,7 @@ Browser verification is opt-in per command session. The orchestrator follows a s
 
 1. **At the START of any command that supports browser verification**, the orchestrator MUST ask the user once: *"Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."*
 2. **The user's answer applies to ALL stages of that command** — implementation, review, and verification. Do not re-ask at any subsequent stage.
-3. **If yes:** all implementation, review, and verification stages include browser testing steps as defined in the Verification Protocol below. The orchestrator ensures a dev server is running and executes browser checks at each verification point.
+3. **If yes:** all implementation, review, and verification stages include browser testing steps as defined in the Verification Protocol below. The orchestrator confirms a dev server is running (Protocol step 1) and runs the Invocation Contract at each verification point.
 4. **If no:** all browser verification steps are skipped silently. Do not emit warnings, reminders, or suggestions to reconsider. The command proceeds as if the Verification Protocol section does not exist.
 
 ### Command Support Matrix
@@ -68,20 +68,16 @@ Commands in the "Does NOT Support" column are documentation-only, planning-only,
 - Wait for the server to be ready before proceeding.
 - Do NOT stop shared dev servers when done — other processes may depend on them.
 
-### 2. Navigate and Verify
+### 2. Run the Verification (spec run, not screenshot review)
 
-- Open the browser and navigate to the page or surface affected by the change.
-- Visually confirm the implementation matches acceptance criteria.
-- Interact with the changed elements: click buttons, fill forms, trigger state changes.
-- Check the browser console for errors or warnings introduced by the change.
-- If the change is responsive, test at multiple viewport sizes.
+- Write or update a Playwright spec asserting the changed behavior with web-first locators, then run it headless per the Invocation Contract below. Assertions execute in the browser process, not in agent context.
+- On pass, read the one-line runner summary. On fail, read only the failure excerpt (error + locator + diff counts).
+- Step-drive the browser only under the Invocation Contract's Tier 2 conditions — and read page state from accessibility snapshots, never from screenshots.
 
 ### 3. Capture Evidence
 
-- Take screenshots of the affected surfaces showing the change produces the expected visual and interactive result.
-- For before/after changes (visual refactors, bug fixes), capture both states when possible.
-- Note any browser console errors or warnings in the verification summary.
-- Include screenshots in the PR description or attach to the issue.
+- Evidence is runner output: the summary line, failure excerpts, and the `toHaveScreenshot()` diff count. Diff images and record captures go to disk via the spec runner; link their paths in the PR or issue — reviewers open them, the agent does not.
+- Note any browser console errors or warnings surfaced by the run in the verification summary.
 
 ### 4. Accessibility Spot-Check (if UI)
 
@@ -91,16 +87,27 @@ Commands in the "Does NOT Support" column are documentation-only, planning-only,
 
 ### 5. Visual Regression Testing
 
-- **Screenshot comparison**: Use Playwright screenshot assertions (`expect(page).toHaveScreenshot()`) for page-level regression. For component-level visual regression, use Chromatic, Percy, or Playwright component screenshots. Compare against approved baselines on every PR.
-- **Baseline management**: Store baseline images in version control (for Playwright) or in a cloud service (Chromatic/Percy). Review and approve visual diffs as part of the PR review workflow — treat unapproved visual changes as blocking.
-- **What to capture**: Key pages and critical user flows at multiple viewport sizes: mobile (375px), tablet (768px), desktop (1440px). Capture dark and light theme variants. Capture empty, loading, and error states for data-driven pages.
-- **Thresholds**: Configure a pixel-level variance threshold of 0.1–0.5% to tolerate anti-aliasing and font rendering differences across environments. Flag structural changes (layout shifts, missing elements, new elements) as hard failures regardless of threshold.
-- **CI integration**: Run visual regression tests in the PR pipeline alongside unit and integration tests. Block merge on unapproved visual changes. Generate visual diff reports (side-by-side, overlay, or slider) and link them in the PR for reviewer access.
+Owned by `skills/hatch3r-browser-verify/SKILL.md` → "Regression screenshot diffs" (`toHaveScreenshot()` thresholds, masks, baseline management, update policy) — this rule does not restate it.
 
-## Tools
+## Invocation Contract
 
-Use the browser automation MCP available in your environment:
+**Tier 1 — scripted spec run (default for every verification gate):**
 
-- **Cursor:** `cursor-ide-browser` MCP (browser_navigate, browser_snapshot, browser_click, browser_type, browser_screenshot, browser_tabs)
-- **Playwright MCP:** `@playwright/mcp` (Microsoft — `github.com/microsoft/playwright-mcp`) for headless or headed browser automation
-- **Fallback:** If no browser MCP is available, document that browser verification was skipped and why.
+```
+npx playwright test <spec> --reporter=line
+```
+
+Write or reuse a durable spec; run it headless; read only the failure output. Visual checks stay inside the runner as `toHaveScreenshot()` diffs — read the diff count, and open a diff image (viewport-scoped, one per failing assertion) only when the count is above zero.
+
+**Tier 2 — step driving (exception, never the default):** allowed only when (a) no spec can express the check, (b) the failure is not yet understood, or (c) the run is plan-time exploration of an unfamiliar surface. Drive via `playwright-cli` where the host supports skills; else Playwright MCP (`@playwright/mcp`) in its default snapshot (accessibility-tree) mode. Read page state from accessibility snapshots — never `browser_take_screenshot`, never vision mode.
+
+**Result token — every verification ends on exactly one of:**
+
+| Token | Meaning |
+|-------|---------|
+| `VERIFIED-SPEC` | Tier 1 spec run exited 0 — cite the runner summary line |
+| `VERIFIED-INTERACTIVE` | Tier 2 driving completed every check — cite snapshot or console evidence |
+| `BLOCKED_MISSING_TOOL` | Required runner/driver absent — name the missing tool and its install command; never converts to a pass |
+| `N/A-NO-UI` | Change matches the "When NOT Required" list — name the matching line |
+
+A skipped verification that does not match "When NOT Required" is `BLOCKED_MISSING_TOOL`, not a free-text skip note — tool absence cannot launder into a pass.

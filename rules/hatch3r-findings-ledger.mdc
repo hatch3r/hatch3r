@@ -98,6 +98,7 @@ Three stores, three jobs. Writes flow ledger-outward — the ledger is written f
 
 - The owning orchestrator closes its own file at W3. A dead run's file is never closed by another run — the loader surfaces it (Session-Start Surfacing) for a user decision.
 - Prune at any run's W1: when more than 20 closed files exist, or any closed file is older than 30 days, delete the oldest closed files down to those bounds. Git history preserves pruned files; open files are never pruned.
+- Additional invoker: `skills/hatch3r-cleanup/SKILL.md` (Step 2) applies these same bounds on user confirmation — same closed-files-only limit, no new prune authority; open files stay untouchable there too.
 
 ## Worked Example
 

@@ -62,7 +62,7 @@ PipelineContext {
 
   // Phase 3 outputs (Review)
   reviewResult: {
-    iterations: number           // 1 to maxIterations (default DEFAULT_MAX_REVIEW_ITERATIONS = 4)
+    iterations: number           // 1 to the loop-class cap (code 3 / spec 4 per REVIEW_LOOP_CLASS_CAPS; ceiling DEFAULT_MAX_REVIEW_ITERATIONS = 4)
     finalVerdict: "CLEAN" | "UNRESOLVED"
     findings: ReviewFinding[]
     confirmationPassResult: "PASS" | "FAIL"
@@ -98,7 +98,7 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 | Phase 1 (Research) | No relevant findings | Surface to user; ask whether to proceed with implementation. |
 | Phase 2 (Implementation) | Build/test failure | Attempt self-fix (max 2 iterations). Escalate to user if unresolved. |
 | Phase 2 (Implementation) | Scope creep detected | Halt. Surface deviation to user. Resume only with approval. |
-| Phase 3 (Review) | Max iterations (4) (default `DEFAULT_MAX_REVIEW_ITERATIONS`) | Surface unresolved findings to user. Do not merge. |
+| Phase 3 (Review) | Loop-class cap reached (code 3 / spec 4; ceiling `DEFAULT_MAX_REVIEW_ITERATIONS` = 4) | Exit UNRESOLVED; surface open findings to user. Do not merge; never spawn a further reviewer/fixer pass past the cap. |
 | Phase 3 (Review) | DESIGN_OBJECTION verdict | Terminate review loop immediately. Surface the objection and alternative approaches to the user for an architectural decision. Do not spawn fixer. |
 | Phase 3 (Review) | Fixer introduces regressions | Revert fixer changes. Surface original findings + regression to user. |
 | Phase 4 (Quality) | Conditional or mandatory-on-match specialist timeout | Log timeout. Continue with available results. Flag in output (the mandatory-on-match Tier 2/3 mandate binds at dispatch — the instance was spawned; a post-dispatch timeout is a flagged result, not a skipped gate). |
@@ -115,7 +115,7 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 ### Retry Policies
 
 - Subagent retries: 0 — never retry the same failed operation identically; spawn a new agent with an adjusted prompt/approach instead.
-- Phase retries: Phase 3 review loop retries up to 4 iterations (default `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts` — the bound the reviewer/fixer agents state). Loop classes (typed source: `REVIEW_LOOP_CLASS_CAPS`, same module): command bodies running code-diff loops opt down to 3 because code reviews diverge faster (a fix can spawn a regression the next pass must catch); spec/issue-text loops keep 4 (text refinement, no runtime feedback). All other phases: 0 retries (escalate to user).
+- Phase retries: Phase 3 review loop is bounded by the unified cap scheme stated once in `hatch3r-agent-orchestration` → Post-Implementation Quality Pipeline: the operative bound is the loop-class cap (`REVIEW_LOOP_CLASS_CAPS` in `src/pipeline/reviewLoop.ts` — 3 for code-diff loops, which diverge faster because a fix can spawn a regression the next pass must catch; 4 for spec/issue-text loops, text refinement with no runtime feedback) under the protocol ceiling `DEFAULT_MAX_REVIEW_ITERATIONS = 4`, overrides clamped to `HARD_MAX_REVIEW_ITERATIONS = 10`. All other phases: 0 retries (escalate to user).
 
 ## Observability Integration
 
@@ -227,7 +227,7 @@ Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, 
 |-------|-----------------|------------------|-----------|
 | Phase 1 Research | `hatch3r-researcher` | T2/T3 | T1 skip per Phase Skip Criteria |
 | Phase 2 Implement | `hatch3r-implementer` | All | T1 quick-change inline carve-out only |
-| Phase 3 Review Loop | `hatch3r-reviewer` ↔ `hatch3r-fixer` (max `DEFAULT_MAX_REVIEW_ITERATIONS`) | T2/T3 nontrivial | T1 all-trivial skip per Phase Skip Criteria |
+| Phase 3 Review Loop | `hatch3r-reviewer` ↔ `hatch3r-fixer` (loop-class cap 3 code / 4 spec under ceiling `DEFAULT_MAX_REVIEW_ITERATIONS`; iteration ≥ 2 delta-scoped) | T2/T3 nontrivial | T1 all-trivial skip per Phase Skip Criteria |
 | Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
 | Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
 
@@ -243,7 +243,7 @@ Single canonical policy for every pipeline command (reconciles the per-command t
 | `> 75%` | Restart: suggest a fresh chat / batch split carrying a progress summary of completed + remaining work; a fresh-context command (`hatch3r-rework`) just re-runs. | ≈ 1.5× the compress turn count |
 
 1. **Summarize Phase 1 output.** Replace full research findings with a structured summary: affected files (list), blast radius (count + top 3), key conventions (bullet points). Keep raw data only for the fields the current phase needs.
-2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings.
+2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings, plus dispositioned finding fingerprints (file + normalized hunk + finding class) as one-line disposition records so a resolved finding is never re-raised on unchanged code.
 3. **Collapse specialist results.** In the final output, summarize specialist results as a single status table rather than including full specialist reports. Full reports are available on request.
 4. **Never truncate security findings.** `hatch3r-security` (CQ3) output is always included in full regardless of context pressure.
 

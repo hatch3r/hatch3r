@@ -94,7 +94,11 @@ async function exists(p: string): Promise<boolean> {
 }
 /* eslint-enable silent-failure/no-silent-catch */
 
-/** Write a minimal-but-valid meta.json into a hand-seeded session dir. */
+/** Write a minimal-but-valid meta.json into a hand-seeded session dir.
+ *  DD-C (release/2.8.5): `paths` and `relativePaths` are written in lockstep
+ *  — when only one is supplied the other is derived — because
+ *  `isSnapshotMeta` now enforces the pairing invariant `createSnapshot`
+ *  maintains (a mismatched pair reads as corrupt and changes prune order). */
 async function seedSession(
   projectRoot: string,
   sessionId: string,
@@ -103,14 +107,17 @@ async function seedSession(
 ): Promise<string> {
   const dir = sessionDir(sessionId, projectRoot);
   await realFs.mkdir(join(dir, SNAPSHOT_FILES_DIR), { recursive: true });
+  const relativePaths =
+    opts.relativePaths ?? (opts.paths ? opts.paths.map((p) => p.replace(projectRoot + "/", "")) : []);
+  const paths = opts.paths ?? relativePaths.map((rel) => join(projectRoot, rel));
   const raw =
     opts.rawMeta ??
     JSON.stringify({
       schemaVersion: SNAPSHOT_SCHEMA_VERSION,
       sessionId,
       timestamp,
-      paths: opts.paths ?? [],
-      relativePaths: opts.relativePaths ?? [],
+      paths,
+      relativePaths,
       projectRoot,
     });
   await realFs.writeFile(join(dir, SNAPSHOT_META_FILE), raw);

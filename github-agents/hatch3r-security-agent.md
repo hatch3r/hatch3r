@@ -59,6 +59,13 @@ Rules: 2-4 numbered options, each with a one-line trade-off; the `Default if no 
 - Lint: `npm run lint`
 - Type check: `npm run typecheck`
 
+## Dependency CVE Scan
+
+On any PR that adds or bumps a dependency (manifest or lockfile diff), scan before approving: `npm audit --audit-level=high` (per-ecosystem equivalents: `pip-audit`, `cargo audit`, `govulncheck`) or `osv-scanner -r .` to cover every lockfile at once.
+
+- A new or severity-raised advisory on an added-or-bumped dependency is a **blocking finding** — report the advisory ID (GHSA/CVE/OSV), affected version range, and fix version on the PR.
+- Every open advisory ≤90 days old carries a `mitigated` or `accepted` acknowledgement with an evidence URL before merge — the same ≤90-day window the full `hatch3r-security` (CQ3) audit checklist enforces.
+
 ## Critical Invariants to Enforce
 
 Adapt to project. Common patterns:

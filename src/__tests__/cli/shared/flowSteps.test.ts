@@ -14,6 +14,7 @@ import {
 } from "../../../cli/shared/initSteps.js";
 import {
   cliToolsStep,
+  communicationStyleStep,
   customItemsStep,
   identityStep,
   maturityStep,
@@ -26,7 +27,7 @@ import {
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../../../cli/shared/pickers.js";
 import type { RepoIdentity } from "../../../cli/shared/repoIdentityPrompt.js";
 import type { CatalogItem } from "../../../content/index.js";
-import type { CliToolId, Features, MaturityTier, Platform, Tool } from "../../../types.js";
+import type { CliToolId, CommunicationStyle, Features, MaturityTier, Platform, Tool } from "../../../types.js";
 import type { PresetId } from "../../../content/presets.js";
 
 // Mirror init.backNav.test.ts: mock inquirer.prompt so each builder call
@@ -368,15 +369,34 @@ describe("toolsStep", () => {
     expect(questionAt(1)).toMatchObject({ default: ["cursor"] });
   });
 
-  it("substitutes emptyFallback on an empty selection; returns [] without one", async () => {
+  it("bakes the active default into each choice's checked flag (release/2.8.5 BUG-3)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    const step = toolsStep<S>({ defaults: ["cursor"] });
+
+    // First visit: `defaults` drives checked.
+    inq.mockResolvedValueOnce({ tools: ["cursor"] });
+    await step.run({}, undefined);
+    const q0 = questionAt(0) as { choices: Array<{ value: string; checked?: boolean }>; required?: boolean };
+    expect(q0.required).toBe(true);
+    expect(q0.choices.find((c) => c.value === "cursor")?.checked).toBe(true);
+    expect(q0.choices.find((c) => c.value === "claude")?.checked).toBe(false);
+
+    // Revisit: `previous` wins over `defaults` for checked too.
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    await step.run({}, ["claude"]);
+    const q1 = questionAt(1) as { choices: Array<{ value: string; checked?: boolean }> };
+    expect(q1.choices.find((c) => c.value === "claude")?.checked).toBe(true);
+    expect(q1.choices.find((c) => c.value === "cursor")?.checked).toBe(false);
+  });
+
+  it("throws VALIDATION_ERROR on an empty selection — no silent fallback (release/2.8.5 BUG-3)", async () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ tools: [] });
-    const withFallback = toolsStep<S>({ defaults: ["claude"], emptyFallback: ["claude"] });
-    expect(await withFallback.run({}, undefined)).toEqual(["claude"]);
-
-    inq.mockResolvedValueOnce({ tools: [] });
-    const withoutFallback = toolsStep<S>({ defaults: ["claude"] });
-    expect(await withoutFallback.run({}, undefined)).toEqual([]);
+    const step = toolsStep<S>({ defaults: ["claude"] });
+    await expect(step.run({}, undefined)).rejects.toMatchObject({
+      errorCode: "VALIDATION_ERROR",
+      message: expect.stringContaining("At least one tool"),
+    });
   });
 
   it("passes BACK through", async () => {
@@ -425,26 +445,33 @@ describe("cliToolsStep", () => {
 
 describe("mcpGateStep", () => {
   interface S {
-    features: (keyof Features)[];
     mcpGate: boolean;
   }
 
-  it("skips unless the in-progress feature selection includes mcp", () => {
-    const step = mcpGateStep<S>({ hasExisting: false });
+  it("honours the caller-injected skip (release/2.8.5: manifest-derived, not in-run features)", () => {
+    // The pre-2.8.5 built-in skip read the in-run `features` checkbox answer;
+    // that prompt was removed for init/config parity, so the gate condition is
+    // now injected by the caller closing over the PERSISTED manifest flag.
+    let featuresMcp = false;
+    const step = mcpGateStep<S>({ hasExisting: false, skip: () => !featuresMcp });
     expect(step.skip!({})).toBe(true);
-    expect(step.skip!({ features: ["agents"] as (keyof Features)[] })).toBe(true);
-    expect(step.skip!({ features: ["mcp"] as (keyof Features)[] })).toBe(false);
+    featuresMcp = true;
+    expect(step.skip!({})).toBe(false);
+
+    // No injected skip → the step never self-skips.
+    const unconditional = mcpGateStep<S>({ hasExisting: false });
+    expect(unconditional.skip).toBeUndefined();
   });
 
   it("delegates to confirmMcpGate with the injected hasExisting", async () => {
     const gate = vi.mocked(confirmMcpGate);
     gate.mockResolvedValue(true);
     const step = mcpGateStep<S>({ hasExisting: true });
-    expect(await step.run({ features: ["mcp"] as (keyof Features)[] }, undefined)).toBe(true);
+    expect(await step.run({}, undefined)).toBe(true);
     expect(gate).toHaveBeenCalledWith({ hasExisting: true });
 
     gate.mockResolvedValue(BACK);
-    expect(isBack(await step.run({ features: ["mcp"] as (keyof Features)[] }, undefined))).toBe(true);
+    expect(isBack(await step.run({}, undefined))).toBe(true);
   });
 });
 
@@ -466,7 +493,7 @@ describe("mcpServersStep", () => {
     skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,
   });
 
-  it("honors the injected skip (config.ts gate chain)", () => {
+  it("honors the injected skip (config.ts gate chain; release/2.8.5 keys the feature half on the manifest)", () => {
     expect(step.skip!({})).toBe(true);
     expect(step.skip!({ features: ["mcp"] as (keyof Features)[], mcpGate: false })).toBe(true);
     expect(step.skip!({ features: ["mcp"] as (keyof Features)[], mcpGate: true })).toBe(false);
@@ -538,5 +565,45 @@ describe("maturityStep", () => {
     // The maturity `team` tier's NAME collides with `--team-size team`; the
     // row must steer a large-team lead to the separate content gate.
     expect(team!.name).toContain("--team-size");
+  });
+});
+
+// ── communicationStyleStep (release/2.8.5) ──────────────────────────
+
+describe("communicationStyleStep", () => {
+  interface S {
+    communicationStyle: CommunicationStyle;
+  }
+
+  it("threads default then previous, honours skip, and passes BACK through", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    const step = communicationStyleStep<S>({
+      message: "Communication style:",
+      defaultStyle: "plain",
+    });
+
+    inq.mockResolvedValueOnce({ communicationStyle: "technical" });
+    expect(await step.run({}, undefined)).toBe("technical");
+    expect(questionAt(0)).toMatchObject({
+      name: "communicationStyle",
+      message: "Communication style:",
+      default: "plain",
+    });
+    const choices = questionAt(0).choices as Array<{ value: string; name: string }>;
+    expect(choices.map((c) => c.value)).toEqual(["plain", "technical"]);
+
+    inq.mockResolvedValueOnce({ communicationStyle: "plain" });
+    await step.run({}, "technical" as CommunicationStyle);
+    expect(questionAt(1)).toMatchObject({ default: "technical" });
+
+    inq.mockResolvedValueOnce({ communicationStyle: BACK });
+    expect(isBack(await step.run({}, undefined))).toBe(true);
+
+    const gated = communicationStyleStep<S>({
+      message: "Communication style:",
+      defaultStyle: "plain",
+      skip: () => true,
+    });
+    expect(gated.skip!({})).toBe(true);
   });
 });

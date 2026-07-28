@@ -31,6 +31,7 @@ import {
 } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { mapFsErrno } from "./fsErrors.js";
+import { readEnvBool, readEnvInt } from "../config/parse.js";
 
 /** Check whether a file exists. Returns false for ENOENT, throws for other errors. */
 async function fileExists(path: string): Promise<boolean> {
@@ -165,11 +166,12 @@ const LOCK_STALE_MIN_MS = 2_000;
  * rather than silently disabling stale detection.
  */
 function resolveLockStaleMs(): number {
-  const raw = process.env.HATCH3R_LOCK_STALE_MS;
-  if (raw === undefined || raw.trim() === "") return LOCK_STALE_DEFAULT_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return LOCK_STALE_DEFAULT_MS;
-  return Math.max(Math.trunc(parsed), LOCK_STALE_MIN_MS);
+  // DD-C8 (release/2.8.5): normalized env read via config/parse.ts —
+  // unset/blank/non-numeric/non-finite all resolve `undefined` here, which
+  // (with the <=0 guard) preserves the pre-2.8.5 fallback behavior exactly.
+  const parsed = readEnvInt("HATCH3R_LOCK_STALE_MS");
+  if (parsed === undefined || parsed <= 0) return LOCK_STALE_DEFAULT_MS;
+  return Math.max(parsed, LOCK_STALE_MIN_MS);
 }
 
 /**
@@ -287,68 +289,93 @@ function releaseInProcessLock(filePath: string): void {
 }
 
 /**
- * D8-M3 (Cycle 10 rollover): default-on cross-process file locking for
- * workspace and worktree contexts. The `HATCH3R_LOCK=1` env var was the only
- * way to opt in, and it was undiscoverable — operators running `hatch3r sync`
- * against a workspace from two shells silently raced manifest writes. The
- * workspace and worktree command entry points now call
- * `enableDefaultCrossProcessLocking()` at startup so cross-process safety is
- * default-on for those contexts. The env var still works for single-repo
- * flows where the operator explicitly wants locking (e.g. CI matrix runs in
- * `hatch3r init`).
+ * DD-A1 (release/2.8.5, flips D8-M3): cross-process file locking is
+ * DEFAULT-ON for every write path — single-repo commands included, not just
+ * workspace/worktree contexts. The pre-2.8.5 shape enabled locking only when
+ * a workspace/worktree entry point called `enableDefaultCrossProcessLocking()`
+ * or the operator discovered `HATCH3R_LOCK=1`, while init/config/update/mcp/
+ * cli-tools wrote the SAME manifest + adapter files unlocked — two concurrent
+ * runs against one repo silently clobbered each other last-writer-wins.
  *
- * To force-disable in a context where the default would otherwise enable
- * locking (advanced/test only), set `HATCH3R_LOCK=0`.
+ * Opt-outs (advanced/CI-tuning only):
+ *   - `hatch3r --no-lock <command>` — the program preAction hook
+ *     (src/cli/program.ts) calls {@link disableCrossProcessLocking}.
+ *   - `HATCH3R_LOCK=0` — env-level equivalent; also wins over `--no-lock`
+ *     precedence-wise (env is checked first).
+ * `HATCH3R_LOCK=1` force-enables even after {@link disableCrossProcessLocking}.
  */
-let defaultCrossProcessLockingEnabled = false;
+let lockingDisabledForProcess = false;
 
 /**
- * Enable default cross-process locking for the current process. Called by
- * workspace and worktree command entry points so concurrent invocations from
- * two shells (or two CI matrix runners) do not race manifest writes. Idempotent.
- *
- * After this is called, {@link acquireWriteLock} takes the on-disk advisory
- * lock unless the operator has explicitly set `HATCH3R_LOCK=0` to opt out.
+ * DD-A2: disable cross-process locking for the current process (the
+ * `--no-lock` flag's implementation). Idempotent. `HATCH3R_LOCK=1` still
+ * overrides — the env var is the highest-precedence control in both
+ * directions (see {@link isLockingEnabled}).
+ */
+export function disableCrossProcessLocking(): void {
+  lockingDisabledForProcess = true;
+}
+
+/**
+ * DD-A2: reset the process-level opt-out so locking returns to its
+ * default-on state. Used by tests so each test starts from the shipped
+ * default. Not part of the public CLI surface.
+ */
+export function resetCrossProcessLocking(): void {
+  lockingDisabledForProcess = false;
+}
+
+/**
+ * @deprecated Since 2.8.5 cross-process locking is default-on for every
+ * write path, so there is nothing to enable — this is a no-op kept for one
+ * minor release so pre-2.8.5 importers keep compiling. Remove callers; the
+ * opt-OUT surface is {@link disableCrossProcessLocking} / `--no-lock` /
+ * `HATCH3R_LOCK=0`.
  */
 export function enableDefaultCrossProcessLocking(): void {
-  defaultCrossProcessLockingEnabled = true;
+  // Intentionally empty: the default it used to switch on is now the baseline.
 }
 
 /**
- * Reset default-on state. Used by tests so each test starts from the
- * single-process default. Not part of the public CLI surface.
+ * @deprecated Renamed to {@link resetCrossProcessLocking} in 2.8.5 (the
+ * "default" it reset is inverted now). Alias kept for one minor release for
+ * existing test imports.
  */
 export function resetDefaultCrossProcessLocking(): void {
-  defaultCrossProcessLockingEnabled = false;
+  resetCrossProcessLocking();
 }
 
 /**
- * D8-M3: returns true when {@link acquireWriteLock} should actually take an
+ * DD-A1: returns true when {@link acquireWriteLock} should actually take an
  * on-disk lock for this process. Precedence:
- *   1. `HATCH3R_LOCK=0` → explicit opt-out wins, even when default is enabled.
- *   2. `HATCH3R_LOCK=1` → explicit opt-in.
- *   3. {@link defaultCrossProcessLockingEnabled} → default-on for
- *      workspace/worktree contexts.
- *   4. Otherwise → no-op (single-repo default unchanged).
+ *   1. `HATCH3R_LOCK=0` → explicit opt-out wins.
+ *   2. `HATCH3R_LOCK=1` → explicit opt-in wins (even after `--no-lock`).
+ *   3. `--no-lock` this run ({@link disableCrossProcessLocking}) → off.
+ *   4. Otherwise → ON (the 2.8.5 default).
  */
 function isLockingEnabled(): boolean {
-  const envVal = process.env.HATCH3R_LOCK;
-  if (envVal === "0") return false;
-  if (envVal === "1") return true;
-  return defaultCrossProcessLockingEnabled;
+  const env = readEnvBool("HATCH3R_LOCK");
+  if (env !== undefined) return env;
+  return !lockingDisabledForProcess;
+}
+
+/**
+ * Public read-only probe of the effective locking state (env precedence +
+ * process-level `--no-lock` opt-out). For diagnostics and tests — the write
+ * paths consult the module-private {@link isLockingEnabled} directly.
+ */
+export function isCrossProcessLockingEnabled(): boolean {
+  return isLockingEnabled();
 }
 
 /**
  * D1-SA1.5.1: Acquire a cross-process advisory lock for {@link filePath}.
  *
- * Locking activates when either:
- *  - `HATCH3R_LOCK=1` is set explicitly, OR
- *  - the process is running a workspace/worktree command that called
- *    {@link enableDefaultCrossProcessLocking} (D8-M3).
- *
- * Set `HATCH3R_LOCK=0` to force-disable when the default would otherwise
- * enable locking. The default (no env var, no command-level enable) is a
- * no-op so existing single-process behavior is preserved.
+ * DD-A1 (release/2.8.5): locking is DEFAULT-ON. It deactivates only when
+ * the run opted out via `hatch3r --no-lock <command>`
+ * ({@link disableCrossProcessLocking}) or `HATCH3R_LOCK=0`; `HATCH3R_LOCK=1`
+ * force-enables over the flag. When inactive this returns a no-op release,
+ * preserving the unlocked write path for opted-out runs.
  *
  * Returns a release function. Callers MUST invoke release in a finally block
  * — even when the wrapped write throws — to prevent stale locks.
@@ -529,24 +556,26 @@ export async function syncParentDirectory(filePath: string): Promise<void> {
  * crash-durable" to "atomic"). This is NOT a generic disk-flush of every cached
  * write — only the tmp file and its parent directory are synced.
  *
- * **Concurrency:** By default this function does not use file locking. Two
- * hatch3r processes writing the same target path concurrently can silently
- * clobber one another. Set `HATCH3R_LOCK=1` to opt into cross-process file
- * locking via `proper-lockfile` (D1-SA1.5.1). Locking is gated behind the env
- * var to keep the default behavior unchanged for single-process flows.
+ * **Concurrency (DD-A1, release/2.8.5):** cross-process file locking via
+ * `proper-lockfile` (D1-SA1.5.1) is DEFAULT-ON — each call takes the
+ * advisory lock for the duration of the write, so two hatch3r processes
+ * writing the same target path serialize instead of silently clobbering one
+ * another. Opt out per run with `hatch3r --no-lock <command>` or
+ * `HATCH3R_LOCK=0` (then the unlocked pre-2.8.5 behavior applies);
+ * `HATCH3R_LOCK=1` force-enables over the flag.
  *
  * **Ordering (D3-SA3.4-F9, Cycle 10 Wave 4, P2; D1-SA1.5-03, Cycle 12):**
- * WITHOUT locking, the ordering of CONCURRENT writes to the same path is
- * UNSPECIFIED. POSIX `rename(2)` is atomic per call (no torn content — a
- * reader always sees one writer's complete bytes), but the OS does not
- * guarantee that overlapping `rename` calls land in submission order. With
- * `Promise.all([write(A), write(B)])` the final on-disk content is A or B,
- * not deterministically the last-submitted. Callers that require
- * last-write-wins MUST serialize: either `await` each write before the next,
- * or enable locking (`HATCH3R_LOCK=1`) — with locking enabled, concurrent
- * same-path calls queue on the in-process lock table (and on the on-disk
- * lockfile across processes), so each write completes before the next
- * begins. SEQUENTIALLY-awaited writes always observe submission order.
+ * WITH locking (the default), concurrent same-path calls queue on the
+ * in-process lock table (and on the on-disk lockfile across processes), so
+ * each write completes before the next begins. When locking is OPTED OUT
+ * (`--no-lock` / `HATCH3R_LOCK=0`), the ordering of CONCURRENT writes to the
+ * same path is UNSPECIFIED: POSIX `rename(2)` is atomic per call (no torn
+ * content — a reader always sees one writer's complete bytes), but the OS
+ * does not guarantee that overlapping `rename` calls land in submission
+ * order — with `Promise.all([write(A), write(B)])` the final on-disk content
+ * is A or B, not deterministically the last-submitted. Opted-out callers
+ * that require last-write-wins MUST serialize by awaiting each write before
+ * the next. SEQUENTIALLY-awaited writes always observe submission order.
  *
  * When locking is enabled and contention exceeds ~3s
  * ({@link LOCK_RETRY_TOTAL_BACKOFF_MS}), throws {@link HatchError} with code
@@ -974,14 +1003,16 @@ export async function sweepOrphanTmpFiles(
 }
 
 /**
- * D11-14 (Cycle 11 Wave 3, P6): detect a likely CONCURRENT in-flight write to a
- * hatch3r-managed tree and return an advisory warning, or `null` when there is
- * no signal. The default single-repo write path takes no cross-process lock
- * ({@link isLockingEnabled} is false unless `HATCH3R_LOCK=1` or a
- * workspace/worktree command enabled the default), so two `hatch3r sync` runs
- * from two shells can last-writer-wins clobber a managed file with no warning.
- * A mutating command calls this at start-of-run; if the warning is non-null it
- * surfaces it via `warn()`.
+ * D11-14 (Cycle 11 Wave 3, P6) / DD-A9 (release/2.8.5): detect a likely
+ * CONCURRENT in-flight write to a hatch3r-managed tree and return an advisory
+ * warning, or `null` when there is no signal. Since 2.8.5 locking is
+ * default-on, so this check is scoped to the OPT-OUT path: it returns `null`
+ * immediately whenever locking is active (the lock serializes overlapping
+ * writes, making the warning moot) and only scans when this run disabled
+ * locking via `--no-lock` or `HATCH3R_LOCK=0` — exactly the runs that can
+ * last-writer-wins clobber a managed file again. A mutating command calls
+ * this at start-of-run; if the warning is non-null it surfaces it via
+ * `warn()`.
  *
  * Signal: a `*.tmp.<8hex>` file YOUNGER than {@link ORPHAN_MIN_AGE_MS} — the
  * inverse of the orphan-sweep gate. {@link atomicWriteFile} creates exactly that
@@ -1036,10 +1067,14 @@ export async function detectConcurrentWriteRisk(
     // YOUNG (< gate) ⇒ a live in-flight write. Aged ⇒ a crash orphan the sweep
     // owns; not contention, so it does not raise this warning.
     if (age < ORPHAN_MIN_AGE_MS) {
+      // DD-A9: reaching this line implies locking was explicitly disabled
+      // for this run (the isLockingEnabled() gate above returns null
+      // otherwise), so the fix is to drop the opt-out, not to add an env var.
       return (
         `Another hatch3r write appears to be in flight (fresh temp file ${fullPath}). ` +
-        `Concurrent runs against the same repo can clobber managed files last-writer-wins. ` +
-        `Pass HATCH3R_LOCK=1 on both runs so each file's read-merge-write serializes under a ` +
+        `Cross-process locking is disabled for this run (--no-lock / HATCH3R_LOCK=0), so ` +
+        `concurrent runs against the same repo can clobber managed files last-writer-wins. ` +
+        `Drop the opt-out so each file's read-merge-write serializes under the default ` +
         `cross-process lock, or wait for the other run to finish.`
       );
     }
@@ -1534,29 +1569,28 @@ export interface SafeWriteFileOptions {
 /**
  * Safely write or merge a file, preserving user content outside managed blocks.
  *
- * **Concurrency + locking scope (D1-SA1.5-04, Cycle 12):** when locking is
- * enabled (`HATCH3R_LOCK=1` or a workspace/worktree default), the lock is
- * acquired at FUNCTION ENTRY and held across the FULL read-merge-write — not
- * just the final write — so the merge decision is never computed from a
- * pre-lock stale read. Two concurrent runs with locking enabled therefore
- * serialize each file's whole read-merge-write, and content written by one
- * run (or a third writer) between the other's read and write is no longer
- * silently clobbered. Internal writes go through the already-held lock
- * (explicit lock-handle passing to {@link atomicWriteFileUnlocked}). A path
- * already held by an EXTERNAL critical section (e.g. `configCommand`) is
- * entered without re-acquiring — the outer holder owns the lifecycle. By
- * default (no locking), no cross-process lock is taken — running multiple
- * hatch3r processes against the same target is unsupported and may clobber
- * output. Workspace sync already processes repos sequentially internally, so
- * a single `hatch3r sync --repos` invocation is safe without the opt-in.
+ * **Concurrency + locking scope (D1-SA1.5-04, Cycle 12; DD-A1, 2.8.5):**
+ * locking is DEFAULT-ON, and the lock is acquired at FUNCTION ENTRY and held
+ * across the FULL read-merge-write — not just the final write — so the merge
+ * decision is never computed from a pre-lock stale read. Two concurrent runs
+ * therefore serialize each file's whole read-merge-write, and content
+ * written by one run (or a third writer) between the other's read and write
+ * is no longer silently clobbered. Internal writes go through the
+ * already-held lock (explicit lock-handle passing to
+ * {@link atomicWriteFileUnlocked}). A path already held by an EXTERNAL
+ * critical section (e.g. `configCommand`) is entered without re-acquiring —
+ * the outer holder owns the lifecycle. When the run OPTED OUT (`--no-lock` /
+ * `HATCH3R_LOCK=0`), no cross-process lock is taken — running multiple
+ * hatch3r processes against the same target is then unsupported and may
+ * clobber output.
  *
  * **Ordering (D3-SA3.4-F9, Cycle 10 Wave 4, P2; D1-SA1.5-03, Cycle 12):**
- * without locking, inherits the unspecified concurrent-write ordering of
- * {@link atomicWriteFile}. With locking enabled, concurrent same-path
- * `safeWriteFile` calls queue in submission order (in-process lock table +
- * on-disk lockfile), so each read-merge-write completes before the next
- * begins. Serialize (await each write, or enable locking) when
- * last-write-wins matters.
+ * with locking active (the default), concurrent same-path `safeWriteFile`
+ * calls queue in submission order (in-process lock table + on-disk
+ * lockfile), so each read-merge-write completes before the next begins.
+ * Opted-out runs (`--no-lock` / `HATCH3R_LOCK=0`) inherit the unspecified
+ * concurrent-write ordering of {@link atomicWriteFile} — serialize by
+ * awaiting each write when last-write-wins matters there.
  */
 export async function safeWriteFile(
   filePath: string,

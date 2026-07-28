@@ -645,8 +645,17 @@ export async function validateMcp(
   const mcpPath = join(canonicalRoot, "mcp", "mcp.json");
   try {
     const mcpContent = await readFile(mcpPath, "utf-8");
-    const mcpParsed = JSON.parse(mcpContent);
-    if (!mcpParsed.mcpServers || typeof mcpParsed.mcpServers !== "object") {
+    // DD-C (release/2.8.5): typed parse — the bare `JSON.parse` returned
+    // `any`, so the `.mcpServers` access was unchecked; a top-level
+    // array/scalar now takes the same missing-key error branch explicitly.
+    const mcpParsed: unknown = JSON.parse(mcpContent);
+    if (
+      typeof mcpParsed !== "object" ||
+      mcpParsed === null ||
+      Array.isArray(mcpParsed) ||
+      typeof (mcpParsed as Record<string, unknown>).mcpServers !== "object" ||
+      (mcpParsed as Record<string, unknown>).mcpServers === null
+    ) {
       result.errors.push("MCP config missing 'mcpServers' key");
       return;
     }

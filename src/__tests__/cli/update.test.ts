@@ -725,6 +725,92 @@ describe("update command", () => {
     });
   });
 
+  // release/2.8.5 (BUG-1 root cause C): the tracked selection was frozen at
+  // init — no update path ever re-ran resolveSelection, so artifacts shipped
+  // by later hatch3r versions (e.g. the qa-path cluster) never appeared in
+  // `manifest.content.items` and every consumer of the tracked list reported
+  // the stale set. The content-selection-refresh migration checkpoint
+  // re-resolves against the freshly bundled corpus when hatch3rVersion
+  // changes. These tests run the REAL corpus (no content mocks in this file).
+  describe("content-selection-refresh migration checkpoint (release/2.8.5)", () => {
+    it("grows manifest.content.items across an update from an older hatch3rVersion, preserving the dial", async () => {
+      // createTestProject writes hatch3rVersion "0.0.9" with preset "full" and
+      // EMPTY item lists — the frozen-at-init shape.
+      await createTestProject(tempDir);
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      await updateCommand({ offline: true });
+
+      const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+      // Selection refreshed from the live corpus — item lists are populated.
+      expect(manifest.content.items.agents.length).toBeGreaterThan(0);
+      expect(manifest.content.items.rules.length).toBeGreaterThan(0);
+      expect(manifest.content.items.skills.length).toBeGreaterThan(0);
+      // preset / projectType / teamSize preserved verbatim.
+      expect(manifest.content.preset).toBe("full");
+      expect(manifest.content.projectType).toBe("brownfield");
+      expect(manifest.content.teamSize).toBe("team");
+      expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
+    });
+
+    it("custom preset: refresh admits new floor/protected artifacts but never resurrects removed optional ids", async () => {
+      const { resolveBundledContentRoot } = await import("../../content/contentRoot.js");
+      const { buildContentIndex } = await import("../../content/index.js");
+      const { isFloorTag } = await import("../../content/tags.js");
+      const index = await buildContentIndex(resolveBundledContentRoot());
+      const isOptional = (i: { protected?: boolean; tags: string[] }): boolean =>
+        i.protected !== true && !i.tags.some(isFloorTag);
+      // Two real optional (non-floor, non-protected) agents from the corpus:
+      // one the user KEPT, one the user REMOVED from their custom selection.
+      const optionalAgents = index.items.filter((i) => i.type === "agent" && isOptional(i));
+      expect(optionalAgents.length).toBeGreaterThanOrEqual(2);
+      const keptId = optionalAgents[0].id;
+      const removedId = optionalAgents[1].id;
+
+      await createTestProject(tempDir, {
+        content: {
+          preset: "custom",
+          projectType: "brownfield",
+          teamSize: "team",
+          items: {
+            agents: [keptId], skills: [], rules: [], commands: [],
+            prompts: [], hooks: [], githubAgents: [],
+          },
+        },
+      });
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      await updateCommand({ offline: true });
+
+      const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+      const agents: string[] = manifest.content.items.agents;
+      // Stored optional pick survives; the removed optional id is NOT resurrected.
+      expect(agents).toContain(keptId);
+      expect(agents).not.toContain(removedId);
+      // Additive floor/protected admission: every protected corpus agent ships.
+      const protectedAgents = index.items
+        .filter((i) => i.type === "agent" && i.protected === true)
+        .map((i) => i.id);
+      expect(protectedAgents.length).toBeGreaterThan(0);
+      for (const id of protectedAgents) {
+        expect(agents, `protected agent ${id} must be admitted additively`).toContain(id);
+      }
+      expect(manifest.content.preset).toBe("custom");
+    });
+
+    it("same-version update leaves the stored selection untouched (condition not met)", async () => {
+      await createTestProject(tempDir, { hatch3rVersion: HATCH3R_VERSION });
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      await updateCommand({ offline: true });
+
+      const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+      // The frozen empty lists persist — the refresh keys on a version change.
+      expect(manifest.content.items.agents).toEqual([]);
+      expect(manifest.content.preset).toBe("full");
+    });
+  });
+
   // D1-SA1.3-04 (Cycle 12, D1, P1): `update` prompts via the content-selections-init
   // and platform-selection migration checkpoints on a legacy manifest. beginCommand
   // must reject `--format json` without `--yes` (exit 2) BEFORE any prompt runs, so a

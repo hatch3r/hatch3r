@@ -51,7 +51,9 @@ export type PresetId =
  * everything). The sanctioned escape for a deliberate refinement-only artifact
  * is a per-id `includeIds` entry on the preset(s) that should ship it — the
  * corpus has exactly one such artifact: `hatch3r-capability-matrix`, admitted
- * via `full.includeIds` only (D5-SA5.4-09 + CI-RECON-05, Cycle 12). The
+ * via `includeIds` on `full` (D5-SA5.4-09 + CI-RECON-05, Cycle 12) and — since
+ * release/2.8.5 — on the `monorepo` and `web-app` archetypes, whose
+ * descriptions promise full-parity minus named dials. The
  * "every canonical artifact is admitted by `full` OR floor-tagged OR protected"
  * guard in `src/__tests__/content/compound.test.ts` fails the build the moment
  * an UNSANCTIONED orphan is introduced, converting the silent drop into a CI
@@ -98,9 +100,12 @@ export interface ContentPreset {
   /**
    * Optional per-id additive override — admits a specific artifact whose
    * capability tags do not intersect the preset's capabilities. Used sparingly;
-   * the capability gate should cover the common case. Sole registry use:
+   * the capability gate should cover the common case. Registry uses:
    * `full.includeIds` carries `hatch3r-capability-matrix` (D5-SA5.4-09 +
-   * CI-RECON-05); every other registry preset leaves this unset.
+   * CI-RECON-05), and — release/2.8.5 — `monorepo` and `web-app` carry the
+   * same entry so their "vs Full" description claims are literally true
+   * (without it both silently dropped exactly that one artifact); every other
+   * registry preset leaves this unset.
    */
   includeIds?: ReadonlyArray<string>;
   /**
@@ -197,7 +202,10 @@ export const PRESETS: ContentPreset[] = [
     // tags outside the 9-tag preset-positive union, so without this carve-out
     // NO preset would ship it. Per the finding's own intent ("until then it
     // ships as canonical content"), `full` — the everything preset — admits it
-    // explicitly here; minimal/standard/archetypes deliberately exclude it.
+    // explicitly here; minimal/standard and the other archetypes deliberately
+    // exclude it (release/2.8.5: `monorepo` and `web-app` carry the same
+    // carve-out because their descriptions promise full-parity minus named
+    // dials — see their includeIds comments).
     // Retagging with a lifecycle capability tag was rejected: capability tags
     // express a semantic work-type match (see CapabilityTag JSDoc), which a
     // framework-internal audit procedure does not have for end-user work.
@@ -234,6 +242,13 @@ export const PRESETS: ContentPreset[] = [
       TAG_PERFORMANCE,
     ],
     includeCustomize: true,
+    // release/2.8.5 copy-vs-actual reconciliation: the description claims only
+    // the AI dial is off vs Full, but without full's includeIds carve-out this
+    // archetype ALSO silently dropped `hatch3r-capability-matrix` (the one
+    // refinement-only artifact, admitted to full by id — see full.includeIds).
+    // Carry the same carve-out so the "only the AI dial differs" claim is
+    // literally true; guarded by presets.test.ts + compound.test.ts.
+    includeIds: ["hatch3r-capability-matrix"],
     omits: ["AI feature engineering"],
   },
   {
@@ -292,6 +307,12 @@ export const PRESETS: ContentPreset[] = [
       TAG_AI,
     ],
     includeCustomize: true,
+    // release/2.8.5 copy-vs-actual reconciliation: the description promises
+    // "Drops nothing vs Full", but capability parity alone missed full's
+    // per-id includeIds carve-out (`hatch3r-capability-matrix`), leaving the
+    // realized selection at N-1 of full. Carry the same carve-out so the
+    // promise is literally true; guarded by presets.test.ts + compound.test.ts.
+    includeIds: ["hatch3r-capability-matrix"],
     // Monorepo carries the full capability superset, so it omits nothing.
     omits: [],
   },

@@ -19,7 +19,7 @@ import {
 } from "../manifest/hatchJson.js";
 import { safeWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../merge/orphanCleanup.js";
-import { HATCH3R_DIR } from "../types.js";
+import { HATCH3R_DIR, HatchError } from "../types.js";
 import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { analyzeRepo } from "../detect/repoAnalyzer.js";
@@ -29,7 +29,62 @@ import { resolveRepoConfig, buildSelectionFromIds, applyMemberCliToolsOverrides 
 import { detectRepoGitIdentity } from "./git.js";
 import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import { verbose } from "../cli/shared/ui.js";
-import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult, WorkspaceGroupDelta } from "./types.js";
+import type {
+  WorkspaceManifest,
+  WorkspaceRepoEntry,
+  WorkspaceSyncResult,
+  WorkspaceSyncCounts,
+  WorkspaceSyncOutcome,
+  WorkspaceRepoSyncResult,
+  WorkspaceRepoSyncError,
+  WorkspaceGroupDelta,
+} from "./types.js";
+
+/**
+ * DD-B3 (release/2.8.5): convert a caught value into the structured
+ * {@link WorkspaceRepoSyncError} instead of flattening it to `err.message`.
+ * A `HatchError` keeps its `errorCode` + `recoveryHint`; every `Error`
+ * contributes its `Error.cause` chain (outermost cause first, capped at 5
+ * links so a cyclic/deep chain cannot balloon the result). Non-Error throws
+ * stringify. Exported for direct unit coverage.
+ */
+export function toRepoSyncError(err: unknown): WorkspaceRepoSyncError {
+  const causeChain: string[] = [];
+  let cursor: unknown = err instanceof Error ? err.cause : undefined;
+  while (cursor !== undefined && cursor !== null && causeChain.length < 5) {
+    causeChain.push(cursor instanceof Error ? cursor.message : String(cursor));
+    cursor = cursor instanceof Error ? cursor.cause : undefined;
+  }
+  const base: WorkspaceRepoSyncError =
+    err instanceof HatchError
+      ? {
+          message: err.message,
+          errorCode: err.errorCode,
+          ...(err.recoveryHint !== undefined ? { recoveryHint: err.recoveryHint } : {}),
+        }
+      : { message: err instanceof Error ? err.message : String(err) };
+  if (causeChain.length > 0) base.causeChain = causeChain;
+  return base;
+}
+
+/**
+ * DD-B4: derive the aggregate outcome + tallies for a finished repo set.
+ * Zero targeted repos is `passed` (nothing to do is not a failure).
+ */
+export function computeWorkspaceSyncOutcome(
+  repos: readonly WorkspaceRepoSyncResult[],
+): { outcome: WorkspaceSyncOutcome; counts: WorkspaceSyncCounts } {
+  const counts: WorkspaceSyncCounts = {
+    total: repos.length,
+    synced: repos.filter((r) => r.action === "synced").length,
+    failed: repos.filter((r) => r.action === "error").length,
+    skipped: repos.filter((r) => r.action === "skipped").length,
+    dryRun: repos.filter((r) => r.action === "dry-run").length,
+  };
+  const outcome: WorkspaceSyncOutcome =
+    counts.failed === 0 ? "passed" : counts.failed === counts.total ? "failed" : "partial";
+  return { outcome, counts };
+}
 
 /**
  * Estimate total tokens for a set of content IDs by summing the character
@@ -170,22 +225,19 @@ interface WorkspaceSyncJournalEntry {
  * line at a time. (2) Cross-process: the `appendFile` is wrapped in
  * `acquireWriteLock(journalPath)` — the same advisory `proper-lockfile` lock
  * `writeWorkspaceManifest` already holds on the manifest path, the other shared
- * workspace-root resource serialized through this mutex. Workspace and worktree
- * command entry points call `enableDefaultCrossProcessLocking()`
- * (`src/cli/commands/sync.ts`, `worktreeSetup.ts`, `worktreeCleanup.ts`), so a
- * SECOND concurrent `hatch3r sync` (or a worktree sync) against the same
+ * workspace-root resource serialized through this mutex. DD-A1
+ * (release/2.8.5): cross-process locking is default-on process-wide
+ * (`src/merge/safeWrite.ts::isLockingEnabled` — the F8.2.2 flip, landed), so
+ * a SECOND concurrent `hatch3r sync` (or a worktree sync) against the same
  * workspace root blocks on the lock instead of racing the file, removing the
  * prior reliance on POSIX O_APPEND/PIPE_BUF atomicity (which is not guaranteed
  * on macOS/Windows for lines that exceed the bound). The lock is reentrant
  * within a process (no-op if a caller already holds `journalPath`) and a no-op
- * when locking is disabled (single-repo / non-workspace context, or
- * `HATCH3R_LOCK=0`), so single-process behaviour is unchanged. This is the
- * `properLockfile`-lock option from the finding recommendation; it does NOT
- * depend on the F8.2.2 global lock-default flip (that flips the default for
- * `atomicWriteFile`; this call site takes the lock explicitly regardless). A
- * `LOCK_TIMEOUT` HatchError from lock contention is caught and surfaced via
- * `onWarn` like any other journal-write failure — the per-repo sync has already
- * succeeded on disk, so a missed journal line does not abort the run.
+ * when the run opted out of locking (`--no-lock` / `HATCH3R_LOCK=0`), so an
+ * opted-out run keeps the pre-lock behaviour. A `LOCK_TIMEOUT` HatchError
+ * from lock contention is caught and surfaced via `onWarn` like any other
+ * journal-write failure — the per-repo sync has already succeeded on disk,
+ * so a missed journal line does not abort the run.
  */
 async function appendJournalEntry(
   workspaceRoot: string,
@@ -233,9 +285,15 @@ export async function syncWorkspaceRepos(
   // reading the workspace manifest — keeps legacy installs hot-syncing without
   // a manual `hatch3r init` first.
   await migrateAgentsToHatch3r(workspaceRoot);
-  const wsManifest = await readWorkspaceManifest(workspaceRoot);
+  // DD-C4: thread the warn channel so the unknown-field advisory from the
+  // manifest reader reaches the operator instead of the default no-op sink.
+  const wsManifest = await readWorkspaceManifest(workspaceRoot, { onWarn: options.onWarn });
   if (!wsManifest) {
-    return { repos: [] };
+    return {
+      repos: [],
+      outcome: "passed",
+      counts: { total: 0, synced: 0, failed: 0, skipped: 0, dryRun: 0 },
+    };
   }
 
   const wsChecksum = createHash("sha256")
@@ -337,13 +395,19 @@ export async function syncWorkspaceRepos(
             options,
           );
         } catch (err) {
+          // DD-B2/B3 (release/2.8.5): keep the structured failure instead of
+          // flattening a HatchError to its message string. `error` stays the
+          // plain-string mirror for legacy renderers; `errorDetail` carries
+          // errorCode / recoveryHint / the Error.cause chain.
+          const detail = toRepoSyncError(err);
           result = {
             path: repoEntry.path,
             added: [],
             removed: [],
             toolsSynced: [],
             action: "error",
-            error: err instanceof Error ? err.message : String(err),
+            error: detail.message,
+            errorDetail: detail,
           };
         }
 
@@ -408,7 +472,10 @@ export async function syncWorkspaceRepos(
   // enqueue post-task work into the same mutex.
   await workspaceWriteMutex;
 
-  return { repos: results };
+  // DD-B4 (release/2.8.5): aggregate disposition so callers no longer have
+  // to re-derive pass/partial/fail from the per-repo action list.
+  const { outcome, counts } = computeWorkspaceSyncOutcome(results);
+  return { repos: results, outcome, counts };
 }
 
 /**
@@ -463,6 +530,15 @@ async function syncSingleRepo(
       toolsSynced: [],
       action: "error",
       error: `Directory not found: ${repoEntry.path}`,
+      // DD-B2: structured twin so the CLI/JSON surface can branch on the
+      // failure class and print the fix without prose-grepping.
+      errorDetail: {
+        message: `Directory not found: ${repoEntry.path}`,
+        errorCode: "FS_ERROR",
+        recoveryHint:
+          `Create the directory, fix the \`path\` entry in .hatch3r/workspace.json, ` +
+          `or set \`sync: false\` for ${repoEntry.path}.`,
+      },
     };
   }
 

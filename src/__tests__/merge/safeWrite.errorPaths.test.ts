@@ -29,9 +29,19 @@ describe("atomicWriteFile error paths", () => {
   const mockClose = vi.fn<() => Promise<void>>();
   const mockOpen = vi.fn<(...args: unknown[]) => Promise<{ datasync: typeof mockDatasync; close: typeof mockClose }>>();
 
+  const origLock = process.env.HATCH3R_LOCK;
+
   beforeEach(async () => {
     vi.resetModules();
     vi.resetAllMocks();
+
+    // DD-A1 (release/2.8.5): locking is default-on, and the lock-acquire path
+    // runs a REAL `mkdir(dirname(filePath))` on absolute fixture paths like
+    // /some/dir before the mocked writer is reached. This suite tests the
+    // WRITE BODY's errno mapping, not locking — opt out so the mocked
+    // writeFile/rename/open are the first fs calls again (locking behavior
+    // has its own suites: safeWrite.fileLock / safeWrite.lockBranches).
+    process.env.HATCH3R_LOCK = "0";
 
     // Defaults: everything succeeds
     mockWriteFile.mockResolvedValue(undefined);
@@ -58,6 +68,8 @@ describe("atomicWriteFile error paths", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (origLock === undefined) delete process.env.HATCH3R_LOCK;
+    else process.env.HATCH3R_LOCK = origLock;
   });
 
   // ── ENOSPC ──────────────────────────────────────────────────────

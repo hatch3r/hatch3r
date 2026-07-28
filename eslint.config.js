@@ -147,4 +147,58 @@ export default tseslint.config(
       "hatch-error/use-hatch-error": "off",
     },
   },
+  {
+    // DD-D2 (release/2.8.5) — import-boundary contract, built-in
+    // no-restricted-imports (option b: zero new dependency, zero lockfile
+    // churn vs eslint-plugin-import). Two rules over NON-CLI src code:
+    //   Rule 1: domain modules must not import src/cli/** — allowlisted
+    //           exceptions (D0 decision, recorded in the 2.8.5 hardening
+    //           result file): cli/shared/ui.js, cli/shared/paths.js,
+    //           cli/shared/runId.js (logging/state coupling pending a
+    //           dedicated extraction; 19 importers today).
+    //   Rule 2: domain modules must not import CLI/UI libraries
+    //           (commander, inquirer, @inquirer/*, chalk, ora, boxen) —
+    //           accept a callback or return data; src/cli/** owns
+    //           presentation. Static imports only (dynamic-import fallbacks
+    //           are annotated at their sites, e.g. cliTools/install.ts D4).
+    // Severity "warn" initially, per the warn→error promotion pattern the
+    // silent-failure rule followed (see its header above): existing chalk/ui
+    // couplings are inventoried as warnings first; promotion to "error"
+    // happens once the count reaches 0 through follow-up extractions. The
+    // hard subset that is clean TODAY (no cli/** import outside the
+    // allowlist; no commander/inquirer) is additionally pinned as a FAILING
+    // test in src/__tests__/architecture/importBoundaries.test.ts so it
+    // cannot regress while the warn tier burns down.
+    files: ["src/**/*.ts"],
+    ignores: ["src/cli/**", "src/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "warn",
+        {
+          patterns: [
+            {
+              group: [
+                "**/cli/**",
+                // gitignore semantics: a file cannot be re-included while its
+                // parent directory stays excluded, so un-ignore the shared/
+                // parent first, then the three allowlisted files (every other
+                // cli/shared file is still matched by **/cli/** itself).
+                "!**/cli/shared",
+                "!**/cli/shared/ui.js",
+                "!**/cli/shared/paths.js",
+                "!**/cli/shared/runId.js",
+              ],
+              message:
+                "Import-boundary Rule 1: non-CLI modules must not import src/cli/** (allowlisted: cli/shared/{ui,paths,runId}.js). Move the shared logic into a domain module.",
+            },
+            {
+              group: ["commander", "inquirer", "@inquirer/*", "chalk", "ora", "boxen"],
+              message:
+                "Import-boundary Rule 2: domain modules must not import CLI/UI libraries. Accept a callback or return data; let src/cli/** own the presentation.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

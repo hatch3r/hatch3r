@@ -39,6 +39,65 @@ import {
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { normalizeModelClass } from "../models/tiers.js";
+import { KNOWN_FACETS, KNOWN_ROLES, type FacetId, type RoleId } from "../content/tags.js";
+
+/**
+ * release/2.8.5 (BUG-4): persisted `--role` / `--facets` selection filter.
+ *
+ * Before this field, the role/facet filters applied at `hatch3r init` were
+ * lost the moment the run ended: `hatch3r config` re-resolved the selection
+ * with NO filter (config.ts passed neither), silently widening the installed
+ * set on the first reconfigure, and the update-time selection refresh had no
+ * record of the filter either. Both now read the persisted filter from here.
+ *
+ * Values are stored as plain strings (not the `RoleId`/`FacetId` unions) so a
+ * manifest written by a newer hatch3r with a since-removed role id still
+ * round-trips; {@link readContentFilter} narrows to the CURRENTLY-known ids at
+ * read time and drops unknown entries, matching init's own unknown-facet
+ * warning semantics.
+ */
+export interface ContentFilterConfig {
+  role?: string;
+  facets?: string[];
+}
+
+// TypeScript module augmentation (declaration merging): adds the additive
+// optional `contentFilter` field to the HatchManifest interface WITHOUT
+// editing `src/types.ts` (owned by a parallel release/2.8.5 workstream —
+// single-writer rule). The single physical interface still lives in types.ts;
+// this file is the manifest persistence boundary, so the field's shape,
+// validation (`collectManifestErrors`), and reader (`readContentFilter`) are
+// co-located here.
+declare module "../types.js" {
+  interface HatchManifest {
+    /**
+     * release/2.8.5 additive optional field: the `--role` / `--facets`
+     * selection filter the user initialized with. Absence == no filtering.
+     * Read via {@link readContentFilter}; persisted by `hatch3r init` and
+     * honoured by `hatch3r config`'s selection re-resolution and the
+     * `hatch3r update` content-selection-refresh checkpoint.
+     */
+    contentFilter?: ContentFilterConfig;
+  }
+}
+
+/**
+ * Read the manifest's persisted role/facet selection filter, narrowed to the
+ * ids the running hatch3r knows. Unknown roles collapse to `undefined` and
+ * unknown facets are dropped (fail-open to "no filtering" — the same
+ * disposition `hatch3r init` applies to an unknown `--facets` entry), so a
+ * manifest from a different hatch3r version can never crash selection.
+ */
+export function readContentFilter(
+  m: HatchManifest | null | undefined,
+): { role?: RoleId; facets: FacetId[] } {
+  const role = m?.contentFilter?.role;
+  const facets = m?.contentFilter?.facets ?? [];
+  return {
+    role: role && (KNOWN_ROLES as readonly string[]).includes(role) ? (role as RoleId) : undefined,
+    facets: facets.filter((f): f is FacetId => (KNOWN_FACETS as readonly string[]).includes(f)),
+  };
+}
 
 /**
  * Validate a git branch name against the rules from `git check-ref-format`.
@@ -664,6 +723,29 @@ export function collectManifestErrors(data: unknown): string[] {
           errors.push(`\`conflicts[${i}].tools\` contains non-string entries`);
         }
       });
+    }
+  }
+
+  // release/2.8.5 (BUG-4): contentFilter (optional persisted --role/--facets
+  // filter: { role?: string; facets?: string[] }). Structural check only —
+  // membership against the CURRENT role/facet id sets is applied at read time
+  // by `readContentFilter` (unknown ids fail open to "no filtering"), so a
+  // manifest written by a different hatch3r version stays readable.
+  if (obj.contentFilter !== undefined) {
+    if (typeof obj.contentFilter !== "object" || obj.contentFilter === null || Array.isArray(obj.contentFilter)) {
+      errors.push("`contentFilter` is not an object");
+    } else {
+      const cf = obj.contentFilter as Record<string, unknown>;
+      if (cf.role !== undefined && typeof cf.role !== "string") {
+        errors.push("`contentFilter.role` is not a string");
+      }
+      if (cf.facets !== undefined) {
+        if (!Array.isArray(cf.facets)) {
+          errors.push("`contentFilter.facets` is not an array");
+        } else if (!(cf.facets as unknown[]).every((v) => typeof v === "string")) {
+          errors.push("`contentFilter.facets` contains non-string entries");
+        }
+      }
     }
   }
 
