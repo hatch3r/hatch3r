@@ -37,6 +37,29 @@ try {
   process.exit(1);
 }
 
+// Fail closed on anything that is not a real audit report. npm emits an
+// `error` envelope (registry outage, lockfile parse failure) as valid JSON
+// with no `vulnerabilities` map — treating that as "zero findings" would
+// pass the gate while no audit ran. Require the npm-audit v2 report shape:
+// an object `vulnerabilities` map plus the `auditReportVersion`/`metadata`
+// markers npm writes on every genuine report.
+if (audit.error) {
+  console.error(
+    `audit-gate: npm audit returned an error envelope (${audit.error.code ?? "unknown"}: ${audit.error.summary ?? ""}) — no audit ran; refusing to pass.`,
+  );
+  process.exit(1);
+}
+if (
+  typeof audit.vulnerabilities !== "object" ||
+  audit.vulnerabilities === null ||
+  (audit.auditReportVersion === undefined && audit.metadata === undefined)
+) {
+  console.error(
+    "audit-gate: input lacks the npm-audit report shape (vulnerabilities map + auditReportVersion/metadata) — refusing to pass.",
+  );
+  process.exit(1);
+}
+
 const GATED = new Set(["high", "critical"]);
 const offenders = [];
 const seenAllowlisted = new Set();

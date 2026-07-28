@@ -1915,10 +1915,17 @@ export async function syncCommand(
     // D10-SA10.2-F5 + F6 (Cycle 10 Wave 4, D10, P1/P4): on a clean sync, emit
     // a next-steps ladder (closing the dead-code gap on `printNextSteps`,
     // which init's inline ladder never routed through) and an elapsed-time
-    // read-out. Suppressed on dry-run and partial failure so the post-summary
-    // chrome only fires when there is a confirmed success to act on. Both
-    // helpers are no-ops under quiet/json mode.
-    if (!opts.dryRun && adapterFailures.length === 0) {
+    // read-out. Suppressed on dry-run and ANY partial failure — root adapter
+    // failures AND a partial/failed workspace cascade (the box title and JSON
+    // envelope already grade those runs partial, and the command exits 2) —
+    // so the post-summary chrome only fires when there is a confirmed success
+    // to act on. Both helpers are no-ops under quiet/json mode.
+    if (
+      !opts.dryRun &&
+      adapterFailures.length === 0 &&
+      wsCascade?.outcome !== "partial" &&
+      wsCascade?.outcome !== "failed"
+    ) {
       printNextSteps([
         "Run `hatch3r status` to verify your generated files are in sync.",
         "Run `hatch3r validate` to check canonical content + customizations.",
