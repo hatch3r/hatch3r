@@ -268,6 +268,32 @@ describe("worktreeSetupCommand", () => {
     ).rejects.toThrow("from-path target missing");
   });
 
+  // release/2.8.6: from-path mode writes the setup receipt into the worktree
+  // too, so it must maintain the same per-clone exclude entries as name mode —
+  // otherwise the receipt shows as untracked in the populated worktree.
+  it("--from-path also ensures the worktree exclude entries (release/2.8.6)", async () => {
+    const includeContent = [MANAGED_BLOCK_START, ".env", MANAGED_BLOCK_END].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    const wtDir = join(tempDir, ".worktrees", "legacy-excl");
+    await mkdir(wtDir, { recursive: true });
+
+    await worktreeSetupCommand(undefined, { fromPath: wtDir });
+
+    expect(ensureWorktreesIgnored).toHaveBeenCalledWith(tempDir);
+  });
+
+  it("--from-path dry-run skips the exclude write (release/2.8.6)", async () => {
+    const includeContent = [MANAGED_BLOCK_START, ".env", MANAGED_BLOCK_END].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    const wtDir = join(tempDir, ".worktrees", "legacy-dry");
+    await mkdir(wtDir, { recursive: true });
+
+    await worktreeSetupCommand(undefined, { fromPath: wtDir, dryRun: true });
+
+    expect(ensureWorktreesIgnored).not.toHaveBeenCalled();
+    expect(addGitWorktree).not.toHaveBeenCalled();
+  });
+
   // ── Secret propagation warning preserved ─────────────────────
 
   it("prints blast-radius warning when .env.mcp exists in main repo", async () => {

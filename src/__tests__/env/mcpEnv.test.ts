@@ -475,6 +475,10 @@ describe("ensureGitignoreEntry", () => {
     ".hatch3r/calibration-state.json",
     ".hatch3r/calibration-log.jsonl",
     ".hatch3r/archive/",
+    // release/2.8.6: worktree setup receipt (src/worktree/index.ts::
+    // WORKTREE_RECEIPT_RELPATH) — rides branch checkouts into worktrees so a
+    // fresh worktree's `git status` stays clean.
+    ".hatch3r/worktree-receipt.json",
   ] as const;
   /** Gitignore block for `entries`: one per line, trailing newline. */
   const blockOf = (entries: readonly string[]): string => entries.join("\n") + "\n";
@@ -644,6 +648,30 @@ describe("ensureGitignoreEntry", () => {
       ".hatch3r/archive/",
     ]) {
       expect(lines).toContain(entry);
+    }
+  });
+
+  // release/2.8.6: `.hatch3r/worktree-receipt.json` is the setup receipt
+  // `hatch3r worktree-setup` writes into each worktree (D1-SA1.10-02) so
+  // cleanup can invert setup. The committed entry rides branch checkouts into
+  // every worktree/clone, keeping a fresh worktree's `git status` clean and
+  // worktree-cleanup's dirty gate quiet. A wholesale `.hatch3r/` line
+  // dominates it like every other `.hatch3r/*` entry.
+  it("registers .hatch3r/worktree-receipt.json and lets .hatch3r/ dominate it (release/2.8.6)", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const lines = (await readFile(join(tempDir, ".gitignore"), "utf-8")).split("\n");
+    expect(lines).toContain(".hatch3r/worktree-receipt.json");
+
+    // Dominance: a repo ignoring `.hatch3r/` wholesale never gains the
+    // granular receipt line.
+    const domDir = await mkdtemp(join(tmpdir(), "hatch3r-gitignore-dom-"));
+    try {
+      await writeFile(join(domDir, ".gitignore"), ".hatch3r/\n", "utf-8");
+      await ensureGitignoreEntry(domDir);
+      const domContent = await readFile(join(domDir, ".gitignore"), "utf-8");
+      expect(domContent).not.toContain(".hatch3r/worktree-receipt.json");
+    } finally {
+      await rm(domDir, { recursive: true, force: true });
     }
   });
 });

@@ -31,6 +31,7 @@ import {
   fetchOriginBranch,
   resolveWorktreeBranchPlan,
   WORKTREES_DIR,
+  WORKTREE_RECEIPT_RELPATH,
 } from "../../worktree/index.js";
 import { readFileSync, existsSync } from "node:fs";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END, HatchError } from "../../types.js";
@@ -798,12 +799,16 @@ describe("ensureWorktreesIgnored", () => {
     rmSync(mainRoot, { recursive: true, force: true });
   });
 
-  it("appends a managed block on first call", async () => {
+  it("appends a managed block with both entries on first call", async () => {
     const added = await ensureWorktreesIgnored(mainRoot);
     expect(added).toBe(true);
     const exclude = readFileSync(join(mainRoot, ".git", "info", "exclude"), "utf-8");
     expect(exclude).toContain("HATCH3R:BEGIN");
     expect(exclude).toContain(`${WORKTREES_DIR}/`);
+    // release/2.8.6: the setup receipt is excluded in every linked worktree
+    // (info/exclude lives in the shared common dir; patterns match relative
+    // to each worktree's own root).
+    expect(exclude).toContain(WORKTREE_RECEIPT_RELPATH);
     expect(exclude).toContain("HATCH3R:END");
   });
 
@@ -813,6 +818,155 @@ describe("ensureWorktreesIgnored", () => {
     expect(added2).toBe(false);
     const exclude = readFileSync(join(mainRoot, ".git", "info", "exclude"), "utf-8");
     expect(exclude.match(/HATCH3R:BEGIN/g)?.length).toBe(1);
+  });
+
+  // release/2.8.6: pre-2.8.6 blocks carry only `.worktrees/`. The old
+  // marker-presence idempotency would have skipped them forever, so existing
+  // installs would never receive the receipt entry. These literals mirror the
+  // module-private EXCLUDE_BLOCK_START/END constants in src/worktree/index.ts.
+  const LEGACY_BLOCK = [
+    "",
+    "# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`",
+    `${WORKTREES_DIR}/`,
+    "# HATCH3R:END",
+    "",
+  ].join("\n");
+
+  it("upgrades a legacy single-entry block in place, preserving bytes outside the markers (release/2.8.6)", async () => {
+    const excludePath = join(mainRoot, ".git", "info", "exclude");
+    const prefix = "# user-managed lines\nscratch/\n";
+    const suffix = "# trailing user line\n";
+    writeFileSync(excludePath, prefix + LEGACY_BLOCK + suffix, "utf-8");
+
+    const added = await ensureWorktreesIgnored(mainRoot);
+
+    expect(added).toBe(true);
+    const after = readFileSync(excludePath, "utf-8");
+    // Everything outside the markers is preserved byte-for-byte (LEGACY_BLOCK
+    // opens with "\n" and closes with "\n" — both sit outside the markers).
+    expect(after.startsWith(`${prefix}\n# HATCH3R:BEGIN`)).toBe(true);
+    expect(after.endsWith(`# HATCH3R:END\n${suffix}`)).toBe(true);
+    // The inner region now carries both entries, still one block.
+    expect(after).toContain(`${WORKTREES_DIR}/`);
+    expect(after).toContain(WORKTREE_RECEIPT_RELPATH);
+    expect(after.match(/HATCH3R:BEGIN/g)?.length).toBe(1);
+    expect(after.match(/HATCH3R:END/g)?.length).toBe(1);
+  });
+
+  it("second call after a legacy upgrade is a no-op (release/2.8.6)", async () => {
+    const excludePath = join(mainRoot, ".git", "info", "exclude");
+    writeFileSync(excludePath, LEGACY_BLOCK, "utf-8");
+
+    expect(await ensureWorktreesIgnored(mainRoot)).toBe(true); // upgrade write
+    const upgraded = readFileSync(excludePath, "utf-8");
+    expect(await ensureWorktreesIgnored(mainRoot)).toBe(false); // content-aware no-op
+    expect(readFileSync(excludePath, "utf-8")).toBe(upgraded);
+  });
+
+  // F-SEC-04 (sec-2.8.6-p4): the upgrade is a UNION-PRESERVE, never a
+  // wholesale canonical rewrite — a user's hand-added ignore line between the
+  // markers (e.g. `*.pem`) silently vanishing would re-expose a local secret
+  // to `git add -A`.
+  it("preserves user-added lines (patterns + comments, deduped, order kept) inside a legacy block through the upgrade (F-SEC-04)", async () => {
+    const excludePath = join(mainRoot, ".git", "info", "exclude");
+    const legacyWithUserLines = [
+      "",
+      "# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`",
+      `${WORKTREES_DIR}/`,
+      "# local secrets (user-added)",
+      "*.pem",
+      "*.pem", // duplicate — deduped by the upgrade
+      "# HATCH3R:END",
+      "",
+    ].join("\n");
+    writeFileSync(excludePath, legacyWithUserLines, "utf-8");
+
+    setVerbose(true);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await ensureWorktreesIgnored(mainRoot)).toBe(true);
+      // The verbose note names the preserved lines (read before mockRestore
+      // wipes the recorded calls).
+      const verboseText = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(verboseText).toContain("*.pem");
+      expect(verboseText).toContain("# local secrets (user-added)");
+    } finally {
+      consoleSpy.mockRestore();
+      setVerbose(false);
+    }
+
+    const after = readFileSync(excludePath, "utf-8");
+    // Inner region: canonical entries FIRST, then the user lines in their
+    // original relative order, the duplicate collapsed to one.
+    const inner = after
+      .slice(after.indexOf("HATCH3R:BEGIN"), after.indexOf("# HATCH3R:END"))
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .slice(1); // drop the BEGIN marker line itself
+    expect(inner).toEqual([
+      `${WORKTREES_DIR}/`,
+      WORKTREE_RECEIPT_RELPATH,
+      "# local secrets (user-added)",
+      "*.pem",
+    ]);
+    expect(after.match(/HATCH3R:BEGIN/g)?.length).toBe(1);
+    expect(after.match(/HATCH3R:END/g)?.length).toBe(1);
+  });
+
+  it("a preserve-upgrade is idempotent: the second call is a no-op and keeps the user lines (F-SEC-04)", async () => {
+    const excludePath = join(mainRoot, ".git", "info", "exclude");
+    const legacyWithUserLine = [
+      "",
+      "# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`",
+      `${WORKTREES_DIR}/`,
+      "*.pem",
+      "# HATCH3R:END",
+      "",
+    ].join("\n");
+    writeFileSync(excludePath, legacyWithUserLine, "utf-8");
+
+    expect(await ensureWorktreesIgnored(mainRoot)).toBe(true); // preserve-upgrade
+    const upgraded = readFileSync(excludePath, "utf-8");
+    expect(upgraded).toContain("*.pem");
+    expect(await ensureWorktreesIgnored(mainRoot)).toBe(false); // no-op
+    expect(readFileSync(excludePath, "utf-8")).toBe(upgraded);
+  });
+
+  // CQ5-3 (test-2.8.6-p4): the ENOENT branch — a bare/oddly-initialized
+  // clone can lack `.git/info/` entirely; the function mkdir-s the parent
+  // and materializes the file via the atomic write.
+  it("creates .git/info/ and the exclude file when the directory is missing (ENOENT branch)", async () => {
+    rmSync(join(mainRoot, ".git", "info"), { recursive: true, force: true });
+
+    expect(await ensureWorktreesIgnored(mainRoot)).toBe(true);
+    const exclude = readFileSync(join(mainRoot, ".git", "info", "exclude"), "utf-8");
+    expect(exclude).toContain("HATCH3R:BEGIN");
+    expect(exclude).toContain(`${WORKTREES_DIR}/`);
+    expect(exclude).toContain(WORKTREE_RECEIPT_RELPATH);
+    expect(exclude).toContain("HATCH3R:END");
+  });
+
+  it("leaves a hand-truncated block (START without END) untouched and records the refusal diagnostic (release/2.8.6)", async () => {
+    const excludePath = join(mainRoot, ".git", "info", "exclude");
+    const truncated =
+      "\n# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`\n.worktrees/\n";
+    writeFileSync(excludePath, truncated, "utf-8");
+
+    // review-2.8.6-r1 F7: the refusal is no longer fully silent — it emits a
+    // verbose()-channel diagnostic naming the truncated block + the recovery.
+    setVerbose(true);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await ensureWorktreesIgnored(mainRoot)).toBe(false);
+      expect(readFileSync(excludePath, "utf-8")).toBe(truncated);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("START marker without its END"),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      setVerbose(false);
+    }
   });
 });
 
