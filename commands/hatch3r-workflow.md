@@ -601,13 +601,14 @@ These checkpoints are NEVER skipped, even in auto mode:
 
 ### Session Report
 
-At the end of an auto workflow session, generate a summary:
+At the end of a workflow session — interactive runs included, not only auto mode — generate a summary:
 - Mode used: {Full/Quick}
 - Phases completed: {list}
 - Quality checks: {pass/fail with details}
 - Acceptance criteria: {N/M met}
+- Completion Ledger: `ledger: scope <N> items — done <a> · deferred <b> · blocked <c> (<a>/<N>)` plus one line per non-done item; on <100% the disposition gate ASK fires before the Remaining Work terminal block (`rules/hatch3r-iteration-summary.md` → Completion Ledger)
 - Learnings captured: {count}
-- Time in auto mode: {duration}
+- Time in auto mode: {duration; auto runs only}
 
 ---
 

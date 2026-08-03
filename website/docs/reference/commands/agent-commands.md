@@ -7,7 +7,7 @@ title: Agent Commands
 
 Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
 
-There are 32 agent commands.
+There are 33 agent commands.
 
 ## Spec and Planning Commands
 
@@ -132,6 +132,10 @@ Cut a versioned release with changelog. Determines the semantic-version bump, ge
 ### onboard
 
 Generate an onboarding guide for a new developer joining the project. Spawns parallel researchers to analyze codebase structure, architecture, and conventions, then produces a tailored document with setup instructions, an architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
+
+### ask
+
+Answer a free-form question about the codebase, read-only. Triages question breadth (single-facet lookup, multi-facet, architectural), fans out one `hatch3r-researcher` per independent facet in parallel, and synthesizes an answer grounded in cited `file:line` evidence with a confidence rating and an explicit list of anything the evidence could not settle. Questions that turn into change requests route onward to `debug`, `feature-plan`, or `quick-change`; framework troubleshooting stays with `diagnose`.
 
 ## Workflow Commands
 

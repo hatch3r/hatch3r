@@ -109,9 +109,13 @@ Surface the `Overall Confidence` line into the PR body (append to the Testing or
    - **Azure DevOps:** Verify the "Complete linked work items after merging" checkbox is checked during PR completion. State transitions to "Closed" only when this option is selected.
    - **GitLab:** Labels are NOT updated on auto-close. `status::in-review` remains. Consider setting up a CI pipeline trigger on issue close events for automated cleanup.
    - If automation is not configured, `board-groom` with the `health-fix` action will detect and fix the drift during the next grooming session.
-4. If partial:
+4. If partial — present the cumulative epic Completion Ledger line first (per `rules/hatch3r-iteration-summary.md` → Completion Ledger, cumulative form), then ask:
 
-**ASK:** "PR created. N remaining sub-issues on epic #X. Continue with next sub-issue or stop?"
+```
+sub-issues: done <a> · deferred <b> · blocked <c> (<a>/<N>)
+```
+
+**ASK:** "PR created. Epic #X at {a}/{N} sub-issues complete ({b} deferred, {c} blocked). Continue with next sub-issue or stop?"
 
 ### 9a. Refresh Board Dashboard
 

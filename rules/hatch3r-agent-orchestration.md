@@ -63,15 +63,11 @@ Whenever a tracked task is active at Tier 2 or Tier 3 (deep-context score >= 3),
 [hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent}]
 ```
 
-Example: `[hatch3r-pipeline: phase 2 | last: hatch3r-researcher → SUCCESS | next: hatch3r-implementer]`
-
 A missing header on a tracked Tier >= 2 task is a self-detectable drift signal — the user may halt and re-ground. The header also primes the orchestrator to re-resolve its phase before choosing tools. Tier 1, read-only, and chat-only turns do NOT require it.
 
 ### End-of-Turn Delegation Attestation
 
 When the turn is on a tracked task at Tier >= 2 AND caused at least one file mutation, the orchestrator MUST emit a closing block immediately before the Iteration Summary. The block enumerates every file mutated this turn, the spawning sub-agent invocation, and the `delegation_proof_id` returned by that sub-agent.
-
-Format:
 
 ```
 [hatch3r-delegation-attestation]
@@ -81,12 +77,14 @@ mutating_subagent_invocations: <integer>
 inline_edits_by_orchestrator: none | <carve-out: hatch3r-quick-change Tier-1 + queued re-delegation>
 ```
 
-Rules:
-
 - Each `files_mutated_this_turn` row MUST cite the spawning sub-agent invocation and quote its `delegation_proof_id` verbatim. Unattributable rows are self-declared P8 B2 violations; the orchestrator MUST queue re-delegation next turn.
 - `inline_edits_by_orchestrator: none` is the only value accepted outside the `hatch3r-quick-change` Tier-1 carve-out (per the "Inline implementation" definition above).
 - Tier 1 read-only and chat-only turns are exempt (same scope as the Per-Turn Pipeline-State Header); a missing block on a Tier >= 2 mutating turn is a self-detectable drift signal — halt and re-ground per the missing-header protocol.
 - The block is consumed by reviewers and the next orchestrator turn; it sits beside the Iteration Summary, not inside it, preserving the recap contract verbatim.
+
+### Completion Alignment Gate
+
+At flow end on a tracked Tier >= 2 task, emit the Completion Ledger — done/deferred/blocked per scope item with N-of-M totals; format, cumulative epic/batch form, and the <100% disposition ASK (continue now / keep deferred (default) / queue-or-handoff / stop) are owned by `rules/hatch3r-iteration-summary.md` → Completion Ledger + Disposition Gate. At 100% the ledger line emits with NO ask. A missing ledger on a Tier >= 2 flow end is the same self-detectable drift signal as a missing header — halt and re-ground.
 
 ### Mandatory Delegation Directive (No Inline Implementation)
 
