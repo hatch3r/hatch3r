@@ -7,19 +7,17 @@
 // chain (the @docusaurus/* propagation set) passes, while a NEW high advisory
 // anywhere — including inside the same subtree — still fails the gate.
 //
-// Release/2.8.5 rationale: the only remaining high chain is
-// serve-handler → minimatch → brace-expansion(1.x/2.x), rooted in advisory
-// 1124334 (GHSA-mh99-v99m-4gvg, brace-expansion DoS via unbounded expansion).
-// The 1.x/2.x major lines serve-handler pins have no patched release, so the
-// bare `--audit-level=high` gate was permanently red with no action available.
-// Remove the allowlist entry when serve-handler/minimatch ship a fixed chain —
-// the stale-entry notice below flags exactly when that happens.
-const ALLOWLIST = new Map([
-  [
-    1124334,
-    "GHSA-mh99-v99m-4gvg brace-expansion <=2.x DoS — no patched release on the majors serve-handler pins",
-  ],
-]);
+// Release/2.8.6: the allowlist is EMPTY. The 2.8.5 entry (advisory 1124334 /
+// GHSA-mh99-v99m-4gvg, brace-expansion DoS on the serve-handler → minimatch
+// chain) was removed when upstream backported the fix to the pinned 1.x line
+// (brace-expansion 1.1.18 also covers GHSA-rgw5-rvv9-x895) and the website
+// lockfile was patched via `npm audit fix --package-lock-only`. Historical
+// caution for future entries: npm renumbers advisory ids across database
+// refreshes (1124334 became 1130588 for the same GHSA), so a numeric-id entry
+// can go stale while the advisory is still live — pair any future entry with
+// its GHSA id in the note and treat the stale-entry NOTICE below as "verify
+// against the GHSA before removing", not proof the vulnerability is gone.
+const ALLOWLIST = new Map([]);
 
 const raw = await new Promise((resolve, reject) => {
   let buf = "";
