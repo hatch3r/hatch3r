@@ -108,6 +108,23 @@ export type OrchestrationEffort = (typeof ORCHESTRATION_EFFORTS)[number];
 export const VALID_ORCHESTRATION_EFFORTS = new Set<string>(ORCHESTRATION_EFFORTS);
 
 /**
+ * Team-size content gate (release/2.8.6) — the `ctx:team-only` selection
+ * filter axis. Distinct from {@link MATURITY_TIERS} (whose `team` value is an
+ * investment-calibration dial, not a content gate — Decision 16): teamSize is
+ * the ONE knob `resolveSelection` Stage 4 reads to strip non-floor
+ * `ctx:team-only` items at `solo`.
+ *
+ * Persisted in `.hatch3r/hatch.json` under `content.teamSize` (the
+ * {@link ContentSelection.teamSize} literal union mirrors this tuple). Set via
+ * `hatch3r init --team-size <v>`, the `hatch3r config` interactive team-size
+ * step, or the scalar `hatch3r config team_size=<v>` form — the latter two
+ * re-resolve the tracked selection so the added/removed delta is reported.
+ */
+export const TEAM_SIZES = ["solo", "team"] as const;
+export type TeamSize = (typeof TEAM_SIZES)[number];
+export const VALID_TEAM_SIZES = new Set<string>(TEAM_SIZES);
+
+/**
  * Model-class ladder (release/2.7.0): four capability classes authored on
  * canonical agents' `model:` frontmatter, ordered weakest -> strongest as
  * economy < standard < advanced < frontier. The CLASS_* constants are

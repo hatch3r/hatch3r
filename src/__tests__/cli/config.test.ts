@@ -302,6 +302,7 @@ import {
   archiveCustomizeOverrides,
   countSelectionItems,
   selectionSummary,
+  estimatePresetItemCount,
   extractContentReferences,
   validateOrchestrationDependencies,
   resolveSelection,
@@ -3032,6 +3033,421 @@ describe("config command", () => {
       await configCommand("get", "default_effort");
 
       expect(logSpy).toHaveBeenCalledWith("auto-tier");
+    });
+  });
+
+  // release/2.8.6: `hatch3r config team_size=<v>` — the team-size lever the
+  // init advisory used to dead-end on ("or `hatch3r config` to switch later"
+  // while ConfigState had no teamSize slot and SCALAR_CONFIG_KEYS no key).
+  // Unlike the four manifest-root scalars, a CHANGED write re-resolves
+  // `manifest.content` through the same resolveSelection shape the
+  // interactive flow uses, so the added/removed item delta is computed,
+  // reported, and persisted.
+  describe("team_size scalar + re-resolution (release/2.8.6)", () => {
+    // Mock-index fixture: a solo-safe agent plus one team-only item per class
+    // (command / skill / github-agent), typed so the delta report can group by
+    // class. Canonically-exact 11-item membership is pinned against the REAL
+    // corpus in src/__tests__/content/compound.test.ts — this unit fixture
+    // only exercises the config wiring.
+    const TEAM_ONLY_FIXTURE = [
+      { id: "cmd-hatch3r-board-fill", type: "command" },
+      { id: "hatch3r-board-init", type: "skill" },
+      { id: "hatch3r-test-agent", type: "github-agent" },
+    ];
+    const makeTeamAwareIndex = (): unknown => {
+      const items = [
+        { id: "hatch3r-implementer", type: "agent", tags: [], relativePath: "agents/hatch3r-implementer.md" },
+        ...TEAM_ONLY_FIXTURE.map((i) => ({ ...i, tags: ["ctx:team-only"], relativePath: `${i.type}s/${i.id}.md` })),
+      ];
+      return { items, byType: {}, byId: new Map(items.map((i) => [i.id, i])) };
+    };
+    const soloSelection = () =>
+      makeContentSelection({
+        preset: "full",
+        teamSize: "solo",
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      });
+    const teamSelection = () =>
+      makeContentSelection({
+        preset: "full",
+        teamSize: "team",
+        items: {
+          agents: ["hatch3r-implementer"],
+          skills: ["hatch3r-board-init"],
+          rules: [],
+          commands: ["cmd-hatch3r-board-fill"],
+          prompts: [],
+          hooks: [],
+          githubAgents: ["hatch3r-test-agent"],
+        },
+      });
+    /** Real-shaped flattening so old/new id diffs are computed, not stubbed. */
+    const stubRealContentHelpers = (): void => {
+      vi.mocked(getAllContentIds).mockImplementation((sel: { items: Record<string, string[]> }) => {
+        const ids = new Set<string>();
+        for (const arr of Object.values(sel.items)) for (const id of arr) ids.add(id);
+        return ids;
+      });
+      vi.mocked(resolveSelection).mockImplementation(
+        (_preset: unknown, _pt: unknown, teamSize: unknown) =>
+          teamSize === "team" ? teamSelection() : soloSelection(),
+      );
+      vi.mocked(buildContentIndex).mockResolvedValue(makeTeamAwareIndex() as never);
+    };
+
+    it("sets team_size=team via inline form: persists content.teamSize AND the re-resolved selection", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      await configCommand("team_size=team");
+
+      // Re-resolution ran at the NEW team size…
+      const call = vi.mocked(resolveSelection).mock.calls[0];
+      expect(call[2]).toBe("team");
+      // …and the persisted selection carries both the flag and the item delta.
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.content?.teamSize).toBe("team");
+      expect(writtenManifest.content?.items.commands).toContain("cmd-hatch3r-board-fill");
+      expect(writtenManifest.content?.items.skills).toContain("hatch3r-board-init");
+      expect(writtenManifest.content?.items.githubAgents).toContain("hatch3r-test-agent");
+      // The delta is reported (3 team-only items appeared).
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("3 added, 0 removed"));
+      // Scalar form: still no interactive prompts…
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+      // …but unlike the four manifest-root scalars, a CHANGED team_size write
+      // chains runRegenerate so the re-resolved selection is materialized
+      // into tool outputs in the same run (review-2.8.6-r1 F2).
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(runRegenerate).mock.calls[0]?.[2]).toMatchObject({
+        snapshotCommandName: "config",
+      });
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("Adapter outputs regenerated"),
+      );
+    });
+
+    it("sets team_size=solo via `set` verb form: removes the team-only items and fires the solo+full disclosure", async () => {
+      const manifest = makeManifest({ content: teamSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "team_size solo");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.content?.teamSize).toBe("solo");
+      expect(writtenManifest.content?.items.commands).not.toContain("cmd-hatch3r-board-fill");
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("0 added, 3 removed"));
+      // Task 2d disclosure: the re-selection is solo under full, so the
+      // still-filtered team-only set is enumerated with the include lever.
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("team-scoped items (ctx:team-only) stay excluded"),
+      );
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("commands: cmd-hatch3r-board-fill"),
+      );
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("team_size=team"),
+      );
+    });
+
+    it("same-value write skips re-resolution (already-set branch)", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      await configCommand("team_size=solo");
+
+      expect(vi.mocked(resolveSelection)).not.toHaveBeenCalled();
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("already set"));
+      // review-2.8.6-r1 F2: an unchanged write also skips the regenerate.
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
+    });
+
+    it("`--dry-run` previews the delta without writing", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      await configCommand("team_size=team", undefined, { dryRun: true });
+
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("Dry run: would set team_size"));
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("3 added, 0 removed"));
+      // review-2.8.6-r1 F2: the preview names the regenerate a live run would
+      // chain, and no regenerate actually runs under --dry-run.
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("Adapter outputs would be regenerated"),
+      );
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid team size with HatchError(VALIDATION_ERROR) exit 64 and no write", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand("team_size=duo");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).exitCode).toBe(64);
+        const msg = (e as HatchError).message;
+        expect(msg).toContain("solo");
+        expect(msg).toContain("team");
+      }
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("throws CONFIG_ERROR on set when the manifest has no content selection", async () => {
+      const manifest = makeManifest(); // no content field
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand("team_size=team");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).recoveryHint).toContain("hatch3r init");
+      }
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("prints the persisted value via `get team_size` (and CONFIG_ERROR without content)", async () => {
+      const manifest = makeManifest({ content: teamSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "team_size");
+      expect(logSpy).toHaveBeenCalledWith("team");
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+
+      vi.mocked(readManifest).mockResolvedValue(makeManifest());
+      await expect(configCommand("get", "team_size")).rejects.toThrow(HatchError);
+    });
+
+    it("interactive team-size step: solo→team re-resolves and reports the added team-only items", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      primeContent(manifest, ["hatch3r-implementer"], { teamSize: "team" });
+      stubRealContentHelpers();
+      // primeContent's buildContentIndex stub is overwritten by
+      // stubRealContentHelpers with the typed team-aware index.
+
+      await (await importConfigCommand())();
+
+      // The re-resolution used the in-run team size…
+      const call = vi.mocked(resolveSelection).mock.calls[0];
+      expect(call[2]).toBe("team");
+      // CQ5-1 (test-2.8.6-p4): …and so did the presetStep teamSize THUNK —
+      // every per-choice estimate call received the in-run "team", not the
+      // stale persisted "solo" (arg index 2 = teamSize in
+      // estimatePresetItemCount(preset, projectType, teamSize, …)).
+      const estimateCalls = vi.mocked(estimatePresetItemCount).mock.calls;
+      expect(estimateCalls.length).toBeGreaterThan(0);
+      expect(estimateCalls.every((c) => c[2] === "team")).toBe(true);
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.content?.teamSize).toBe("team");
+      expect(writtenManifest.content?.items.commands).toContain("cmd-hatch3r-board-fill");
+      // …and the summary box names the flip + the item delta.
+      const boxLines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(boxLines, "Team size:", "team");
+      expectSummaryLine(boxLines, "Content added: 3 item(s)");
+    });
+
+    it("interactive re-selection kept at solo+full renders the still-filtered disclosure in the summary box", async () => {
+      const manifest = makeManifest({ content: soloSelection(), tools: ["cursor"] });
+      // A tool ADD makes the diff non-empty so the summary box renders while
+      // team size stays solo (accept-default) under the full preset.
+      primeContent(manifest, ["hatch3r-implementer"], { tools: ["cursor", "claude"] });
+      stubRealContentHelpers();
+
+      await (await importConfigCommand())();
+
+      const boxLines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(boxLines, "team-scoped workflows (ctx:team-only) are excluded for solo");
+      expectSummaryLine(boxLines, "commands: cmd-hatch3r-board-fill");
+      expectSummaryLine(boxLines, "team_size=team");
+    });
+
+    /** Local JSON-envelope capture (emitJson writes via process.stdout.write). */
+    async function captureJsonRun(run: () => Promise<void>): Promise<Record<string, unknown>> {
+      const chunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((chunk: string | Uint8Array): boolean => {
+          chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+          return true;
+        }) as never);
+      try {
+        await run();
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      return JSON.parse(chunks.join("").trim()) as Record<string, unknown>;
+    }
+
+    it("scalar set with --format json carries regenerated: true after a changed write (review-2.8.6-r1 F2)", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      const payload = await captureJsonRun(() =>
+        configCommand("team_size=team", undefined, { format: "json" }),
+      );
+      expect(payload.changed).toBe(true);
+      expect(payload.regenerated).toBe(true);
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledTimes(1);
+    });
+
+    // CQ5-6 (test-2.8.6-p4): the regen-failure wrapper's NON-HatchError arm —
+    // a plain TypeError from the pipeline must still surface as a structured
+    // ADAPTER_ERROR naming what succeeded (the manifest write) and the
+    // `hatch3r sync` fallback, never as an unstructured crash.
+    it("wraps a non-HatchError regen failure as ADAPTER_ERROR, naming the saved write and the sync fallback", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+      vi.mocked(runRegenerate).mockRejectedValueOnce(
+        new TypeError("Cannot read properties of undefined (reading 'emit')"),
+      );
+
+      const configCommand = await importConfigCommand();
+      const err = await configCommand("team_size=team").then(
+        () => {
+          throw new Error("expected the regen failure to throw");
+        },
+        (e: unknown) => e as HatchError,
+      );
+
+      expect(err).toBeInstanceOf(HatchError);
+      expect(err.errorCode).toBe("ADAPTER_ERROR");
+      expect(err.message).toContain("team_size was saved");
+      expect(err.message).toContain("Cannot read properties of undefined");
+      expect(err.recoveryHint).toContain("hatch3r sync");
+    });
+
+    it("`--dry-run --format json` previews wouldRegenerate: true without regenerating", async () => {
+      const manifest = makeManifest({ content: soloSelection() });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+
+      const configCommand = await importConfigCommand();
+      const payload = await captureJsonRun(() =>
+        configCommand("team_size=team", undefined, { format: "json", dryRun: true }),
+      );
+      expect(payload.status).toBe("dry-run");
+      expect(payload.wouldRegenerate).toBe(true);
+      expect(payload.regenerated).toBeUndefined();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a regeneration failure with the `hatch3r sync` fallback, preserving the partial-failure exit-2 contract", async () => {
+      const manifest = makeManifest({ content: soloSelection(), tools: ["cursor", "claude"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      stubRealContentHelpers();
+      // Partial adapter failure (1 of 2 tools): the REAL
+      // throwOnPartialAdapterFailure (un-mocked in this suite) throws exit-2
+      // ADAPTER_ERROR; the scalar path re-wraps it with the sync fallback
+      // WITHOUT changing exitCode/errorCode (review-2.8.6-r1 F2).
+      vi.mocked(runRegenerate).mockResolvedValue({
+        copiedFiles: 1,
+        syncedTools: 1,
+        failedTools: 1,
+        version: "2.8.6",
+      } as never);
+
+      const configCommand = await importConfigCommand();
+      const err = await configCommand("team_size=team").catch((e) => e as HatchError);
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+      expect((err as HatchError).errorCode).toBe("ADAPTER_ERROR");
+      expect((err as HatchError).message).toContain("team_size was saved");
+      expect((err as HatchError).recoveryHint).toContain("hatch3r sync");
+      // Honest failure shape: the manifest write landed BEFORE the failed
+      // regenerate — the error reports saved-config + stale-outputs, not a
+      // rolled-back no-op.
+      expect(vi.mocked(writeManifest)).toHaveBeenCalled();
+    });
+
+    // review-2.8.6-r1 F3: the custom-preset branch — the currently tracked ids
+    // thread into resolveSelection as the custom baseline, so the context
+    // filter re-applies over the user's explicit picks only.
+    it("custom preset: team→solo moves ctx:team-only picks into removed; solo→team adds nothing (re-pick required)", async () => {
+      const allPickedIds = [
+        "hatch3r-implementer",
+        "hatch3r-board-init",
+        "cmd-hatch3r-board-fill",
+        "hatch3r-test-agent",
+      ];
+      const customSelection = (teamSize: "solo" | "team", ids: string[]) =>
+        makeContentSelection({
+          preset: "custom",
+          teamSize,
+          items: {
+            agents: ids.filter((id) => id === "hatch3r-implementer"),
+            skills: ids.filter((id) => id === "hatch3r-board-init"),
+            rules: [],
+            commands: ids.filter((id) => id === "cmd-hatch3r-board-fill"),
+            prompts: [],
+            hooks: [],
+            githubAgents: ids.filter((id) => id === "hatch3r-test-agent"),
+          },
+        });
+      stubRealContentHelpers();
+      // Custom-aware resolveSelection stand-in: keep the threaded baseline,
+      // re-apply the ctx:team-only context filter at solo. Mirrors the real
+      // resolver's custom contract (picks are the source of truth).
+      const teamOnlyIds = new Set(TEAM_ONLY_FIXTURE.map((i) => i.id));
+      vi.mocked(resolveSelection).mockImplementation(
+        (_preset: unknown, _pt: unknown, teamSize: unknown, _index: unknown, customSelections?: unknown) => {
+          const base = (customSelections as string[] | undefined) ?? [];
+          const kept = teamSize === "solo" ? base.filter((id) => !teamOnlyIds.has(id)) : base;
+          return customSelection(teamSize as "solo" | "team", kept);
+        },
+      );
+
+      // team→solo: the three team-only picks land in `removed`.
+      vi.mocked(readManifest).mockResolvedValue(
+        makeManifest({ content: customSelection("team", allPickedIds) }),
+      );
+      const configCommand = await importConfigCommand();
+      await configCommand("team_size=solo");
+      // Baseline threaded: the resolver received the tracked ids (oldIds).
+      expect(vi.mocked(resolveSelection).mock.calls[0]?.[4]).toEqual(
+        expect.arrayContaining(allPickedIds),
+      );
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("0 added, 3 removed"));
+      const soloWritten = getWrittenManifest(writeManifest);
+      expect(soloWritten.content?.items.commands).not.toContain("cmd-hatch3r-board-fill");
+      // preset stays custom (not full) → the solo+full disclosure never fires.
+      expect(vi.mocked(info)).not.toHaveBeenCalledWith(expect.stringContaining("stay excluded"));
+
+      // solo→team: EMPTY added — the baseline holds only prior picks, so
+      // team-only items require a re-pick via interactive config (the
+      // reresolveContentForTeamSize JSDoc's documented no-op).
+      vi.mocked(info).mockClear();
+      vi.mocked(resolveSelection).mockClear();
+      vi.mocked(writeManifest).mockClear();
+      vi.mocked(readManifest).mockResolvedValue(
+        makeManifest({ content: customSelection("solo", ["hatch3r-implementer"]) }),
+      );
+      await configCommand("team_size=team");
+      const teamWritten = getWrittenManifest(writeManifest);
+      expect(teamWritten.content?.teamSize).toBe("team");
+      expect(teamWritten.content?.items.commands).toEqual([]);
+      // No item delta → no "re-resolved: N added, M removed" line at all.
+      expect(vi.mocked(info)).not.toHaveBeenCalledWith(expect.stringContaining("re-resolved"));
     });
   });
 

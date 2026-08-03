@@ -22,12 +22,13 @@ import {
   mcpServersStep,
   platformStep,
   presetStep,
+  teamSizeStep,
   toolsStep,
 } from "../../../cli/shared/flowSteps.js";
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../../../cli/shared/pickers.js";
 import type { RepoIdentity } from "../../../cli/shared/repoIdentityPrompt.js";
-import type { CatalogItem } from "../../../content/index.js";
-import type { CliToolId, CommunicationStyle, Features, MaturityTier, Platform, Tool } from "../../../types.js";
+import { estimatePresetItemCount, type CatalogItem } from "../../../content/index.js";
+import type { CliToolId, CommunicationStyle, Features, MaturityTier, Platform, TeamSize, Tool } from "../../../types.js";
 import type { PresetId } from "../../../content/presets.js";
 
 // Mirror init.backNav.test.ts: mock inquirer.prompt so each builder call
@@ -56,11 +57,22 @@ vi.mock("../../../cli/shared/pickers.js", () => ({
   confirmMcpGate: vi.fn(),
 }));
 
+// CQ5-1 (test-2.8.6-p4): spy on estimatePresetItemCount (constant 0 keeps the
+// existing count-hint assertions byte-identical to the real emptyIndex result)
+// so the presetStep teamSize-thunk resolution is observable via call args.
+// Everything else in content/index.js stays real.
+vi.mock("../../../content/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../content/index.js")>();
+  return { ...actual, estimatePresetItemCount: vi.fn().mockReturnValue(0) };
+});
+
 beforeEach(() => {
   vi.mocked(inquirer.prompt).mockReset();
   vi.mocked(pickCliTools).mockReset();
   vi.mocked(pickMcpServers).mockReset();
   vi.mocked(confirmMcpGate).mockReset();
+  // mockClear (not mockReset) — the factory's constant return value stays.
+  vi.mocked(estimatePresetItemCount).mockClear();
 });
 
 /** First question object of the n-th inquirer.prompt call. */
@@ -244,6 +256,30 @@ describe("presetStep", () => {
     const step = makeStep({ defaultPreset: () => "full" });
     await step.run({}, undefined);
     expect(questionAt(0)).toMatchObject({ default: "full" });
+  });
+
+  // CQ5-1 (test-2.8.6-p4): the teamSize THUNK resolves from the in-progress
+  // state at prompt time (the release/2.8.5 BUG-4 estimate/resolution
+  // agreement) — every per-choice estimate call must receive the in-run
+  // value, not a stale literal.
+  it("resolves a thunk teamSize from in-progress state and feeds it to every estimate call", async () => {
+    interface S2 {
+      preset: PresetId;
+      teamSize: TeamSize;
+    }
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ preset: "standard" });
+    const step = presetStep<S2>({
+      index: emptyIndex,
+      projectType: "brownfield",
+      teamSize: (s) => s.teamSize ?? "solo",
+      defaultPreset: "standard",
+    });
+    await step.run({ teamSize: "team" }, undefined);
+
+    const calls = vi.mocked(estimatePresetItemCount).mock.calls;
+    expect(calls.length).toBeGreaterThan(0); // every non-custom preset row estimates
+    // Arg index 2 is the teamSize parameter (preset, projectType, teamSize, …).
+    expect(calls.every((c) => c[2] === "team")).toBe(true);
   });
 
   it("renders the custom universe hint only when customUniverseHint is set", async () => {
@@ -526,6 +562,58 @@ describe("mcpServersStep", () => {
         ),
       ),
     ).toBe(true);
+  });
+});
+
+// ── teamSizeStep (release/2.8.6, CQ5-2 test-2.8.6-p4) ───────────────
+
+describe("teamSizeStep", () => {
+  interface S {
+    teamSize: TeamSize;
+  }
+
+  it("threads defaultTeamSize then previous on revisit, and passes BACK through", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    const step = teamSizeStep<S>({ message: "Team size (content scope):", defaultTeamSize: "solo" });
+
+    inq.mockResolvedValueOnce({ teamSize: "team" });
+    expect(await step.run({}, undefined)).toBe("team");
+    expect(questionAt(0)).toMatchObject({
+      type: "select",
+      name: "teamSize",
+      message: "Team size (content scope):",
+      default: "solo",
+    });
+
+    // BACK-revisit: `previous ?? default` — the prior in-run answer wins.
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    await step.run({}, "team" as TeamSize);
+    expect(questionAt(1)).toMatchObject({ default: "team" });
+
+    // Shift+Tab returns the BACK sentinel unchanged.
+    inq.mockResolvedValueOnce({ teamSize: BACK });
+    expect(isBack(await step.run({}, undefined))).toBe(true);
+  });
+
+  it("offers exactly the solo and team choice values, naming the ctx:team-only consequence", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ teamSize: "solo" });
+    const step = teamSizeStep<S>({ message: "Team size (content scope):", defaultTeamSize: "solo" });
+    await step.run({}, undefined);
+
+    const choices = questionAt(0).choices as Array<{ value: string; name: string }>;
+    expect(choices.map((c) => c.value)).toEqual(["solo", "team"]);
+    // The copy distinguishes this CONTENT gate from the maturity dial
+    // (D14-SA14.3-03): the team row names the ctx:team-only consequence.
+    expect(choices[1].name).toContain("ctx:team-only");
+  });
+
+  it("honors the injected skip predicate", async () => {
+    const step = teamSizeStep<S>({
+      message: "Team size (content scope):",
+      defaultTeamSize: "solo",
+      skip: () => true,
+    });
+    expect(step.skip!({})).toBe(true);
   });
 });
 

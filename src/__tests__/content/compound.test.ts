@@ -424,6 +424,39 @@ describe("compound system content validation", () => {
         }
       }
     });
+
+    // release/2.8.6 preset audit: pin the EXACT solo-filtered membership under
+    // full (team+full minus solo+full). The init/config disclosures enumerate
+    // this set at runtime (computed via computeTeamOnlyFilteredItems, never
+    // hard-coded); this test is the corpus-side contract — a tag edit that
+    // silently grows or shrinks the team-only set fails here by name.
+    it("release/2.8.6: solo+full excludes exactly the enumerated ctx:team-only set", () => {
+      const fullPreset = getPreset("full");
+      const soloFull = resolveSelection(fullPreset, "brownfield", "solo", contentIndex);
+      const teamFull = resolveSelection(fullPreset, "brownfield", "team", contentIndex);
+      const soloIds = getAllContentIds(soloFull);
+      const teamIds = getAllContentIds(teamFull);
+      const delta = [...teamIds].filter((id) => !soloIds.has(id)).sort();
+      expect(delta).toEqual([
+        "cmd-hatch3r-board-fill",
+        "cmd-hatch3r-board-pickup",
+        "cmd-hatch3r-pr-resolve",
+        "hatch3r-board-groom",
+        "hatch3r-board-init",
+        "hatch3r-board-refresh",
+        "hatch3r-board-shared",
+        "hatch3r-docs-agent",
+        "hatch3r-gh-agentic-workflows",
+        "hatch3r-lint-agent",
+        "hatch3r-test-agent",
+      ]);
+      // The filter is strictly subtractive: solo+full never carries an item
+      // team+full lacks (a non-empty reverse delta would mean the team-size
+      // knob ADDS content at solo, which no stage of resolveSelection does).
+      for (const id of soloIds) {
+        expect(teamIds.has(id), `team+full must include solo item ${id}`).toBe(true);
+      }
+    });
   });
 
   // ── Cross-reference integrity ──────────────────────────────

@@ -39,6 +39,7 @@ import {
   type ConfidenceFloor,
   type MaturityTier,
   type Platform,
+  type TeamSize,
   type Tool,
 } from "../../types.js";
 
@@ -123,7 +124,17 @@ export interface PresetStepOptions<TState extends object> {
   /** Content index driving the per-choice counts (caller-built). */
   index: ContentIndex;
   projectType: "greenfield" | "brownfield";
-  teamSize: "solo" | "team";
+  /**
+   * Team size for the per-choice item-count estimate. A thunk resolves it
+   * from the in-progress state at prompt time — config passes
+   * `(s) => s.teamSize ?? persisted` so a team-size flip made EARLIER in the
+   * same run (the teamSizeStep is sequenced before this one) is reflected in
+   * the "(~N items)" counts instead of estimating with the stale persisted
+   * value (the release/2.8.5 BUG-4 estimate/resolution-disagreement class).
+   * Machines that resolve team size before the machine runs (init) pass the
+   * computed literal directly.
+   */
+  teamSize: "solo" | "team" | ((state: Partial<TState>) => "solo" | "team");
   /**
    * Language filter for the item-count estimate. init passes the detected
    * set; config passes `manifest.languages` (release/2.8.5 BUG-4 alignment —
@@ -155,9 +166,11 @@ export function presetStep<TState extends { preset: PresetId }>(
   return {
     id: "preset",
     skip: opts.skip,
-    async run(_state, previous): Promise<StepResult<TState["preset"]>> {
+    async run(state, previous): Promise<StepResult<TState["preset"]>> {
       opts.banner?.();
       const totalItems = opts.index.items.length;
+      const resolvedTeamSize =
+        typeof opts.teamSize === "function" ? opts.teamSize(state) : opts.teamSize;
       const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
         {
           type: "select",
@@ -170,7 +183,7 @@ export function presetStep<TState extends { preset: PresetId }>(
                 ? estimatePresetItemCount(
                     p,
                     opts.projectType,
-                    opts.teamSize,
+                    resolvedTeamSize,
                     opts.index,
                     opts.projectLanguages,
                     opts.estimateOptions,
@@ -474,6 +487,58 @@ export function mcpServersStep<TState extends { mcpServers: string[] }>(
         wslTheme: opts.wslTheme,
       });
       return result as StepResult<TState["mcpServers"]>;
+    },
+  };
+}
+
+// ── teamSize ────────────────────────────────────────────────────────
+
+export interface TeamSizeStepOptions<TState extends object = object> {
+  /** Prompt copy — config: "Team size (content scope):". */
+  message: string;
+  /**
+   * First-visit default. config injects the persisted
+   * `manifest.content.teamSize`. Builders never read the manifest.
+   */
+  defaultTeamSize: TeamSize;
+  skip?: (state: Partial<TState>) => boolean;
+}
+
+/**
+ * Single-select team-size picker (`name: "teamSize"`, release/2.8.6). This is
+ * the `ctx:team-only` CONTENT gate (`resolveSelection` Stage 4), not the
+ * maturity investment dial — the choice copy names the consequence so the two
+ * "team" knobs stay distinguishable (D14-SA14.3-03). config-only today: init
+ * infers team size from git history (`inferTeamSizeFromGit`) to stay at its
+ * ≤6-prompt ceiling (Decision 25), so the config step + the scalar
+ * `config team_size=<v>` form are the post-init levers.
+ */
+export function teamSizeStep<TState extends { teamSize: TeamSize }>(
+  opts: TeamSizeStepOptions<TState>,
+): StepFor<TState, "teamSize"> {
+  return {
+    id: "teamSize",
+    skip: opts.skip,
+    async run(_state, previous): Promise<StepResult<TState["teamSize"]>> {
+      const answer = await inquirer.prompt<{ teamSize: TeamSize | typeof BACK }>([
+        {
+          type: "select",
+          name: "teamSize",
+          message: opts.message,
+          choices: [
+            {
+              name: "solo — single maintainer; team-only workflows (e.g. board and PR flows) are filtered from the selection",
+              value: "solo" as TeamSize,
+            },
+            {
+              name: "team — shared repo; team-only (ctx:team-only) workflows join the selection",
+              value: "team" as TeamSize,
+            },
+          ],
+          default: previous ?? opts.defaultTeamSize,
+        },
+      ]);
+      return isBack(answer.teamSize) ? BACK : (answer.teamSize as TState["teamSize"]);
     },
   };
 }

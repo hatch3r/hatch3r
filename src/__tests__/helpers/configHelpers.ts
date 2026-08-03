@@ -269,6 +269,13 @@ export interface PromptOverrides {
    */
   cliTools?: string[];
   /**
+   * release/2.8.6: answer to the team-size step (fires only when the manifest
+   * has content; sequenced immediately BEFORE the preset step). Defaults to
+   * the manifest's persisted `content.teamSize`, so accepting the default
+   * registers no change.
+   */
+  teamSize?: "solo" | "team";
+  /**
    * Wave 3 (CLI-tooling pivot, plan §4.4): answer to the Yes/No MCP gate.
    * Defaults to `true` when the manifest has existing servers (mirrors
    * production `confirmMcpGate` semantics — re-runs don't silently wipe
@@ -431,6 +438,16 @@ export function setupStandardPrompts(
   if (selectedTools.some((t: string) => WORKTREE_CAPABLE_TOOLS.has(t))) {
     inquirerMock.prompt.mockResolvedValueOnce({
       enabled: manifest.worktree?.enabled ?? true,
+    });
+  }
+
+  // 9.5. release/2.8.6: team-size step (only if manifest has content),
+  // sequenced immediately before the preset step so the preset estimates
+  // track the in-run choice. Default mirrors the persisted value so
+  // accepting it registers no change.
+  if (manifest.content) {
+    inquirerMock.prompt.mockResolvedValueOnce({
+      teamSize: overrides.teamSize ?? manifest.content.teamSize ?? "solo",
     });
   }
 

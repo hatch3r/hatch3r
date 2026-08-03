@@ -8,7 +8,7 @@
  *
  * Reachability (D6-SA6.3-03). The only executable callers today are the CLI's
  * own single-pass commands: `init` reads {@link estimateCost} +
- * {@link formatCostBlock} to print a zero-fan-out setup preview (`init.ts:717`,
+ * {@link formatCostBlock} to print a zero-fan-out setup preview (`init.ts:851`,
  * `subAgentDeclared: 0`), and `explain` reads {@link estimateUsdCost} +
  * {@link resolveModelRate}. The `commands/hatch3r-*.md` orchestrators are NOT
  * callers: they are LLM-interpreted markdown prompts shipped verbatim to user

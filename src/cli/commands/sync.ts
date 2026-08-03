@@ -1103,7 +1103,7 @@ export async function syncCommand(
             const result = await safeWriteFile(fullPath, out.content, {
               managedContent: out.managedContent,
               // D11-H-3: splice the managed block back into a user file whose
-              // markers were stripped, matching init.ts:614-617,
+              // markers were stripped, matching init.ts:1319-1322,
               // update.ts:845, and workspace/sync.ts:493. Without this the
               // managedContent + no-marker branch in safeWrite.ts:432-437
               // returns action: "skipped" and a re-sync never restores the
@@ -1130,7 +1130,7 @@ export async function syncCommand(
           }
           // D11-H-2: record every emitted output in manifest.managedFiles so
           // a sync-only adoption path populates the flat list. Mirrors
-          // init.ts:598 and update.ts:386. addManagedFile is idempotent.
+          // init.ts:1330 and update.ts:386. addManagedFile is idempotent.
           addManagedFile(m, out.path);
           // D11-SA11.1-04: mirror the flat-list add into the per-adapter list
           // in the same iteration so the two inventories never diverge on a
@@ -1414,7 +1414,7 @@ export async function syncCommand(
       const wtManaged = extractManagedContent(wtContent);
       // D11-H-1: thread opts.force into the worktree write.
       // D11-H-3: appendIfNoBlock restores the managed block when a user has
-      // stripped the .worktreeinclude markers, matching init.ts:640-643 so
+      // stripped the .worktreeinclude markers, matching init.ts:1534-1537 so
       // sync and init share one marker-recovery contract.
       const wtResult = await safeWriteFile(
         join(rootDir, WORKTREE_INCLUDE_FILE),
@@ -1426,7 +1426,7 @@ export async function syncCommand(
         path: WORKTREE_INCLUDE_FILE,
         action: renderAction(wtResult.action, true),
       });
-      // D11-H-2: mirror init.ts:624 — register the worktree include in
+      // D11-H-2: mirror init.ts:1538 — register the worktree include in
       // managedFiles so a sync-only adoption path populates the flat list.
       addManagedFile(m, WORKTREE_INCLUDE_FILE);
     }
