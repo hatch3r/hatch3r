@@ -203,6 +203,19 @@ describe("maybeSelfUpdateBeforeInit", () => {
       const stderrText = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(stderrText).toContain("npm prefix unreadable");
     });
+
+    // CQ5-10 (test-2.8.6-p4): the catch arm's `err instanceof Error` FALSE
+    // branch — a rejection can carry a bare string (a child_process layer or
+    // hand-rolled reject), which the warning stringifies via String(err)
+    // instead of printing "[object Object]"/undefined.
+    it("fails open and stringifies a non-Error survey rejection (String(err) arm, CQ5-10)", async () => {
+      vi.mocked(surveyInstalls).mockRejectedValue("npm prefix probe exploded (bare string)");
+      await expect(maybeSelfUpdateBeforeInit(baseOpts())).resolves.toBeUndefined();
+      expect(fetchLatestUpdateInfo).not.toHaveBeenCalled();
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      const stderrText = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stderrText).toContain("npm prefix probe exploded (bare string)");
+    });
   });
 
   describe("registry probe outcomes (fail-open)", () => {
@@ -382,6 +395,28 @@ describe("maybeSelfUpdateBeforeInit", () => {
       expect(stderrText).toMatch(/continuing init/i);
     });
 
+    // CQ5-10 (test-2.8.6-p4): a non-Error self-update rejection (bare string)
+    // takes the same fail-open warn path — it is not a HatchError, so the
+    // INTEGRITY hard stop is skipped and String(err) renders the reason.
+    it("fails open and stringifies a non-Error self-update rejection (String(err) arm, CQ5-10)", async () => {
+      vi.mocked(runSelfUpdate).mockRejectedValue("npm exploded before Error wrapping (bare string)");
+      await expect(maybeSelfUpdateBeforeInit(baseOpts())).resolves.toBeUndefined();
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(exitSpy).not.toHaveBeenCalled();
+      const stderrText = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stderrText).toContain("npm exploded before Error wrapping (bare string)");
+      expect(stderrText).toMatch(/continuing init/i);
+    });
+
+    // CQ5-10 (test-2.8.6-p4): the `child.status ?? 0` arm — spawnSync can
+    // report a child with NEITHER a status NOR a signal (platform edge); the
+    // parent adopts exit 0 rather than passing null to process.exit.
+    it("adopts exit 0 when the re-exec child reports neither status nor signal (child.status ?? 0 arm, CQ5-10)", async () => {
+      vi.mocked(spawnSync).mockReturnValue({ status: null, signal: null } as never);
+      await expect(maybeSelfUpdateBeforeInit(baseOpts())).rejects.toThrow("process.exit:0");
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    });
+
     // review-2.8.6-r1 F1: INTEGRITY_ERROR is the one failure class that does
     // NOT fail open — `runSelfUpdate` throws it AFTER npm replaced the package
     // on disk, so proceeding would leave an unverified install behind.
@@ -477,6 +512,17 @@ describe("maybeSelfUpdateBeforeInit", () => {
     it("BACK on the continue-confirm proceeds with the current version (fail-open default)", async () => {
       mockPromptsByName({ updateHatch3r: true, continueWithCurrent: BACK });
       await expect(maybeSelfUpdateBeforeInit(baseOpts())).resolves.toBeUndefined();
+    });
+
+    // CQ5-10 (test-2.8.6-p4): the `?? "init"` commandName fallback — with no
+    // reExecArgv override AND no positional command token in argv,
+    // resolveInvokedCommand() returns undefined and the advisory names `init`
+    // (mirrors the entry point's BACKABLE default).
+    it("falls back to `init` in the npx advisory when argv carries no command token (?? \"init\" arm, CQ5-10)", async () => {
+      mockPromptsByName({ updateHatch3r: true, continueWithCurrent: true });
+      await expect(maybeSelfUpdateBeforeInit(baseOpts({ argv: argvOf() }))).resolves.toBeUndefined();
+      const stdoutText = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stdoutText).toContain("npx hatch3r@latest init");
     });
   });
 });

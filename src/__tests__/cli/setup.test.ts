@@ -147,6 +147,60 @@ describe("setup command", () => {
     ]);
   });
 
+  /** The reExecArgv the mocked initCommand received on its first call. */
+  function forwardedReExecArgv(): readonly string[] | undefined {
+    return (vi.mocked(initCommand).mock.calls[0]?.[0] as { reExecArgv?: readonly string[] })
+      ?.reExecArgv;
+  }
+
+  // CQ5-9 (test-2.8.6-p4): buildSetupReExecArgv flag-matrix extension —
+  // --maturity and --quiet forward with their values/shapes, and --remote
+  // stays dropped when they are present (the remote already ran, or warned,
+  // in this parent run).
+  it("forwards --maturity and --quiet in the reExecArgv and still drops --remote (CQ5-9)", async () => {
+    await setupCommand("proj", { maturity: "team", quiet: true, remote: true });
+
+    expect(forwardedReExecArgv()).toEqual(["setup", ".", "--maturity", "team", "--quiet"]);
+  });
+
+  // CQ5-9 (test-2.8.6-p4): the `--format json --yes` combination. --yes is
+  // documented-unreachable on a live re-exec (a headless run skips the
+  // pre-flight update check entirely), but the builder forwards it anyway —
+  // the forwarded flag set must stay faithful to the invocation it mirrors,
+  // and the child's own `--format json` gate needs the paired --yes.
+  it("forwards the --format json --yes combination (value flag + defensive --yes) in the reExecArgv (CQ5-9)", async () => {
+    await setupCommand("proj", { yes: true, format: "json" });
+
+    expect(forwardedReExecArgv()).toEqual(["setup", ".", "--yes", "--format", "json"]);
+  });
+
+  // CQ5-9 (test-2.8.6-p4): every forwardable flag at once, pinning the
+  // builder's emission order (tools, preset, maturity, yes, quiet, format,
+  // verbose) with the positional rewritten to `.` and --remote dropped.
+  it("forwards the full flag matrix in builder order with the positional rewritten and --remote dropped (CQ5-9)", async () => {
+    await setupCommand("proj", {
+      tools: "claude,cursor",
+      preset: "standard",
+      maturity: "enterprise",
+      yes: true,
+      quiet: true,
+      format: "json",
+      verbose: true,
+      remote: true,
+    });
+
+    expect(forwardedReExecArgv()).toEqual([
+      "setup", ".",
+      "--tools", "claude,cursor",
+      "--preset", "standard",
+      "--maturity", "enterprise",
+      "--yes",
+      "--quiet",
+      "--format", "json",
+      "--verbose",
+    ]);
+  });
+
   it("uses the current directory when the cwd is empty and no [dir] is given", async () => {
     await setupCommand(undefined, { yes: true });
 

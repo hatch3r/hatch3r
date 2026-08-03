@@ -970,6 +970,278 @@ describe("ensureWorktreesIgnored", () => {
   });
 });
 
+// ── ensureWorktreesIgnored — property-based byte preservation (CQ5-7) ────────
+//
+// CQ5 self-application: .claude/rules/test-requirements.md §Property-Based
+// Testing binds framework-dev on invariant-bearing functions with a seeded
+// vitest-native mulberry32 generator (the hatchJson.test.ts /tags.test.ts
+// pattern — no fast-check devDependency). ensureWorktreesIgnored documents a
+// byte-preservation contract ("Everything outside the markers is preserved
+// byte-for-byte", union-preserve F-SEC-04, content-aware idempotency); this
+// suite pins it as a property over generated exclude-file shapes instead of
+// the handful of fixed fixtures above (test-2.8.6-p4).
+//
+// No git repo per case: ensureWorktreesIgnored is pure fs under
+// `<root>/.git/info/exclude`, so a plain temp dir keeps 220 cases well under
+// the 5s slow-test budget.
+describe("ensureWorktreesIgnored — property-based byte preservation (CQ5-7, test-2.8.6-p4)", () => {
+  // Mirrors of the module-private EXCLUDE_BLOCK_START/END constants in
+  // src/worktree/index.ts (same literals the fixed-fixture tests above use).
+  const EXCLUDE_START = "# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`";
+  const EXCLUDE_END = "# HATCH3R:END";
+  const CANONICAL_ENTRIES: readonly string[] = [`${WORKTREES_DIR}/`, WORKTREE_RECEIPT_RELPATH];
+  /** What the fresh-append path adds: `existing + APPEND_BLOCK`. */
+  const APPEND_BLOCK = ["", EXCLUDE_START, ...CANONICAL_ENTRIES, EXCLUDE_END, ""].join("\n");
+
+  // Line pools. Marker detection in the implementation is indexOf (substring,
+  // not line-anchored), so NO pool line may embed the full START or END
+  // marker — the guard at the top of the property test enforces this for
+  // future pool edits. Marker-RESEMBLING lines are deliberate: they must be
+  // treated as ordinary user lines.
+  const USER_LINES: readonly string[] = [
+    "*.pem",
+    "*.log",
+    "scratch/",
+    ".env.local",
+    "# local secrets (user-added)",
+    "node_modules/",
+    "dist/",
+    "# HATCH3R:BEGIN", // resembles START but lacks the suffix — no substring match
+    "#HATCH3R:END", // no space after # — not a substring of END
+    "# hatch3r:end", // indexOf is case-sensitive
+    "# HATCH3R :END", // inner space breaks the match
+    ".worktrees", // canonical-resembling, no trailing slash
+    "worktrees/", // canonical-resembling, no leading dot
+  ];
+  const OUTSIDE_LINES: readonly string[] = [
+    "# user-managed lines",
+    "scratch/",
+    "*.tmp",
+    "", // blank line
+    "  indented/",
+    "vendor/",
+    "# HATCH3R:BEGIN",
+    "#HATCH3R:END",
+  ];
+
+  // Deterministic PRNG (mulberry32) — no Math.random / wall-clock, so the
+  // suite is reproducible per the Determinism Contract.
+  function makePrng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function pick<T>(rng: () => number, xs: readonly T[]): T {
+    return xs[Math.floor(rng() * xs.length)];
+  }
+
+  function shuffle<T>(rng: () => number, xs: T[]): void {
+    for (let i = xs.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [xs[i], xs[j]] = [xs[j], xs[i]];
+    }
+  }
+
+  function count(haystack: string, needle: string): number {
+    return haystack.split(needle).length - 1;
+  }
+
+  interface GeneratedCase {
+    shape: "absent-file" | "no-block" | "legacy-block";
+    /** absent-file only: also drop `.git/info` so the mkdir branch runs. */
+    removeInfoDir: boolean;
+    /** File bytes to write before the call; null = no file on disk. */
+    content: string | null;
+    /** legacy-block only: bytes before the START marker. */
+    prefixChunk: string;
+    /** legacy-block only: bytes after the END marker (may be ""). */
+    suffixChunk: string;
+    /** legacy-block only: padded inner lines in written order. */
+    innerWritten: string[];
+  }
+
+  /** Random exclude-file shape: mixed LF/CRLF, optional missing final newline,
+   *  marker-resembling lines, and (for legacy-block) a random canonical subset
+   *  plus user inner lines with padding and duplicates. */
+  function genCase(rng: () => number): GeneratedCase {
+    const sep = (): string => (rng() < 0.3 ? "\r\n" : "\n");
+    const roll = rng();
+
+    if (roll < 0.12) {
+      return {
+        shape: "absent-file",
+        removeInfoDir: rng() < 0.5,
+        content: null,
+        prefixChunk: "",
+        suffixChunk: "",
+        innerWritten: [],
+      };
+    }
+
+    if (roll < 0.35) {
+      let content = "";
+      const n = 1 + Math.floor(rng() * 4);
+      for (let j = 0; j < n; j++) content += pick(rng, OUTSIDE_LINES) + sep();
+      if (rng() < 0.25) content = content.replace(/\r?\n$/, ""); // missing final newline
+      return {
+        shape: "no-block",
+        removeInfoDir: false,
+        content,
+        prefixChunk: "",
+        suffixChunk: "",
+        innerWritten: [],
+      };
+    }
+
+    // Legacy managed block, sandwiched by random prefix/suffix line sets.
+    let prefixChunk = "";
+    const nPrefix = Math.floor(rng() * 4);
+    for (let j = 0; j < nPrefix; j++) prefixChunk += pick(rng, OUTSIDE_LINES) + sep();
+
+    const inner: string[] = [];
+    if (rng() < 0.45) inner.push(CANONICAL_ENTRIES[0]);
+    if (rng() < 0.45) inner.push(CANONICAL_ENTRIES[1]);
+    const nUser = Math.floor(rng() * 5);
+    for (let j = 0; j < nUser; j++) inner.push(pick(rng, USER_LINES));
+    // Explicit duplicate (canonical or user) — deduped by the upgrade.
+    if (inner.length > 0 && rng() < 0.35) inner.push(inner[Math.floor(rng() * inner.length)]);
+    shuffle(rng, inner);
+    const innerWritten = inner.map((l) => {
+      const lead = rng() < 0.2 ? "  " : "";
+      const trail = rng() < 0.15 ? " " : "";
+      return lead + l + trail;
+    });
+    const innerRaw = sep() + innerWritten.map((l) => l + sep()).join("");
+
+    let suffixChunk = sep(); // newline terminating the END-marker line
+    const nSuffix = Math.floor(rng() * 4);
+    for (let j = 0; j < nSuffix; j++) suffixChunk += pick(rng, OUTSIDE_LINES) + sep();
+    // Missing final newline; with no suffix lines this leaves EOF exactly at END.
+    if (rng() < 0.25) suffixChunk = suffixChunk.replace(/\r?\n$/, "");
+
+    return {
+      shape: "legacy-block",
+      removeInfoDir: false,
+      content: prefixChunk + EXCLUDE_START + innerRaw + EXCLUDE_END + suffixChunk,
+      prefixChunk,
+      suffixChunk,
+      innerWritten,
+    };
+  }
+
+  /** Spec-level model of the first call: whether it writes, the exact
+   *  resulting bytes, and the preserved user inner lines (trimmed, deduped,
+   *  relative order kept) per the F-SEC-04 union-preserve contract. */
+  function modelFirstCall(c: GeneratedCase): { wrote: boolean; bytes: string; preserved: string[] } {
+    if (c.shape !== "legacy-block") {
+      return { wrote: true, bytes: (c.content ?? "") + APPEND_BLOCK, preserved: [] };
+    }
+    const trimmedInner = c.innerWritten.map((l) => l.trim()).filter((l) => l.length > 0);
+    const present = new Set(trimmedInner);
+    if (CANONICAL_ENTRIES.every((e) => present.has(e))) {
+      // Content-aware no-op: both canonical entries already inside the block.
+      return { wrote: false, bytes: c.content as string, preserved: [] };
+    }
+    const canonicalSet = new Set(CANONICAL_ENTRIES);
+    const seen = new Set<string>();
+    const preserved: string[] = [];
+    for (const l of trimmedInner) {
+      if (canonicalSet.has(l) || seen.has(l)) continue;
+      seen.add(l);
+      preserved.push(l);
+    }
+    return {
+      wrote: true,
+      bytes:
+        c.prefixChunk +
+        [EXCLUDE_START, ...CANONICAL_ENTRIES, ...preserved, EXCLUDE_END].join("\n") +
+        c.suffixChunk,
+      preserved,
+    };
+  }
+
+  let root: string;
+
+  beforeEach(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), "hatch3r-exclude-prop-")));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const CASES = 220;
+  const BASE_SEED = 0x7c57;
+
+  it(`holds byte-preservation, single-pair, canonical-first, union-preserve, and second-call no-op over ${CASES} generated exclude files`, async () => {
+    // Guard the pools against future edits: a pool line embedding a full
+    // marker would silently change where indexOf resolves the block.
+    for (const l of [...USER_LINES, ...OUTSIDE_LINES]) {
+      expect(l.includes(EXCLUDE_START), `pool line embeds START marker: ${JSON.stringify(l)}`).toBe(false);
+      expect(l.includes(EXCLUDE_END), `pool line embeds END marker: ${JSON.stringify(l)}`).toBe(false);
+    }
+
+    const excludePath = join(root, ".git", "info", "exclude");
+    for (let i = 0; i < CASES; i++) {
+      // Per-case derived seed so a failure is replayable in isolation:
+      // makePrng(caseSeed) regenerates this exact case.
+      const caseSeed = (BASE_SEED ^ Math.imul(i + 1, 0x9e3779b9)) >>> 0;
+      const rng = makePrng(caseSeed);
+      const c = genCase(rng);
+      const label = `case ${i} (seed 0x${caseSeed.toString(16)}, ${c.shape}): ${JSON.stringify(c.content)}`;
+
+      rmSync(join(root, ".git"), { recursive: true, force: true });
+      if (!(c.shape === "absent-file" && c.removeInfoDir)) {
+        mkdirSync(join(root, ".git", "info"), { recursive: true });
+      }
+      if (c.content !== null) writeFileSync(excludePath, c.content, "utf-8");
+
+      const expected = modelFirstCall(c);
+      const first = await ensureWorktreesIgnored(root);
+      expect(first, label).toBe(expected.wrote);
+      const after = readFileSync(excludePath, "utf-8");
+      expect(after, label).toBe(expected.bytes);
+
+      // Exactly one BEGIN/END pair, both canonical entries present.
+      expect(count(after, EXCLUDE_START), label).toBe(1);
+      expect(count(after, EXCLUDE_END), label).toBe(1);
+      const sIdx = after.indexOf(EXCLUDE_START);
+      const eIdx = after.indexOf(EXCLUDE_END, sIdx);
+      const innerAfter = after
+        .slice(sIdx + EXCLUDE_START.length, eIdx)
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      for (const entry of CANONICAL_ENTRIES) {
+        expect(innerAfter, label).toContain(entry);
+      }
+      if (expected.wrote) {
+        // Canonical entries first (in order), then the user inner lines
+        // preserved deduped in their original relative order.
+        expect(innerAfter.slice(0, CANONICAL_ENTRIES.length), label).toEqual([...CANONICAL_ENTRIES]);
+        expect(innerAfter.slice(CANONICAL_ENTRIES.length), label).toEqual(expected.preserved);
+        // Bytes outside the marker pair preserved exactly.
+        if (c.shape === "legacy-block") {
+          expect(after.startsWith(c.prefixChunk), label).toBe(true);
+          expect(after.endsWith(c.suffixChunk), label).toBe(true);
+        } else {
+          expect(after.startsWith(c.content ?? ""), label).toBe(true);
+        }
+      }
+
+      // Second call: byte-identical no-op.
+      const second = await ensureWorktreesIgnored(root);
+      expect(second, label).toBe(false);
+      expect(readFileSync(excludePath, "utf-8"), label).toBe(after);
+    }
+  });
+});
+
 describe("extractManagedContent", () => {
   it("extracts content between managed block markers", () => {
     const content = [
