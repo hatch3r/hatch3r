@@ -1474,3 +1474,54 @@ Low priority rule body.
     });
   });
 });
+
+// ── D10-SA10.6-01 (release/2.8.6): selection allowlist on the Cursor surface.
+describe("CursorAdapter selection allowlist (D10-SA10.6-01)", () => {
+  const adapter = new CursorAdapter();
+
+  it("emits only the selected subset per class and keeps companions", async () => {
+    const manifest = createManifest({
+      tools: ["cursor"],
+      content: {
+        preset: "custom",
+        projectType: "brownfield",
+        teamSize: "solo",
+        items: {
+          agents: ["test-agent"],
+          skills: ["test-skill"],
+          rules: ["scoped-rule"],
+          commands: ["cmd-test-command"],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const paths = outputs.map((o) => o.path);
+    const pathSet = new Set(paths);
+
+    expect(pathSet.has(".cursor/agents/hatch3r-test-agent.md")).toBe(true);
+    expect(paths.some((p) => /^\.cursor\/rules\/\d{2}-hatch3r-scoped-rule\.mdc$/.test(p))).toBe(true);
+    expect(pathSet.has(".cursor/skills/hatch3r-test-skill/SKILL.md")).toBe(true);
+    expect(pathSet.has(".cursor/commands/hatch3r-test-command.md")).toBe(true);
+
+    expect(paths.some((p) => p.includes("hatch3r-readonly-agent"))).toBe(false);
+    expect(paths.some((p) => /rules\/\d{2}-hatch3r-test-rule\.mdc$/.test(p))).toBe(false);
+    // hatch3r-cli-* skills were already CLI-filtered; the selection filter
+    // additionally drops nothing else here.
+    expect(paths.some((p) => p.includes("hatch3r-cli-jq"))).toBe(false);
+
+    // Companion subtrees bypass the selection seam.
+    expect(paths.some((p) => p.includes("fake-mode"))).toBe(true);
+    expect(paths.some((p) => p.includes("pickup-fake"))).toBe(true);
+  });
+
+  it("absent manifest.content keeps the full pre-2.8.6 emission", async () => {
+    const outputs = await adapter.generate(FIXTURES_DIR, createManifest({ tools: ["cursor"] }));
+    const pathSet = new Set(outputs.map((o) => o.path));
+    expect(pathSet.has(".cursor/agents/hatch3r-test-agent.md")).toBe(true);
+    expect(pathSet.has(".cursor/agents/hatch3r-readonly-agent.md")).toBe(true);
+    expect(pathSet.has(".cursor/commands/hatch3r-test-command.md")).toBe(true);
+  });
+});

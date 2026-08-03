@@ -492,7 +492,7 @@ export class CursorAdapter extends BaseAdapter {
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
       // provenance tracker introduced by C8-D12-M3.
-      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
+      const rules = await this.readTrackedCanonicalFiles(ctx, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
       // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
       // normal=50, low=70. The prefix makes load order visible in the filesystem
@@ -535,7 +535,7 @@ export class CursorAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      const agents = await this.readUserFacingCanonicalFiles(ctx, "agents");
       // release/2.7.0: class-word emission posture. `"native"` (default when
       // absent) pins the advanced/frontier classes to concrete ids at
       // emission time; `"conservative"` restores the pre-2.7.0 advisory/omit

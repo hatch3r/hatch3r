@@ -1028,7 +1028,7 @@ describe("config command", () => {
       expect(agentsWrites).toHaveLength(0);
     });
 
-    it("should NOT archive customize overrides on preset downgrade (D10-SA10.6-02: item still emits under Decision 16, so its override stays live)", async () => {
+    it("archives the removed item's customize overrides on preset downgrade (D10-SA10.6-01 landed: removal genuinely drops emission)", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -1043,12 +1043,37 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      // D10-SA10.6-02: dropping hatch3r-reviewer from the tracked selection does
-      // NOT stop the adapters emitting it (readTrackedCanonicalFiles ignores the
-      // selection — Decision 16 "dial not gate"). Archiving its `.customize.*`
-      // override would detach a live customization from a still-emitted artifact
-      // and silently revert it to canonical, so config no longer archives on
-      // removal; the override is left live where the user placed it.
+      // D10-SA10.6-01 (release/2.8.6): adapter emission now honors
+      // `manifest.content.items` as an allowlist (BaseAdapter.filterBySelection),
+      // so dropping hatch3r-reviewer from the selection genuinely stops it
+      // emitting on the regenerate. The Cycle-12 D10-SA10.6-02 hold ("do not
+      // archive while the artifact still emits") no longer applies: config
+      // resumes the D10-35 rescue — the removed item's `.customize.*` overrides
+      // move into `.hatch3r-archive/customize/` (never hard-deleted).
+      expect(vi.mocked(archiveCustomizeOverrides)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(archiveCustomizeOverrides)).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ id: "hatch3r-reviewer", type: "agent" }),
+      );
+    });
+
+    it("never archives customize overrides on --dry-run (test-2.8.6-b2-p4 #3)", async () => {
+      // Identical preset-downgrade transition to the archival test above, but
+      // under --dry-run: the removal diff renders while the archive write —
+      // like every other write — is skipped.
+      const contentItems = makeContentSelection({
+        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      });
+      const manifest = makeManifest({ content: contentItems });
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
+
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer", "hatch3r-reviewer"], ["hatch3r-implementer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"], "minimal");
+
+      setupStandardPrompts(manifest, { contentPreset: "minimal" });
+
+      await (await importConfigCommand())(undefined, undefined, { dryRun: true });
+
       expect(vi.mocked(archiveCustomizeOverrides)).not.toHaveBeenCalled();
     });
 

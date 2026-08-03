@@ -82,6 +82,7 @@ import { computeTeamOnlyFilteredItems, formatTeamOnlyFilteredByClass } from "./i
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import {
+  archiveCustomizeOverrides,
   buildContentIndex,
   countSelectionItems,
   selectionSummary,
@@ -1492,6 +1493,9 @@ async function configCommandImpl(
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  // D10-SA10.6-01 (release/2.8.6): `.customize.*` overrides rescued into the
+  // archive for removed items — surfaced in the success summary below.
+  const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
   // release/2.8.6: team-size change tracking (summary line) + the solo+full
   // still-filtered disclosure data — populated inside the content block.
@@ -1647,18 +1651,21 @@ async function configCommandImpl(
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          // D10-SA10.6-02 (Cycle 12, D10, P1): do NOT archive this item's
-          // `.customize.*` overrides. Under Decision 16 ("dial not gate") a
-          // preset/capability "removal" only drops the id from
-          // `manifest.content`; the adapters still emit the artifact
-          // (`src/adapters/base.ts::readTrackedCanonicalFiles` filters by
-          // adapter-scope, never by the tracked selection). Moving the override
-          // into `.hatch3r-archive/` while the artifact keeps emitting silently
-          // reverted a still-installed artifact to canonical and reported it
-          // "removed". Leaving the override live keeps the customization applied
-          // to the artifact that never actually left. Re-enable archival only
-          // for a genuine emission-dropping removal — an allowlist the emission
-          // layer honors (D10-SA10.6-01).
+          // D10-SA10.6-01 (release/2.8.6): removal is now a genuine
+          // emission-dropping removal — the adapters honor
+          // `manifest.content.items` as an allowlist
+          // (`src/adapters/base.ts::filterBySelection`), so the artifact this
+          // id names stops emitting on the regenerate below. Archiving its
+          // hand-authored `.customize.*` overrides is therefore re-enabled
+          // (D10-35 rescue semantics: moved into `.hatch3r-archive/customize/`,
+          // never hard-deleted, restorable by moving back). The Cycle-12
+          // D10-SA10.6-02 hold — "do not archive while the artifact still
+          // emits" — is obsolete now that its predicate is false. `--dry-run`
+          // skips the write; the removed-item diff row still renders.
+          if (cliOpts?.dryRun !== true) {
+            const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
+            archivedCustomizeFiles.push(...rescued);
+          }
         }
       }
     }
@@ -2161,6 +2168,25 @@ async function configCommandImpl(
   if (allArchivedFiles.length > 0) {
     summaryLines.push("");
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
+  }
+
+  // D10-SA10.6-01 (release/2.8.6): disclose the removed items' rescued
+  // `.customize.*` overrides (D10-35 rescue semantics — moved, never
+  // hard-deleted; restore by moving back to `.hatch3r/`).
+  if (archivedCustomizeFiles.length > 0) {
+    summaryLines.push("");
+    summaryLines.push(
+      label(
+        "Overrides archived",
+        `${archivedCustomizeFiles.length} .customize file(s) → ${ARCHIVE_DIR}/customize/ (restore by moving back to .hatch3r/)`,
+      ),
+    );
+    for (const f of archivedCustomizeFiles.slice(0, 10)) {
+      summaryLines.push(`    ${chalk.dim(f)}`);
+    }
+    if (archivedCustomizeFiles.length > 10) {
+      summaryLines.push(`    ${chalk.dim(`… and ${archivedCustomizeFiles.length - 10} more`)}`);
+    }
   }
 
   // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract

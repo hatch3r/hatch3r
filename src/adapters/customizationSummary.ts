@@ -25,6 +25,7 @@
 // customization files are read.
 
 import { resolveBundledContentRoot } from "../content/contentRoot.js";
+import { isIdInSelection } from "../content/index.js";
 import {
   readCanonicalFiles,
   type CanonicalType,
@@ -127,20 +128,6 @@ function singularType(canonicalType: CanonicalType): string {
 }
 
 /**
- * Selection-set membership test for a canonical artifact (D10-29).
- *
- * `CanonicalFile.id` always carries the `hatch3r-` prefix. Current manifests
- * store the same prefixed id in `content.items`, but legacy manifests may carry
- * the bare form, so both are accepted — mirroring the prefix-tolerant orphan
- * scan in `src/cli/commands/sync.ts` (it probes `itemId` and `hatch3r-${itemId}`).
- */
-function isSelected(canonicalId: string, selectedIds: ReadonlySet<string>): boolean {
-  if (selectedIds.has(canonicalId)) return true;
-  const bare = canonicalId.replace(/^hatch3r-/, "");
-  return selectedIds.has(bare);
-}
-
-/**
  * Classify a single `applyCustomization` invocation into one of the four
  * outcome classes. Centralized here so the explain and status renderers
  * share one definition.
@@ -228,10 +215,10 @@ function classifyOutcome(args: {
  * `selectedIds` (legacy "full" manifests with no `content` block) preserves the
  * prior unfiltered behavior — every override is classified on its own merit.
  *
- * Selection-set membership is prefix-tolerant: `CanonicalFile.id` always carries
- * the `hatch3r-` prefix (e.g. `hatch3r-architect`), and `content.items` stores
- * the same prefixed ids in current manifests, but legacy manifests may carry the
- * bare form. Both forms are accepted, mirroring the orphan-customize scan in
+ * Selection-set membership routes through `isIdInSelection`
+ * (src/content/index.ts): current-form ids (incl. the selection-side `cmd-`
+ * prefix on commands) plus the legacy un-`cmd-`-prefixed and bare (no
+ * `hatch3r-`) forms are accepted, mirroring the orphan-customize scan in
  * `src/cli/commands/sync.ts`.
  */
 export async function buildCustomizationSummary(
@@ -281,10 +268,16 @@ export async function buildCustomizationSummary(
       // `failed` is preserved — a rejection warning (protected/floor/deny) is a
       // user-actionable authoring error regardless of selection, so it stays
       // visible rather than being masked as inert.
+      //
+      // D10-SA10.6-01: membership routes through the shared
+      // `isIdInSelection` predicate (src/content/index.ts) — the same one the
+      // adapter emission allowlist uses — which maps command ids to their
+      // selection-side `cmd-` form. The prior local predicate skipped that
+      // mapping, so every selected command override was mislabeled `inert`.
       if (
         selectedIds !== undefined &&
         classification.outcome !== "failed" &&
-        !isSelected(file.id, selectedIds)
+        !isIdInSelection(file.id, singularType(canonicalType), selectedIds)
       ) {
         classification = {
           outcome: "inert",

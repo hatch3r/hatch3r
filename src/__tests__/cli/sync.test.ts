@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
@@ -1145,6 +1145,13 @@ describe("sync command", () => {
         };
         expect(failed.action).toBe("error");
         expect(failed.errorDetail?.errorCode).toBe("FS_ERROR");
+
+        // D10-SA10.6-01 (release/2.8.6): the synced member's on-disk emission
+        // honors the workspace selection as an allowlist — the single selected
+        // rule materializes and a non-selected canonical rule does not.
+        const apiRules = await readdir(join(tempDir, "api", ".cursor", "rules"));
+        expect(apiRules.some((f) => f.includes("hatch3r-git-conventions"))).toBe(true);
+        expect(apiRules.some((f) => f.includes("hatch3r-code-standards"))).toBe(false);
       } finally {
         stdoutSpy.mockRestore();
       }

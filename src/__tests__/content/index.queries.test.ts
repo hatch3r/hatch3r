@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { chmod, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ARCHIVE_DIR } from "../../types.js";
@@ -459,25 +459,70 @@ describe("content/index — queries, mutations & counts", () => {
       ]);
     });
 
-    it("degrades gracefully when the archive write fails and still removes the original", async () => {
+    it("preserves the live override in place and warns when the archive copy fails (review fix F5)", async () => {
       const dir = await makeTempDir();
       const rootDir = join(dir, "project");
 
       await mkdir(join(rootDir, ".hatch3r", "agents"), { recursive: true });
       await writeFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "overrides: true");
       // Plant a FILE where the archive root directory must be created so
-      // `mkdir(archiveDir, { recursive: true })` fails (ENOTDIR/EEXIST).
+      // `mkdir(archiveDir, { recursive: true })` fails (ENOTDIR/EEXIST) —
+      // the same failure class as a cp error inside the try block.
       await writeFile(join(rootDir, ARCHIVE_DIR), "not a directory");
 
-      // No throw: the failure downgrades to a verbose diagnostic …
-      const result = await archiveCustomizeOverrides(rootDir, { id: "my-agent", type: "agent" });
+      // ui.warn writes to stderr via console.error.
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        // No throw: the failure surfaces via warn() …
+        const result = await archiveCustomizeOverrides(rootDir, { id: "my-agent", type: "agent" });
 
-      // … nothing is reported as archived …
-      expect(result.archivedCustomizeFiles).toEqual([]);
-      // … and the live override is still removed so the on-disk override set
-      // stays consistent with the manifest selection (documented degradation).
-      await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8")).rejects.toThrow();
+        // … nothing is reported as archived …
+        expect(result.archivedCustomizeFiles).toEqual([]);
+        // … the live override SURVIVES (pre-F5 it was hard-deleted with only
+        // a verbose note — a silent destruction of hand-authored bytes) …
+        expect(
+          await readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8"),
+        ).toBe("overrides: true");
+        // … and the operator sees an audible warning naming the file.
+        const warned = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(warned).toContain("Could not archive customize override");
+        expect(warned).toContain("my-agent.customize.yaml");
+        expect(warned).toContain("left in place");
+      } finally {
+        errSpy.mockRestore();
+      }
     });
+
+    // test-2.8.6-b2-p4 #2: the non-ENOENT stat-error arm now skips BOTH the
+    // archive and the removal (pre-F5 the unconditional rm still ran after a
+    // failed stat). POSIX-only: chmod(0o000) does not revoke access on
+    // Windows, and root bypasses permission checks entirely.
+    it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+      "skips archive AND removal when stat fails with EACCES (stat-error arm)",
+      async () => {
+        const dir = await makeTempDir();
+        const rootDir = join(dir, "project");
+        const agentsDir = join(rootDir, ".hatch3r", "agents");
+        await mkdir(agentsDir, { recursive: true });
+        const overridePath = join(agentsDir, "my-agent.customize.yaml");
+        await writeFile(overridePath, "overrides: true");
+
+        // Remove all permission bits from the containing dir so `stat` on the
+        // file inside fails EACCES (traversal needs the execute bit).
+        await chmod(agentsDir, 0o000);
+        try {
+          // No throw: the stat error degrades to a verbose line …
+          const result = await archiveCustomizeOverrides(rootDir, { id: "my-agent", type: "agent" });
+          // … nothing is archived …
+          expect(result.archivedCustomizeFiles).toEqual([]);
+        } finally {
+          await chmod(agentsDir, 0o755);
+        }
+        // … and the override survives with its original bytes (the pre-F5
+        // code still ran `rm(force: true)` on this path).
+        expect(await readFile(overridePath, "utf-8")).toBe("overrides: true");
+      },
+    );
 
     it("returns an empty list for types without a customize directory", async () => {
       const dir = await makeTempDir();

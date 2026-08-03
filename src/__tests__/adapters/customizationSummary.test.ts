@@ -528,6 +528,42 @@ describe("buildCustomizationSummary — selection-set filtering (D10-29)", () =>
     expect(summary.counts.inert).toBe(0);
   });
 
+  it("matches a selected command via its cmd-prefixed selection id (D10-SA10.6-01 cmd- gap regression)", async () => {
+    const root = await setup();
+    // Commands are stored selection-side as `cmd-hatch3r-*` (applyCommandPrefix
+    // on catalog items), while the canonical-read id is bare-prefixed
+    // (`hatch3r-board-fill`). The pre-fix local membership predicate never
+    // mapped between the two forms, so EVERY selected command override was
+    // mislabeled `inert`. The shared `isIdInSelection` predicate closes that.
+    await writeFixture(
+      root,
+      ".hatch3r/commands",
+      "hatch3r-board-fill.customize.yaml",
+      "description: Board fill with stricter readiness gates",
+    );
+
+    const summary = await buildCustomizationSummary(root, select("cmd-hatch3r-board-fill"));
+    const e = entry(summary, "hatch3r-board-fill");
+    expect(e.outcome).toBe("active");
+    expect(summary.counts).toEqual({ active: 1, skipped: 0, failed: 0, inert: 0 });
+  });
+
+  it("still reclassifies a genuinely deselected command override as inert", async () => {
+    const root = await setup();
+    await writeFixture(
+      root,
+      ".hatch3r/commands",
+      "hatch3r-board-fill.customize.yaml",
+      "description: Board fill with stricter readiness gates",
+    );
+
+    // Selection carries other commands but not board-fill → inert.
+    const summary = await buildCustomizationSummary(root, select("cmd-hatch3r-workflow"));
+    const e = entry(summary, "hatch3r-board-fill");
+    expect(e.outcome).toBe("inert");
+    expect(summary.counts).toEqual({ active: 0, skipped: 0, failed: 0, inert: 1 });
+  });
+
   it("preserves unfiltered behavior when no selection set is passed", async () => {
     const root = await setup();
     await writeFixture(root, AGENTS, "hatch3r-architect.customize.yaml", "description: A sharper architect");

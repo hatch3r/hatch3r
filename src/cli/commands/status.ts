@@ -16,7 +16,7 @@ import {
 } from "../../merge/safeWrite.js";
 import { filterUserFacing, readCanonicalFiles } from "../../adapters/canonical.js";
 import { applyCustomization } from "../../adapters/customization.js";
-import { resolveUserContentRoot } from "../../content/index.js";
+import { buildSelectionAllowlist, classifySelection, resolveUserContentRoot } from "../../content/index.js";
 import { compareVersions } from "../../version/compare.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
@@ -42,6 +42,7 @@ import {
   isQuiet,
   label,
   verbose,
+  warn,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectCliTools } from "../../cliTools/detect.js";
@@ -122,6 +123,14 @@ export interface DriftEntry {
  * the identified reason. Rows with an identified reason are informational —
  * they never change exit codes; a row with reason `unexplained` counts as
  * ordinary drift in `hatch3r verify` (no known gate accounts for the drop).
+ * `not-selected` (release/2.8.6, D10-SA10.6-01) is an identified reason: the
+ * artifact is absent from the manifest's tracked selection, so the adapters'
+ * selection allowlist legitimately withholds it. Its escalation twin
+ * `not-selected-floor-security` (sec-2.8.6-b2-p4) marks a selection-dropped
+ * artifact that carries a `floor:security` tag — still identified (the
+ * manifest is trusted; no emission bypass), but surfaced as a warning-level
+ * row because resolveSelection admits security-floor content by default, so
+ * its absence signals a hand-edited or corrupted selection.
  */
 export interface EmissionGapEntry {
   tool: string;
@@ -132,6 +141,8 @@ export interface EmissionGapEntry {
     | "customization-disabled"
     | "cli-tools-filter"
     | "adapter-scope"
+    | "not-selected"
+    | "not-selected-floor-security"
     | "unexplained";
   /** Actionable next step, rendered verbatim in human mode and carried in JSON. */
   action: string;
@@ -657,6 +668,20 @@ export interface EmissionExpectation {
   adapters?: string[];
   /** Skills only: dropped by the `hatch3r-cli-*` CLI-tooling pivot filter. */
   cliFiltered: boolean;
+  /**
+   * D10-SA10.6-01 (release/2.8.6): dropped by the adapters' selection
+   * allowlist — the id is absent from `manifest.content.items` and the
+   * artifact is neither protected nor user-tier, so `filterBySelection`
+   * (src/adapters/base.ts) legitimately withholds it from every tool.
+   */
+  selectionFiltered: boolean;
+  /**
+   * sec-2.8.6-b2-p4: `selectionFiltered` AND the artifact carries a
+   * `floor:security` tag — escalates the gap row to
+   * `not-selected-floor-security` (warning-level attribution; the selection
+   * is still trusted and the drop stands).
+   */
+  selectionFilteredFloorSecurity: boolean;
 }
 
 /**
@@ -679,7 +704,21 @@ export async function buildEmissionExpectations(
   const userContentRoot = resolveUserContentRoot(rootDir);
   const cliCfg = manifest.cliTools ?? { enabled: false, selected: [] as string[] };
   const cliSelected = new Set(cliCfg.selected ?? []);
+  // D10-SA10.6-01: mirror the adapters' selection allowlist so a
+  // selection-withheld artifact is pre-attributed instead of scoring as an
+  // `unexplained` gap (which counts as drift in `hatch3r verify`).
+  const selectionAllowlist = buildSelectionAllowlist(manifest.content);
   const expectations: EmissionExpectation[] = [];
+  // Intentional scope pin (test-2.8.6-b2-p4 #10): this attribution surface
+  // covers exactly the picker-visible per-file classes — commands, agents,
+  // skills. It is an ATTRIBUTION surface (why is this artifact absent from
+  // the picker?), not the drift surface: rules, github-agents, hooks, and
+  // config outputs are covered by the per-file drift comparison in
+  // computeAdapterDrift below (regenerate-and-diff sees every output class),
+  // and selection-dropped rules additionally surface through the adapter-seam
+  // warnings (BaseAdapter.filterBySelection, incl. the floor:security
+  // escalation). Extending this array is a deliberate future decision, not an
+  // omission.
   const classes: Array<{ cls: EmissionGapEntry["contentClass"]; userFacingType?: "command" | "agent" }> = [
     { cls: "commands", userFacingType: "command" },
     { cls: "agents", userFacingType: "agent" },
@@ -696,6 +735,30 @@ export async function buildEmissionExpectations(
         cls === "skills" &&
         f.id.startsWith("hatch3r-cli-") &&
         (!cliCfg.enabled || !cliSelected.has(f.id.replace(/^hatch3r-cli-/, "")));
+      // D10-SA10.6-01 (review fix F1): the SAME shared verdict predicate
+      // `BaseAdapter.filterBySelection` consumes — user-tier, protected, and
+      // CLI-tooling (`hatch3r-cli-*`, governed by manifest.cliTools) artifacts
+      // are never selection-dropped, and a class key absent from the allowlist
+      // leaves the class unfiltered. One predicate, two consumers — no drift.
+      const selectionFiltered = classifySelection(f, selectionAllowlist) === "drop";
+      // sec-2.8.6-b2-p4: escalate a selection-dropped SECURITY-floor artifact
+      // to a warning-level attribution. The drop still stands (the recorded
+      // selection is trusted — no emission bypass, mirroring the reasoning
+      // that keeps the hooks class exempt because its guard entries are
+      // security controls); the escalation makes the state audible, since
+      // resolveSelection admits floor content by default and its absence
+      // signals a hand-edited or corrupted selection. Warned here (once per
+      // artifact — the expectation set is tool-independent), not per tool in
+      // assessEmissionGaps.
+      const selectionFilteredFloorSecurity =
+        selectionFiltered && (f.tags ?? []).includes("floor:security");
+      if (selectionFilteredFloorSecurity) {
+        warn(
+          `Security-floor artifact "${f.id}" (floor:security) is missing from the tracked content selection — ` +
+            `it will NOT be emitted. resolveSelection admits security-floor content by default, so this ` +
+            `indicates a hand-edited selection; run \`hatch3r config\` to re-add it, then \`hatch3r sync\`.`,
+        );
+      }
       const { skip } = await applyCustomization(rootDir, f);
       expectations.push({
         contentClass: cls,
@@ -706,6 +769,8 @@ export async function buildEmissionExpectations(
         adapters:
           f.source === "user" && f.adapters && f.adapters.length > 0 ? f.adapters : undefined,
         cliFiltered,
+        selectionFiltered,
+        selectionFilteredFloorSecurity,
       });
     }
   }
@@ -720,11 +785,12 @@ export async function buildEmissionExpectations(
  * output's `sourceFiles` (per-file outputs carry exactly `[sourcePath]` per
  * the D12-1 single-source contract; aggregated outputs carry the broad read
  * set). Attributed drop gates (feature flag, customization `enabled: false`,
- * CLI-tools filter, adapter-scope opt-out) are checked FIRST — a skipped
- * artifact can still appear in an aggregate output's broad source set, so the
- * gate verdicts, not source membership, decide those rows. Only an artifact
- * that passes every known gate yet contributed to no output at all is
- * `unexplained` — that row counts as ordinary drift in `hatch3r verify`.
+ * CLI-tools filter, adapter-scope opt-out, selection allowlist —
+ * D10-SA10.6-01) are checked FIRST — a skipped artifact can still appear in
+ * an aggregate output's broad source set, so the gate verdicts, not source
+ * membership, decide those rows. Only an artifact that passes every known
+ * gate yet contributed to no output at all is `unexplained` — that row counts
+ * as ordinary drift in `hatch3r verify`.
  */
 export function assessEmissionGaps(
   tool: string,
@@ -775,6 +841,20 @@ export function assessEmissionGaps(
         id: exp.id,
         reason: "adapter-scope",
         action: `the artifact's frontmatter limits emission to adapters: [${exp.adapters.join(", ")}] — add "${tool}" to that list to emit it here.`,
+      });
+      continue;
+    }
+    if (exp.selectionFiltered) {
+      // sec-2.8.6-b2-p4: warning-level marker for a dropped security-floor
+      // artifact (the build-time warn already fired once per artifact).
+      gaps.push({
+        tool,
+        contentClass: exp.contentClass,
+        id: exp.id,
+        reason: exp.selectionFilteredFloorSecurity ? "not-selected-floor-security" : "not-selected",
+        action: exp.selectionFilteredFloorSecurity
+          ? `SECURITY-floor artifact missing from the tracked content selection (manifest.content.items) — its floor:security guidance is not emitted; run \`hatch3r config\` and re-add \`${exp.id}\`, then \`hatch3r sync\`.`
+          : `not in the tracked content selection (manifest.content.items) — run \`hatch3r config\` and add \`${exp.id}\` to emit it, then \`hatch3r sync\`.`,
       });
       continue;
     }

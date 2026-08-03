@@ -278,6 +278,14 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Solution:** Run `npx hatch3r status` to see synced, drifted, or missing files. Run `npx hatch3r sync` to fix drift.
 
+### Removed content pruned on the first sync after upgrading to 2.8.6 (or reported as `! orphan`)
+
+**Symptom:** After upgrading, the first `sync`/`update` deletes some generated `hatch3r-*` files, or `status`/`verify --diff` lists them as `! orphan`.
+
+**Cause:** Since 2.8.6 (D10-SA10.6-01) adapter emission honors the tracked selection in `.hatch3r/hatch.json` (`content.items`) as an allowlist — an artifact you removed via `hatch3r config` (or one your preset never selected, e.g. `ctx:team-only` content on a solo install) genuinely stops emitting. The orphan sweep then auto-unlinks the stale on-disk copy; files carrying your own content outside the `HATCH3R:BEGIN`/`END` markers are vetoed (never deleted) and surface as `! orphan` instead — except the generated frontmatter stub above the markers, which hatch3r owns and already rewrites on every sync; put customization in `.hatch3r/<type>/<id>.customize.yaml`, never in the stub. CLI-tooling skills (`hatch3r-cli-*`) are governed by `hatch3r cli-tools`, not the content selection, and are never pruned by it.
+
+**Solution:** This is the recorded selection taking effect. To keep an artifact, add it back: `npx hatch3r config` (re-pick content) and `npx hatch3r sync`. Protected artifacts always emit regardless of selection; legacy manifests without a `content` block keep full emission. A removed item's `.hatch3r/<type>/<id>.customize.*` overrides are archived to `.hatch3r-archive/customize/` (move them back to restore).
+
 ### PreToolUse hook error on every tool call (pretooluse-allowlist.mjs)
 
 **Symptom:** Claude Code prints `PreToolUse:… hook error / Failed with non-blocking status code: …pretooluse-allowlist.mjs:<line>` on every tool call — Bash, Read, all of them. Opening `.claude/hooks/pretooluse-allowlist.mjs` shows the script body twice; the duplicated ESM `import` bindings are a Node `SyntaxError` at load.

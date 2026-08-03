@@ -1566,6 +1566,12 @@ export async function syncCommand(
           for (const f of files.filter(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
             const itemId = f.replace(/\.customize\.(yaml|md)$/, "");
             const prefixed = `hatch3r-${itemId}`;
+            // Prefix-tolerance twin of `src/content/index.ts::isIdInSelection`
+            // (which names this scan as its mirror): this side starts from the
+            // BARE customize filename and probes the prefixed/cmd- selection
+            // forms; that side starts from the canonical id and probes the
+            // bare/legacy forms. Keep the two form sets aligned when either
+            // changes (D10-SA10.6-01, review fix — reciprocal pointer).
             if (!allContentIds.has(itemId) && !allContentIds.has(prefixed) &&
                 !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${prefixed}`)) {
               warn(`Orphaned customization: .hatch3r/${dir}/${f} — content no longer in manifest. Consider removing it.`);

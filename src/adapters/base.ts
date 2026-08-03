@@ -14,7 +14,13 @@ import { wrapManagedFor } from "../merge/managedBlocks.js";
 // DD-D3 (release/2.8.5): import from the domain module, not the CLI barrel —
 // this was the one adapter→cli/** import (boundary Rule 1 violation).
 import { generateBridgeOrchestration } from "./shared/bridgeOrchestration.js";
-import { resolveUserContentRoot } from "../content/index.js";
+import {
+  buildSelectionAllowlist,
+  classifySelection,
+  resolveUserContentRoot,
+  TYPE_TO_SELECTION_KEY,
+  type SelectionAllowlist,
+} from "../content/index.js";
 import { buildAgentsMdOutput, resolveAgentsMdOwner } from "./agentsMd.js";
 import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
@@ -187,6 +193,10 @@ export const KNOWN_COMPANION_SUBDIRS = [
 /** Union of the canonical companion-subdir literals (see {@link KNOWN_COMPANION_SUBDIRS}). */
 export type CompanionSubdir = (typeof KNOWN_COMPANION_SUBDIRS)[number];
 
+// D10-SA10.6-01: `buildSelectionAllowlist`, the `SelectionAllowlist` type, and
+// the shared verdict predicate `classifySelection` all live together in
+// `src/content/index.ts` (CQ8 single home) — import them from there.
+
 function defaultModelFormat(model: string): ModelFormat {
   return { text: `**Recommended model:** \`${model}\`` };
 }
@@ -300,6 +310,10 @@ export abstract class BaseAdapter implements Adapter {
     // after doGenerate returns, the set is the closed list of canonical
     // files this adapter consumed in the current run.
     this._trackedSourceFiles = new Set<string>();
+    // D10-SA10.6-01: reset the lazily-computed selection allowlist so a
+    // re-generation against a different manifest recomputes it (and the
+    // empty-union warning fires at most once per generate()).
+    this._selectionAllowlist = undefined;
 
     // C9-H20 (D8-H8.3.1): Honour an already-aborted signal before doing any
     // work. Subsequent abort checks are performed inside helpers
@@ -631,6 +645,103 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
+   * D10-SA10.6-01: lazily-computed per-generate selection allowlist.
+   * `undefined` = not computed yet this generate(); `null` = computed and
+   * disabled (absent content / empty union — see
+   * {@link buildSelectionAllowlist}).
+   */
+  private _selectionAllowlist: SelectionAllowlist | null | undefined;
+
+  /**
+   * Compute (once per `generate()`) the selection allowlist for the current
+   * manifest, warning exactly once when a PRESENT `manifest.content` resolves
+   * to an empty-union selection and the filter therefore disables fail-open.
+   * An ABSENT `manifest.content` disables silently — that is the recorded
+   * "no selection" state of legacy manifests, not a malformed one.
+   */
+  private selectionAllowlistFor(ctx: AdapterContext): SelectionAllowlist | null {
+    if (this._selectionAllowlist !== undefined) return this._selectionAllowlist;
+    const content = ctx.manifest.content;
+    const allow: SelectionAllowlist | null = buildSelectionAllowlist(content);
+    if (allow === null && content !== undefined) {
+      this.warnings.push(
+        `[${this.name}] manifest.content is present but its items selection is empty — ` +
+          `selection filtering is disabled for this run and every canonical artifact emits ` +
+          `(fail-open; expected for legacy/workspace manifests whose custom selection resolved zero ids). ` +
+          `Run \`hatch3r config\` to record a real selection.`,
+      );
+    }
+    this._selectionAllowlist = allow;
+    return allow;
+  }
+
+  /**
+   * D10-SA10.6-01: drop canonical files absent from the manifest's tracked
+   * content selection (`manifest.content.items`), making a `hatch3r config`
+   * removal a genuine emission-dropping removal instead of manifest-only
+   * bookkeeping. Applied by {@link readTrackedCanonicalFiles} /
+   * {@link readUserFacingCanonicalFiles} after {@link filterByAdapterScope}
+   * and BEFORE provenance tracking, so `sourceFiles` stays aligned with the
+   * actually-emitted set (same ordering rationale as the D20 adapter-scope
+   * filter).
+   *
+   * Filter rules live in the single shared verdict predicate
+   * `classifySelection` (src/content/index.ts, review fix F1) — consumed here
+   * AND by the status/verify emission-expectation mirror so the two surfaces
+   * cannot drift. Summary: `allow === null` ⇒ disabled; user-tier artifacts,
+   * CLI-tooling skills (`hatch3r-cli-*` — governed by `manifest.cliTools` via
+   * {@link readCliFilteredSkills}, never double-gated by `content.items`),
+   * classes without a {@link TYPE_TO_SELECTION_KEY} row, and classes whose
+   * key is absent from the allowlist all keep; `protected: true` always
+   * emits, with a repair warning here when the id is missing from the
+   * selection (`resolveSelection` admits protected items unconditionally, so
+   * that state can only arise from a hand-edited or corrupted manifest). NO
+   * blanket floor-tag bypass: floor items are legitimately context-filtered
+   * at selection time (e.g. projectType at Stage 4), so the recorded
+   * selection is trusted for them.
+   *
+   * Bypass classes that never route through this filter (by construction):
+   * companion subdirectories + `checks/` ({@link processCompanionSubdir}),
+   * MCP servers ({@link readFilteredMcp} — own `manifest.mcp.servers`
+   * selection), hook definitions ({@link readHooks} → `readHookDefinitions` —
+   * see the hooks note on {@link buildSelectionAllowlist}), and every
+   * config-only output (settings/hooks.json, mcp.json).
+   */
+  private filterBySelection(
+    files: CanonicalFile[],
+    allow: SelectionAllowlist | null,
+  ): CanonicalFile[] {
+    if (allow === null) return files;
+    return files.filter((f) => {
+      const verdict = classifySelection(f, allow);
+      if (verdict === "keep-protected-missing") {
+        this.warnings.push(
+          `[${this.name}] protected artifact "${f.id}" is missing from manifest.content.items.${TYPE_TO_SELECTION_KEY[f.type]} — ` +
+            `emitted anyway (protected artifacts always ship). resolveSelection records protected ids ` +
+            `unconditionally, so this indicates a hand-edited manifest; run \`hatch3r config\` to repair the selection.`,
+        );
+        return true;
+      }
+      // sec-2.8.6-b2-p4: a DROPPED artifact carrying `floor:security` is
+      // still dropped — the recorded selection is trusted, no emission
+      // bypass — but the drop is escalated to a warning so a hand-edited
+      // selection cannot silently shed security-floor guidance
+      // (resolveSelection admits floor content by default). Mirrors the
+      // status-side `not-selected-floor-security` attribution.
+      if (verdict === "drop" && (f.tags ?? []).includes("floor:security")) {
+        this.warnings.push(
+          `[${this.name}] security-floor artifact "${f.id}" (floor:security) is missing from ` +
+            `manifest.content.items.${TYPE_TO_SELECTION_KEY[f.type]} — dropped per the recorded selection. ` +
+            `resolveSelection admits security-floor content by default, so this indicates a hand-edited ` +
+            `selection; run \`hatch3r config\` to re-add it, then \`hatch3r sync\`.`,
+        );
+        return false;
+      }
+      return verdict === "keep";
+    });
+  }
+
+  /**
    * C8-D12-M3: Canonical-file read wrapper that records provenance.
    *
    * Delegates to {@link readCanonicalFiles} and additionally pushes every
@@ -644,21 +755,29 @@ export abstract class BaseAdapter implements Adapter {
    * provenance tracking — keeping `sourceFiles` aligned with the actually
    * emitted set.
    *
+   * D10-SA10.6-01: canonical files then pass through
+   * {@link filterBySelection} so the manifest's tracked content selection
+   * (`manifest.content.items`) acts as an emission allowlist. The signature
+   * takes the {@link AdapterContext} first (release/2.8.6) because the
+   * selection filter needs the manifest, not just the two root paths.
+   *
    * External callers (outside BaseAdapter) should prefer calling
    * `readCanonicalFiles` directly; this wrapper is the BaseAdapter-internal
    * integration point for {@link AdapterOutput.sourceFiles} population.
    */
   protected async readTrackedCanonicalFiles(
-    canonicalRoot: string,
+    ctx: AdapterContext,
     type: CanonicalType,
-    userRepoRoot?: string,
   ): Promise<CanonicalFile[]> {
     // Wave 5: when an explicit user-repo root is plumbed, resolve to the
     // `.hatch3r/overrides/` subtree so D20 user-authored artifacts layer on
     // top of bundled canonical content. Undefined user root => canonical-only.
-    const userContentRoot = userRepoRoot ? resolveUserContentRoot(userRepoRoot) : undefined;
-    const files = await readCanonicalFiles(canonicalRoot, type, this.warnings, userContentRoot);
-    const filtered = this.filterByAdapterScope(files);
+    const userContentRoot = ctx.userRepoRoot ? resolveUserContentRoot(ctx.userRepoRoot) : undefined;
+    const files = await readCanonicalFiles(ctx.canonicalRoot, type, this.warnings, userContentRoot);
+    const filtered = this.filterBySelection(
+      this.filterByAdapterScope(files),
+      this.selectionAllowlistFor(ctx),
+    );
     for (const f of filtered) {
       // `sourcePath` is an absolute filesystem path to the canonical file;
       // guarded against the rare test-fixture case where a synthesised
@@ -683,15 +802,18 @@ export abstract class BaseAdapter implements Adapter {
    * D20: User-tier artifacts additionally pass through
    * {@link filterByAdapterScope} so a user agent declaring
    * `adapters: [claude]` is dropped from every adapter except `claude`.
+   *
+   * D10-SA10.6-01: like {@link readTrackedCanonicalFiles}, the surviving
+   * canonical files pass through {@link filterBySelection} (ctx-first
+   * signature for the same manifest-access reason).
    */
   protected async readUserFacingCanonicalFiles(
-    canonicalRoot: string,
+    ctx: AdapterContext,
     type: "commands" | "agents",
-    userRepoRoot?: string,
   ): Promise<CanonicalFile[]> {
     // Wave 5: same `.hatch3r/overrides/` lookup as readTrackedCanonicalFiles.
-    const userContentRoot = userRepoRoot ? resolveUserContentRoot(userRepoRoot) : undefined;
-    const files = await readCanonicalFiles(canonicalRoot, type, this.warnings, userContentRoot);
+    const userContentRoot = ctx.userRepoRoot ? resolveUserContentRoot(ctx.userRepoRoot) : undefined;
+    const files = await readCanonicalFiles(ctx.canonicalRoot, type, this.warnings, userContentRoot);
     const expectedType = type === "commands" ? "command" : "agent";
     // `filterUserFacing` is keyed off `${canonicalRoot}/${type}` as the base
     // directory. User-tier files (read via an explicit userContentRoot, Wave
@@ -700,8 +822,11 @@ export abstract class BaseAdapter implements Adapter {
     // companion subdirectories like `commands/board/` and `agents/modes/`
     // are filtered out. User files then run through {@link filterByAdapterScope}
     // for the `adapters: [...]` opt-out.
-    const userFacing = filterUserFacing(files, expectedType, join(canonicalRoot, type));
-    const filtered = this.filterByAdapterScope(userFacing);
+    const userFacing = filterUserFacing(files, expectedType, join(ctx.canonicalRoot, type));
+    const filtered = this.filterBySelection(
+      this.filterByAdapterScope(userFacing),
+      this.selectionAllowlistFor(ctx),
+    );
     for (const f of filtered) {
       if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
     }
@@ -748,7 +873,7 @@ export abstract class BaseAdapter implements Adapter {
     // Rules without a `precedence` field fall back to "normal" rank, so
     // legacy fixtures keep their alphabetic order.
     const rules = sortByPrecedence(
-      await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot),
+      await this.readTrackedCanonicalFiles(ctx, "rules"),
     );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
@@ -783,7 +908,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<string[]> {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
-    const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+    const agents = await this.readUserFacingCanonicalFiles(ctx, "agents");
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       this.throwIfAborted(ctx);
@@ -840,7 +965,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
+    const skills = await this.readTrackedCanonicalFiles(ctx, "skills");
     for (const skill of skills) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
@@ -869,7 +994,7 @@ export abstract class BaseAdapter implements Adapter {
    * pipelines can reuse it directly.
    */
   protected async readCliFilteredSkills(ctx: AdapterContext): Promise<CanonicalFile[]> {
-    const all = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
+    const all = await this.readTrackedCanonicalFiles(ctx, "skills");
     const cliCfg = ctx.manifest.cliTools ?? { enabled: false, selected: [] as string[] };
     const selected = new Set(cliCfg.selected ?? []);
     return all.filter((skill) => {
@@ -973,7 +1098,7 @@ export abstract class BaseAdapter implements Adapter {
     // Filter out companion/reference content (shared-context, subdirectory
     // workflow steps like commands/board/pickup-*) so they do not appear
     // as user-invocable entries in the tool's command picker.
-    const commands = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "commands", ctx.userRepoRoot);
+    const commands = await this.readUserFacingCanonicalFiles(ctx, "commands");
     for (const cmd of commands) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
@@ -1031,7 +1156,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.commands) return [];
     const results: AdapterOutput[] = [];
-    const commands = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "commands", ctx.userRepoRoot);
+    const commands = await this.readUserFacingCanonicalFiles(ctx, "commands");
     for (const cmd of commands) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);

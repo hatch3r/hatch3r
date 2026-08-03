@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { BaseAdapter, output, KNOWN_COMPANION_SUBDIRS } from "../../adapters/base.js";
 import type { AdapterContext } from "../../adapters/base.js";
-import type { AdapterOutput, HatchManifest } from "../../types.js";
+import { buildSelectionAllowlist, classifySelection } from "../../content/index.js";
+import type { AdapterOutput, ContentSelection, HatchManifest } from "../../types.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
@@ -871,7 +872,7 @@ describe("BaseAdapter", () => {
         readonly name = "mid-loop-abort";
         protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
           // Read both rule fixtures, but abort the signal halfway.
-          const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules");
+          const rules = await this.readTrackedCanonicalFiles(ctx, "rules");
           for (const _rule of rules) {
             this.throwIfAborted(ctx);
             iterations += 1;
@@ -1401,11 +1402,7 @@ class AgentEnumAdapter extends BaseAdapter {
   doGenerateCalls = 0;
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     this.doGenerateCalls += 1;
-    const agents = await this.readUserFacingCanonicalFiles(
-      ctx.canonicalRoot,
-      "agents",
-      ctx.userRepoRoot,
-    );
+    const agents = await this.readUserFacingCanonicalFiles(ctx, "agents");
     return agents.map((a) => output(`agents/${a.id}.md`, `# ${a.id}\n`));
   }
 }
@@ -1527,5 +1524,370 @@ describe("customization probes resolve against the passed userRepoRoot, not cwd 
       await rm(dirWithCustomize, { recursive: true, force: true });
       await rm(dirWithoutCustomize, { recursive: true, force: true });
     }
+  });
+});
+
+// ── D10-SA10.6-01 (release/2.8.6): selection-allowlist emission filtering ──
+//
+// `manifest.content.items` is now an emission allowlist: `filterBySelection`
+// runs inside readTrackedCanonicalFiles / readUserFacingCanonicalFiles after
+// the adapter-scope filter, so a `hatch3r config` removal genuinely stops the
+// artifact emitting. `buildSelectionAllowlist` derives the per-class sets and
+// fails open (null → filter disabled) on absent content or an empty union.
+
+function makeSelection(items: Partial<ContentSelection["items"]>): ContentSelection {
+  return {
+    preset: "custom",
+    projectType: "brownfield",
+    teamSize: "solo",
+    items: {
+      agents: [],
+      skills: [],
+      rules: [],
+      commands: [],
+      prompts: [],
+      hooks: [],
+      githubAgents: [],
+      ...items,
+    },
+  };
+}
+
+describe("buildSelectionAllowlist (D10-SA10.6-01)", () => {
+  it("returns null when content is absent (legacy manifests: filter disabled)", () => {
+    expect(buildSelectionAllowlist(undefined)).toBeNull();
+  });
+
+  it("returns null when the union of every items array is empty (fail-open)", () => {
+    expect(buildSelectionAllowlist(makeSelection({}))).toBeNull();
+  });
+
+  it("builds per-class sets and leaves a missing/non-array class key unfiltered", () => {
+    const content = makeSelection({ agents: ["test-agent"], rules: ["test-rule"] });
+    // Simulate a hand-edited manifest: drop one class key entirely and
+    // corrupt another to a non-array.
+    delete (content.items as Partial<ContentSelection["items"]>).commands;
+    (content.items as unknown as Record<string, unknown>).skills = "not-an-array";
+    const allow = buildSelectionAllowlist(content);
+    expect(allow).not.toBeNull();
+    expect(allow!.agents).toEqual(new Set(["test-agent"]));
+    expect(allow!.rules).toEqual(new Set(["test-rule"]));
+    // Missing / non-array class keys carry NO set → class unfiltered.
+    expect(allow!.commands).toBeUndefined();
+    expect(allow!.skills).toBeUndefined();
+    // Present-but-empty classes DO carry an (empty) set — a real zero-selection.
+    expect(allow!.githubAgents).toEqual(new Set());
+  });
+
+  it("never carries a hooks entry (v1 asymmetry) while hooks ids still count toward the union", () => {
+    // A selection whose ONLY populated class is hooks: the union is non-empty
+    // (filter enabled) but the hooks class itself is never filtered — hook
+    // markdown feeds the settings/hooks.json config artifacts and the ASI02
+    // guard entries must not be droppable via a stale selection.
+    const allow = buildSelectionAllowlist(makeSelection({ hooks: ["pre-commit-lint-fixer"] }));
+    expect(allow).not.toBeNull();
+    expect(allow!.hooks).toBeUndefined();
+  });
+});
+
+describe("selection-allowlist filtering through the canonical readers (D10-SA10.6-01)", () => {
+  class SelectionProbeAdapter extends BaseAdapter {
+    readonly name = "selection-probe";
+    seen: Record<string, string[]> = {};
+    protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+      this.seen.rules = (await this.readTrackedCanonicalFiles(ctx, "rules")).map((f) => f.id);
+      this.seen.skills = (await this.readTrackedCanonicalFiles(ctx, "skills")).map((f) => f.id);
+      this.seen.githubAgents = (await this.readTrackedCanonicalFiles(ctx, "github-agents")).map((f) => f.id);
+      this.seen.agents = (await this.readUserFacingCanonicalFiles(ctx, "agents")).map((f) => f.id);
+      this.seen.commands = (await this.readUserFacingCanonicalFiles(ctx, "commands")).map((f) => f.id);
+      return [output("probe.md", "x")];
+    }
+  }
+
+  it("emits only selected ids per class; commands match via their cmd- selection form", async () => {
+    const adapter = new SelectionProbeAdapter();
+    const manifest = makeManifest({
+      content: makeSelection({
+        agents: ["test-agent"],
+        rules: ["scoped-rule"],
+        skills: ["test-skill"],
+        // Selection stores commands cmd-prefixed (applyCommandPrefix on
+        // catalog items); the adapter-side CanonicalFile.id is bare.
+        commands: ["cmd-test-command"],
+        githubAgents: ["test-gh-agent"],
+      }),
+    });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    expect(adapter.seen.agents).toEqual(["test-agent"]); // readonly-agent dropped
+    expect(adapter.seen.rules).toEqual(["scoped-rule"]); // test-rule dropped
+    // CLI-tooling skills are EXEMPT from the selection seam (review fix F1:
+    // governed by manifest.cliTools via readCliFilteredSkills, never
+    // double-gated by content.items) — the raw skills read keeps them; the
+    // non-cli test-skill is kept because it is selected.
+    expect(adapter.seen.skills).toEqual([
+      "hatch3r-cli-fd",
+      "hatch3r-cli-jq",
+      "hatch3r-cli-ripgrep",
+      "test-skill",
+    ]);
+    expect(adapter.seen.commands).toEqual(["test-command"]);
+    expect(adapter.seen.githubAgents).toEqual(["test-gh-agent"]);
+    // A selection-configured full-class read carries no fail-open warning.
+    expect(adapter.warnings.filter((w) => w.includes("selection"))).toEqual([]);
+  });
+
+  it("drops a command whose cmd- selection entry is absent", async () => {
+    const adapter = new SelectionProbeAdapter();
+    const manifest = makeManifest({
+      content: makeSelection({
+        agents: ["test-agent"],
+        commands: ["cmd-some-other-command"],
+      }),
+    });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    expect(adapter.seen.commands).toEqual([]);
+  });
+
+  it("tolerates legacy bare selection ids (no cmd-/hatch3r- prefix)", async () => {
+    const adapter = new SelectionProbeAdapter();
+    const manifest = makeManifest({
+      content: makeSelection({
+        agents: ["test-agent"],
+        // Legacy form: un-cmd-prefixed command id. (The bare-id skill case
+        // is exercised at the isIdInSelection level via customizationSummary
+        // tests — the fixture's only hatch3r-prefixed skills are the
+        // hatch3r-cli-* set, which is exempt from this seam per review fix
+        // F1, so it cannot demonstrate skill bare-id tolerance here.)
+        commands: ["test-command"],
+      }),
+    });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    expect(adapter.seen.commands).toEqual(["test-command"]);
+  });
+
+  it("CLI-tooling skills compose with manifest.cliTools, never the content selection (review fix F1)", async () => {
+    // The reviewer's reproduction: a custom selection that lists NO
+    // hatch3r-cli-* id (config/cli-tools flows never write them into
+    // content.items) plus an enabled cliTools pick. The selection seam must
+    // keep the cli class untouched so readCliFilteredSkills — the class's
+    // own selection surface — decides alone.
+    class CliFilteredProbe extends BaseAdapter {
+      readonly name = "cli-filtered-probe";
+      seen: string[] = [];
+      protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+        this.seen = (await this.readCliFilteredSkills(ctx)).map((f) => f.id);
+        return [output("probe.md", "x")];
+      }
+    }
+    const adapter = new CliFilteredProbe();
+    const manifest = makeManifest({
+      content: makeSelection({ skills: ["test-skill"] }),
+      cliTools: { enabled: true, selected: ["jq"] },
+    });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    // jq survives BOTH gates (cliTools selects it; selection exempts it);
+    // fd/ripgrep are dropped by the cliTools filter alone; test-skill is
+    // selection-kept.
+    expect(adapter.seen).toEqual(["hatch3r-cli-jq", "test-skill"]);
+  });
+
+  it("emits everything when manifest.content is absent (filter disabled, no warning)", async () => {
+    const adapter = new SelectionProbeAdapter();
+    await adapter.generate(FIXTURES_DIR, makeManifest());
+    expect(adapter.seen.agents).toEqual(expect.arrayContaining(["test-agent", "readonly-agent"]));
+    expect(adapter.seen.rules).toEqual(expect.arrayContaining(["scoped-rule", "test-rule"]));
+    expect(adapter.seen.commands).toEqual(["test-command"]);
+    expect(adapter.warnings.filter((w) => w.includes("selection filtering"))).toEqual([]);
+  });
+
+  it("fails open with ONE warning when content is present but the selection union is empty", async () => {
+    const adapter = new SelectionProbeAdapter();
+    const manifest = makeManifest({ content: makeSelection({}) });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    // Full emission (the empty-union legacy/workspace shape must not emit nothing).
+    expect(adapter.seen.agents).toEqual(expect.arrayContaining(["test-agent", "readonly-agent"]));
+    expect(adapter.seen.rules).toEqual(expect.arrayContaining(["scoped-rule", "test-rule"]));
+    // Exactly one fail-open warning despite five reader calls (lazy memo).
+    const warnings = adapter.warnings.filter((w) => w.includes("selection filtering is disabled"));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("a class with a present-but-empty array (non-empty union elsewhere) emits only protected items of that class", async () => {
+    const adapter = new SelectionProbeAdapter();
+    const manifest = makeManifest({
+      content: makeSelection({ agents: ["test-agent"] }), // rules: [] with a non-empty union
+    });
+    await adapter.generate(FIXTURES_DIR, manifest);
+    expect(adapter.seen.rules).toEqual([]); // no fixture rule is protected
+    expect(adapter.seen.agents).toEqual(["test-agent"]);
+  });
+
+  it("protected artifacts bypass the filter and warn when missing from the selection", async () => {
+    // The shipped fixtures carry no protected artifact, so stage a canonical
+    // root with one protected and one plain agent.
+    const canonicalRoot = await mkdtemp(join(tmpdir(), "hatch3r-selection-protected-"));
+    try {
+      await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "agents", "protected-agent.md"),
+        "---\nid: protected-agent\ntype: agent\ndescription: A protected fixture agent\nprotected: true\n---\n# Protected\n",
+      );
+      await writeFile(
+        join(canonicalRoot, "agents", "plain-agent.md"),
+        "---\nid: plain-agent\ntype: agent\ndescription: A plain fixture agent\n---\n# Plain\n",
+      );
+      const adapter = new SelectionProbeAdapter();
+      const manifest = makeManifest({
+        // Selection names ONLY the plain agent — the protected one is absent
+        // (a state only a hand-edited manifest can produce; resolveSelection
+        // admits protected ids unconditionally).
+        content: makeSelection({ agents: ["plain-agent"] }),
+      });
+      await adapter.generate(canonicalRoot, manifest);
+      expect(adapter.seen.agents).toEqual(expect.arrayContaining(["plain-agent", "protected-agent"]));
+      const protectedWarnings = adapter.warnings.filter(
+        (w) => w.includes('protected artifact "protected-agent"') && w.includes("items.agents"),
+      );
+      expect(protectedWarnings).toHaveLength(1);
+    } finally {
+      await rm(canonicalRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("user-tier artifacts skip the selection filter (adapter-scope governs them)", async () => {
+    const userRoot = await mkdtemp(join(tmpdir(), "hatch3r-selection-user-"));
+    try {
+      await seedUserAgentFile(userRoot, "user-extra");
+      const adapter = new SelectionProbeAdapter();
+      const manifest = makeManifest({
+        // Selection names only the canonical test-agent; the user-tier id is
+        // NOT in the selection (content.items tracks canonical ids only) and
+        // must still emit.
+        content: makeSelection({ agents: ["test-agent"] }),
+      });
+      await adapter.generate(FIXTURES_DIR, manifest, userRoot);
+      expect(adapter.seen.agents).toEqual(expect.arrayContaining(["test-agent", "user-extra"]));
+      expect(adapter.seen.agents).not.toContain("readonly-agent");
+    } finally {
+      await rm(userRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── sec-2.8.6-b2-p4 / test-2.8.6-b2-p4: Phase-4 validation additions ──
+
+describe("floor:security drop escalation (sec-2.8.6-b2-p4 #5)", () => {
+  it("warns when a selection-dropped rule carries floor:security (still dropped — selection trusted)", async () => {
+    const canonicalRoot = await mkdtemp(join(tmpdir(), "hatch3r-floor-sec-"));
+    try {
+      await mkdir(join(canonicalRoot, "rules"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "rules", "hatch3r-sec-floor-rule.md"),
+        "---\nid: hatch3r-sec-floor-rule\ntype: rule\ndescription: A security-floor fixture rule\ntags: [floor:security]\n---\n# Sec floor\n",
+      );
+      await writeFile(
+        join(canonicalRoot, "rules", "hatch3r-plain-rule.md"),
+        "---\nid: hatch3r-plain-rule\ntype: rule\ndescription: A plain fixture rule\n---\n# Plain\n",
+      );
+      class RulesProbe extends BaseAdapter {
+        readonly name = "rules-probe";
+        seen: string[] = [];
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          this.seen = (await this.readTrackedCanonicalFiles(ctx, "rules")).map((f) => f.id);
+          return [output("probe.md", "x")];
+        }
+      }
+      const adapter = new RulesProbe();
+      const manifest = makeManifest({
+        // Selection keeps only the plain rule — the floor:security rule is
+        // dropped (hand-edited state; resolveSelection admits floor content).
+        content: makeSelection({ rules: ["hatch3r-plain-rule"] }),
+      });
+      await adapter.generate(canonicalRoot, manifest);
+      // Dropped, not bypassed: the selection is trusted.
+      expect(adapter.seen).toEqual(["hatch3r-plain-rule"]);
+      // Escalated to a warning-level diagnostic naming the artifact + tag.
+      const escalations = adapter.warnings.filter(
+        (w) => w.includes('security-floor artifact "hatch3r-sec-floor-rule"') && w.includes("floor:security"),
+      );
+      expect(escalations).toHaveLength(1);
+    } finally {
+      await rm(canonicalRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("selection filter provenance ordering (test-2.8.6-b2-p4 #6)", () => {
+  it("a selection-dropped rule never enters the tracked sourceFiles set", async () => {
+    class RulesProvenanceProbe extends BaseAdapter {
+      readonly name = "rules-provenance-probe";
+      protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+        await this.readTrackedCanonicalFiles(ctx, "rules");
+        // Aggregate output with no self-attribution — inherits the tracked set.
+        return [output("agg.md", "aggregate")];
+      }
+    }
+    const adapter = new RulesProvenanceProbe();
+    const manifest = makeManifest({
+      content: makeSelection({ rules: ["scoped-rule"] }),
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const sources = outputs[0]?.sourceFiles ?? [];
+    // The filter runs BEFORE provenance tracking, so the dropped rule's
+    // sourcePath never reaches the adapter-wide tracked set.
+    expect(sources.some((s) => s.endsWith("scoped-rule.md"))).toBe(true);
+    expect(sources.some((s) => s.endsWith("test-rule.md"))).toBe(false);
+  });
+});
+
+describe("classifySelection unit table (test-2.8.6-b2-p4 #9)", () => {
+  const allow = buildSelectionAllowlist(
+    makeSelection({ agents: ["kept-agent"], skills: ["kept-skill"], commands: ["cmd-kept-command"] }),
+  );
+
+  const cases: Array<{
+    name: string;
+    file: { id: string; type: string; source?: "canonical" | "user"; protected?: boolean };
+    expected: "keep" | "drop" | "keep-protected-missing";
+  }> = [
+    { name: "user-tier file keeps regardless of membership", file: { id: "anything", type: "agent", source: "user" }, expected: "keep" },
+    { name: "cli-tooling skill keeps (own cliTools surface)", file: { id: "hatch3r-cli-jq", type: "skill" }, expected: "keep" },
+    { name: "type without a selection key keeps (!key arm)", file: { id: "accessibility", type: "check" }, expected: "keep" },
+    { name: "selected plain member keeps", file: { id: "kept-agent", type: "agent" }, expected: "keep" },
+    { name: "non-member plain file drops", file: { id: "other-agent", type: "agent" }, expected: "drop" },
+    { name: "command matches via its cmd- selection form", file: { id: "kept-command", type: "command" }, expected: "keep" },
+    { name: "protected member keeps plainly", file: { id: "kept-agent", type: "agent", protected: true }, expected: "keep" },
+    { name: "protected non-member keeps with the missing marker", file: { id: "other-agent", type: "agent", protected: true }, expected: "keep-protected-missing" },
+  ];
+
+  for (const c of cases) {
+    it(c.name, () => {
+      expect(classifySelection(c.file, allow)).toBe(c.expected);
+    });
+  }
+
+  it("null allowlist keeps everything", () => {
+    expect(classifySelection({ id: "anything", type: "agent" }, null)).toBe("keep");
+  });
+});
+
+describe("buildSelectionAllowlist degenerate shapes (test-2.8.6-b2-p4 #9)", () => {
+  it("returns null for a non-object content value", () => {
+    expect(buildSelectionAllowlist("full" as unknown as ContentSelection)).toBeNull();
+  });
+
+  it("returns null when items is a non-object", () => {
+    const content = makeSelection({});
+    (content as unknown as Record<string, unknown>).items = "everything";
+    expect(buildSelectionAllowlist(content)).toBeNull();
+  });
+
+  it("filters non-string entries out of the per-class sets", () => {
+    const content = makeSelection({ agents: ["real-agent"] });
+    (content.items as unknown as Record<string, unknown>).rules = [42, null, "real-rule", { id: "x" }];
+    const allow = buildSelectionAllowlist(content);
+    expect(allow).not.toBeNull();
+    expect(allow!.rules).toEqual(new Set(["real-rule"]));
+    expect(allow!.agents).toEqual(new Set(["real-agent"]));
   });
 });

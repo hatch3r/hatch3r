@@ -1423,14 +1423,16 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
  * let the immediately-following regenerate re-render the gate tokens from the
  * live set. Bypassed with `--no-redetect`.
  *
- * Scope note (Decision 16, "dial not gate"): the per-item tracked selection
- * (`manifest.content.items`) is NOT a generate-time content filter — every
- * preset already admits the full corpus, so adapters emit every `lang:*`-tagged
- * rule to every repo regardless of detected languages (see
- * `src/adapters/base.ts::readTrackedCanonicalFiles`, which filters only by
- * adapter-scope / user-facing rules). The load-bearing staleness is therefore
- * the manifest's `languages` field, not the item selection — so this refreshes
- * exactly that field and does not mutate `content.items`.
+ * Scope note (updated for D10-SA10.6-01, release/2.8.6): the per-item tracked
+ * selection (`manifest.content.items`) IS now a generate-time emission
+ * allowlist (`src/adapters/base.ts::filterBySelection`), so `lang:*`-tagged
+ * rules a language-filtered selection excluded genuinely stop emitting. This
+ * function still refreshes only `manifest.languages` and never mutates
+ * `content.items`: the selection itself is re-resolved by the separate
+ * `content-selection-refresh` migration checkpoint (2.8.5) whenever the
+ * recorded hatch3rVersion differs, and the checkpoint re-applies the stored
+ * language set — the refreshed `languages` field feeds both the
+ * `${HATCH3R:VERIFY_GATE_*}` token rendering AND that later re-resolution.
  *
  * Why a focused {@link detectLanguages} probe and not {@link analyzeRepo}:
  * `analyzeRepo` runs ~12 detection probes in parallel; `update` only needs the
