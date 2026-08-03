@@ -126,6 +126,27 @@ describe("setup command", () => {
     );
   });
 
+  // release/2.8.6: the pre-flight auto-update re-exec must re-enter `setup .`
+  // (the already-scaffolded, chdir'd-into directory), NOT replay the original
+  // positional — an inherited-cwd replay of `setup proj` would scaffold a
+  // nested proj/proj. `--remote` is dropped (the remote already ran in this
+  // parent); the flag set otherwise mirrors the invocation.
+  it("passes a `setup .`-shaped reExecArgv override (positional rewritten, --remote dropped) to the chained init", async () => {
+    await setupCommand("proj", {
+      tools: "claude",
+      preset: "minimal",
+      remote: true,
+      verbose: true,
+    });
+
+    const forwarded = vi.mocked(initCommand).mock.calls[0]?.[0] as {
+      reExecArgv?: readonly string[];
+    };
+    expect(forwarded.reExecArgv).toEqual([
+      "setup", ".", "--tools", "claude", "--preset", "minimal", "--verbose",
+    ]);
+  });
+
   it("uses the current directory when the cwd is empty and no [dir] is given", async () => {
     await setupCommand(undefined, { yes: true });
 

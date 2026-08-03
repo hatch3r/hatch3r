@@ -79,3 +79,75 @@ describe("checkForUpdates", () => {
     expect(() => checkForUpdates()).not.toThrow();
   });
 });
+
+// release/2.8.6: awaited live probe backing the init pre-flight auto-update
+// (src/cli/shared/initUpdateCheck.ts). Contract under test: resolves the
+// update-notifier fetchInfo() payload, bounded by a hard timeout, and returns
+// null on EVERY failure mode so the caller is structurally fail-open.
+describe("fetchLatestUpdateInfo", () => {
+  const FETCHED = { latest: "9.9.9", current: "1.0.0", type: "major", name: "hatch3r" };
+
+  beforeEach(() => {
+    updateNotifierMock.mockReset();
+    vi.resetModules();
+  });
+
+  it("resolves the fetched info; the notifier instance is armed never to spawn a second background probe", async () => {
+    const fetchInfo = vi.fn().mockResolvedValue(FETCHED);
+    updateNotifierMock.mockReturnValue({ fetchInfo });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo()).resolves.toEqual(FETCHED);
+    const opts = updateNotifierMock.mock.calls[0]?.[0] as {
+      pkg: { name: string }; updateCheckInterval: number; shouldNotifyInNpmScript: boolean;
+    };
+    expect(opts.pkg.name).toBe("hatch3r");
+    // MAX_SAFE_INTEGER interval keeps the constructor-time check() from
+    // spawning a detached child alongside checkForUpdates()'s own probe.
+    expect(opts.updateCheckInterval).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("supports the declared sync (non-promise) fetchInfo return shape", async () => {
+    updateNotifierMock.mockReturnValue({ fetchInfo: vi.fn().mockReturnValue(FETCHED) });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo()).resolves.toEqual(FETCHED);
+  });
+
+  it("returns null when the notifier constructor throws (configstore permissions)", async () => {
+    updateNotifierMock.mockImplementation(() => {
+      throw new Error("EACCES: ~/.config/configstore");
+    });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo()).resolves.toBeNull();
+  });
+
+  it("returns null when fetchInfo throws SYNCHRONOUSLY (review-2.8.6-r1 F4 — the declared non-promise return shape makes a sync throw reachable)", async () => {
+    updateNotifierMock.mockReturnValue({
+      fetchInfo: vi.fn(() => {
+        throw new Error("sync explosion before any promise exists");
+      }),
+    });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo()).resolves.toBeNull();
+  });
+
+  it("returns null when fetchInfo rejects (network error) without leaking an unhandled rejection", async () => {
+    updateNotifierMock.mockReturnValue({
+      fetchInfo: vi.fn().mockRejectedValue(new Error("ENOTFOUND registry.npmjs.org")),
+    });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo()).resolves.toBeNull();
+  });
+
+  it("returns null when fetchInfo exceeds the timeout (never blocks init on a slow registry)", async () => {
+    updateNotifierMock.mockReturnValue({
+      fetchInfo: vi.fn().mockReturnValue(new Promise(() => { /* never settles */ })),
+    });
+    const { fetchLatestUpdateInfo } = await import("../../../cli/shared/updateNotifier.js");
+    await expect(fetchLatestUpdateInfo(20)).resolves.toBeNull();
+  });
+
+  it("exports a 3s default cap (the inline-on-init budget)", async () => {
+    const { FETCH_INFO_TIMEOUT_MS } = await import("../../../cli/shared/updateNotifier.js");
+    expect(FETCH_INFO_TIMEOUT_MS).toBe(3_000);
+  });
+});

@@ -39,6 +39,14 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Solution:** Run `npx hatch3r sync` to regenerate tool outputs from the existing canonical source. Use `npx hatch3r update` to pull the latest hatch3r templates.
 
+### Init pauses on an update prompt (pre-flight auto-update)
+
+**Symptom:** Interactive `init` (or `setup`) asks `hatch3r X.Y.Z is available (you're running A.B.C). Update now so init generates current content?` before the usual prompts.
+
+**Cause:** Since v2.8.6, interactive init probes the npm registry (3-second cap) and offers a one-confirm self-update (default: Yes) so generation uses current canonical content. The offer only ever moves forward: when the version you are running is ahead of the registry's `latest` (a prerelease build, or a dist-tag rolled back on the registry), no prompt appears — downgrades are never offered. Accepting updates through the same machinery as `hatch3r update` (including the `npm audit signatures` verification) and relaunches init with your original flags; declining continues with the installed version. npx runs cannot self-update in place (the npx cache is read-only) — init prints the `npx hatch3r@latest init` escape hatch and asks whether to continue with the cached version (default: continue). Network problems never block init: a registry timeout, a failed install, or a failed relaunch all fall back to running init on the current version with at most a one-line warning. One exception: when the freshly-installed package fails the `npm audit signatures` verification, init halts with exit 73 instead of falling back — npm has already replaced the package on disk at that point, so continuing would leave an unverifiable hatch3r installed. The error names both recovery paths: roll back to your previous version (`npm install -g hatch3r@<previous>`, or `npm install hatch3r@<previous>` for a project-local install), or verify the package out-of-band and accept it explicitly with `hatch3r update --skip-audit-signatures`. Note the audit verifies what the environment allows: a global install directory without a package lockfile makes npm report `found no installed dependencies to audit`, which degrades to a warning and proceeds (the same `runSelfUpdate` semantics as `hatch3r update`) — the exit-73 hard stop fires on a failed verification, not on an unverifiable environment. The check is skipped automatically in CI, on headless runs (`--yes`/`--quick`/`--default`), on `--resume`, on `--dry-run` (an accepted update would install a package and relaunch — both real side effects), without a TTY, when `.hatch3r/hatch.json` carries a `versionConstraint` pin (a pin means "do not move"; clear it with `hatch3r update --pin-version latest`), when the update-notifier opt-outs are active (`NO_UPDATE_NOTIFIER` env or `--no-update-notifier` flag), and in dev-source checkouts.
+
+**Solution (to skip it explicitly):** pass the global `--no-update-check` flag (`npx hatch3r --no-update-check init`) or set `HATCH3R_NO_UPDATE_CHECK=1`. Both also silence the passive "Update available" exit-time banner.
+
 ### Invalid tool(s): `Invalid tool(s): xyz`
 
 **Symptom:** Error when passing `--tools` to init, e.g. `npx hatch3r init --tools invalid-tool`.
@@ -183,6 +191,16 @@ See [mcp-setup.md](mcp-setup.md#github-pat-scopes) for detailed scope guidance.
 ## Board Commands
 
 Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `board-refresh`) use the GitHub API and Projects V2. Common issues:
+
+### Board commands absent after init ("skill not found")
+
+**Symptom:** Board commands/skills are not in your selection after `hatch3r init`, even with the `full` profile.
+
+**Cause:** Board workflows carry the `ctx:team-only` tag, and the selection filter excludes non-floor team-only items when team size resolves to `solo` (interactive init infers team size from distinct git commit authors; headless `--yes` defaults to `solo`). The init summary discloses the excluded items for a solo `full` install.
+
+**Solution:** Either lever re-resolves the selection, reports the added items, and regenerates the tool outputs so the new items land on disk:
+- Re-run `hatch3r init --team-size team`, or
+- Run `hatch3r config team_size=team` (also available as the team-size step in interactive `hatch3r config`).
 
 ### GraphQL or permission failures
 
