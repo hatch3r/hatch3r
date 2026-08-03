@@ -121,6 +121,8 @@ Before declaring the turn complete, verify every item — a failed item is the i
 - [ ] No inline orchestrator edits; all mutations attributed to a delegated sub-agent.
 - [ ] Attestation block emitted before the Iteration Summary with verbatim `delegation_proof_id`s.
 - [ ] `sub_agents_spawned` count + rationale + task_structure present.
+- [ ] Completion Ledger emitted at flow end — done/deferred/blocked per scope item with N-of-M totals per `rules/hatch3r-iteration-summary.md` → Completion Ledger.
+- [ ] On <100% completion, the single bundled disposition ASK fired (continue now / keep deferred (default) / queue-or-handoff / stop) or the non-interactive default was recorded; at 100% the ledger line emitted with NO ask.
 
 ## References
 

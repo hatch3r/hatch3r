@@ -2966,3 +2966,76 @@ You are a control agent.`,
     }
   });
 });
+
+// ── D10-SA10.6-01 (release/2.8.6): manifest.content.items is an emission
+// allowlist. A selection subset drops the non-selected artifacts from every
+// per-file surface while companions and the absent-content full emission are
+// untouched. Reader-level unit coverage lives in base.test.ts; this suite pins
+// the Claude output-path surface.
+describe("ClaudeAdapter selection allowlist (D10-SA10.6-01)", () => {
+  const adapter = new ClaudeAdapter();
+
+  function selectionManifest(items: Partial<{
+    agents: string[]; skills: string[]; rules: string[]; commands: string[];
+    prompts: string[]; hooks: string[]; githubAgents: string[];
+  }>): HatchManifest {
+    return createManifest({
+      tools: ["claude"],
+      content: {
+        preset: "custom",
+        projectType: "brownfield",
+        teamSize: "solo",
+        items: {
+          agents: [], skills: [], rules: [], commands: [],
+          prompts: [], hooks: [], githubAgents: [],
+          ...items,
+        },
+      },
+    });
+  }
+
+  it("emits only the selected subset per class (commands via their cmd- selection form) and keeps companions", async () => {
+    const manifest = selectionManifest({
+      agents: ["test-agent"],
+      rules: ["scoped-rule"],
+      skills: ["test-skill"],
+      commands: ["cmd-test-command"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const paths = outputs.map((o) => o.path);
+    const pathSet = new Set(paths);
+
+    // Selected artifacts emit at their per-file paths.
+    expect(pathSet.has(".claude/agents/hatch3r-test-agent.md")).toBe(true);
+    expect(paths.some((p) => /^\.claude\/rules\/\d{2}-hatch3r-scoped-rule\.md$/.test(p))).toBe(true);
+    expect(pathSet.has(".claude/skills/hatch3r-test-skill/SKILL.md")).toBe(true);
+    expect(pathSet.has(".claude/commands/hatch3r-test-command.md")).toBe(true);
+
+    // Non-selected artifacts of each class are genuinely absent.
+    expect(paths.some((p) => p.includes("hatch3r-readonly-agent"))).toBe(false);
+    expect(paths.some((p) => /rules\/\d{2}-hatch3r-test-rule\.md$/.test(p))).toBe(false);
+
+    // Companion subtrees bypass the selection seam (processCompanionSubdir).
+    expect(pathSet.has(".claude/agents/modes/fake-mode.md")).toBe(true);
+    expect(pathSet.has(".claude/agents/shared/fake-reference.md")).toBe(true);
+    expect(pathSet.has(".claude/commands/board/pickup-fake.md")).toBe(true);
+  });
+
+  it("a deselected command disappears from the picker directory (empty commands array, non-empty union)", async () => {
+    const manifest = selectionManifest({ agents: ["test-agent"] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const topLevelCommands = outputs
+      .map((o) => o.path)
+      .filter((p) => /^\.claude\/commands\/[^/]+\.md$/.test(p));
+    expect(topLevelCommands.some((p) => p.includes("hatch3r-test-command"))).toBe(false);
+  });
+
+  it("absent manifest.content keeps the full pre-2.8.6 emission", async () => {
+    const outputs = await adapter.generate(FIXTURES_DIR, createManifest({ tools: ["claude"] }));
+    const pathSet = new Set(outputs.map((o) => o.path));
+    expect(pathSet.has(".claude/agents/hatch3r-test-agent.md")).toBe(true);
+    expect(pathSet.has(".claude/agents/hatch3r-readonly-agent.md")).toBe(true);
+    expect(pathSet.has(".claude/commands/hatch3r-test-command.md")).toBe(true);
+    expect(pathSet.has(".claude/skills/hatch3r-test-skill/SKILL.md")).toBe(true);
+  });
+});

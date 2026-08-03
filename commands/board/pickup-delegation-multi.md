@@ -94,7 +94,7 @@ For each dependency level, starting at Level 1:
    - **When worktree isolation was active for this level** (Step 6c.3-iso, applied per the 6b.3 note): integrate each scratch worktree's file diff back onto the branch via the Step 6b.4 conflict-resolution step, then run `npx hatch3r worktree-cleanup --yes` before advancing.
    - If sub-agents modified overlapping files (or the isolated integration above surfaced an overlap Step 3 missed), review for conflicts and resolve before proceeding.
 
-5. **Advance to the next dependency level.** Repeat steps 1-4 until all levels are complete.
+5. **Advance to the next dependency level.** Before advancing, update the cumulative Completion Ledger totals — `sub-issues: done <a> · deferred <b> · blocked <c> (<a>/<N>)` per `rules/hatch3r-iteration-summary.md` → Completion Ledger (cumulative form) — so completion state never washes out mid-run. Repeat steps 1-4 until all levels are complete.
 
 ### 6b.4. Post-Delegation Verification
 
@@ -193,7 +193,7 @@ For each dependency level, starting at Level 1:
    - **When worktree isolation was active for this level** (Step 6c.3-iso): integrate each scratch worktree's file diff back onto the batch branch via the Step 6c.4 file-conflict resolution protocol, then run `npx hatch3r worktree-cleanup --yes` to remove the worktrees and prune their throwaway branches before advancing (6c.3-iso step 3).
    - If sub-agents modified overlapping files (or the isolated integration above surfaced an overlap Step 3 missed), review for conflicts and resolve before proceeding.
 
-5. **Advance to the next dependency level.** Repeat steps 1-4 until all levels are complete.
+5. **Advance to the next dependency level.** Before advancing, update the cumulative Completion Ledger totals — `sub-issues: done <a> · deferred <b> · blocked <c> (<a>/<N>)` per `rules/hatch3r-iteration-summary.md` → Completion Ledger (cumulative form) — so completion state never washes out mid-run. Repeat steps 1-4 until all levels are complete.
 
 ### 6c.4. Post-Batch Verification
 

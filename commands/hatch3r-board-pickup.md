@@ -388,7 +388,7 @@ board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issu
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 37; Replaces: 28).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 41; lineage 28 → 37 → 38). Epic (Step 6b) and batch (Step 6c) runs maintain the cumulative Completion Ledger across dependency levels — re-emit the updated `sub-issues: done <a> · deferred <b> · blocked <c> (<a>/<N>)` totals at each level boundary and at the Step 9 continuation ASK — and close with the run-level ledger + disposition gate per `rules/hatch3r-iteration-summary.md` → Completion Ledger.
 
 ### Cost Visibility (Decision 29)
 

@@ -483,32 +483,47 @@ export function splitAfterManagedBlock(
 /**
  * True when {@link prefix} — the out-of-block slice BEFORE a managed block —
  * carries no user-authored content, so the sync-side stub heal may replace it
- * with the freshly generated prefix:
+ * with the freshly generated prefix (and, since D10-SA10.6-01, the orphan
+ * sweep may treat it as hatch3r-owned when gating a deletion):
  *
  *   1. Whitespace-only (files written before the byte-0 frontmatter stub
  *      existed have the BEGIN marker at byte 0), or
- *   2. EXACTLY one leading YAML frontmatter block — an opening `---` line,
- *      any interior lines, the first subsequent `---` line — followed by
- *      nothing but whitespace. That is precisely the shape the generated
- *      picker stub uses (`BaseAdapter.processCommandsWithFm` /
- *      `processSkillsWithFmCliFiltered`), so a prefix of this shape is a
- *      generated (possibly stale) stub owned by hatch3r. Hand customization
- *      belongs in `.hatch3r/{type}/{id}.customize.yaml` — including
- *      `description:` overrides — never in the stub itself.
+ *   2. EXACTLY one leading YAML frontmatter block whose fence lines are
+ *      EXACTLY `---` at column 0 — the opening fence on the FIRST line (no
+ *      blank lines before it), any interior lines, the first subsequent
+ *      column-0 `---` line — followed by nothing but whitespace. That is
+ *      byte-precisely the shape the generated picker stub uses
+ *      (`BaseAdapter.processCommandsWithFm` /
+ *      `processSkillsWithFmCliFiltered` emit `---\n…\n---\n\n` at byte 0 and
+ *      never pad, indent, or blank-line-prefix a fence), so a prefix of this
+ *      shape is a generated (possibly stale) stub owned by hatch3r. Hand
+ *      customization belongs in `.hatch3r/{type}/{id}.customize.yaml` —
+ *      including `description:` overrides — never in the stub itself.
+ *
+ * sec-2.8.6-b2-p4 tightening: padded/indented fence look-alikes (`  ---`,
+ * `--- `, a blank line before the opening fence) no longer qualify — since
+ * this predicate also gates orphan-sweep deletions, acceptance is pinned to
+ * hatch3r's emitted byte shape and everything looser is treated as user
+ * content. Interior lines between the fences are never inspected, including
+ * padded `---` look-alikes. A lone trailing `\r` per line is stripped before
+ * the exact comparison: a CRLF working tree (git autocrlf) re-encodes the
+ * same generated stub with CRLF endings, and a bare `\r` cannot smuggle
+ * content.
  *
  * Anything else (prose, an unterminated `---` fence, content after the
  * closing fence) is user content and the caller must preserve it verbatim.
  */
 export function isHealableManagedPrefix(prefix: string): boolean {
   if (prefix.trim() === "") return true;
-  const lines = prefix.split("\n");
-  let i = 0;
-  while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
-  if (i >= lines.length || (lines[i] ?? "").trim() !== "---") return false;
-  // The first later line that trims to exactly `---` closes the frontmatter
-  // block (matching how editors and FRONTMATTER_REGEX consumers read it).
-  let close = i + 1;
-  while (close < lines.length && (lines[close] ?? "").trim() !== "---") close++;
+  const lines = prefix
+    .split("\n")
+    .map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
+  // Opening fence: exactly `---` on the FIRST line — column 0, no padding,
+  // no leading blank lines (the generated stub starts at byte 0).
+  if (lines[0] !== "---") return false;
+  // Closing fence: the first later line that is exactly `---` at column 0.
+  let close = 1;
+  while (close < lines.length && lines[close] !== "---") close++;
   if (close >= lines.length) return false; // unterminated — user content
   for (let k = close + 1; k < lines.length; k++) {
     if ((lines[k] ?? "").trim() !== "") return false; // trailing user content

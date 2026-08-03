@@ -509,7 +509,7 @@ export class CopilotAdapter extends BaseAdapter {
       // every canonical rule consumed here is recorded in
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field.
-      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
+      const rules = await this.readTrackedCanonicalFiles(ctx, "rules");
       // Wave B3: sort by precedence so both the inlined always-rules (in
       // copilot-instructions.md) and the per-file scoped-rules are emitted
       // in priority order. Always-rules are concatenated into a single file,
@@ -666,7 +666,7 @@ jobs:
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      const agents = await this.readUserFacingCanonicalFiles(ctx, "agents");
       // release/2.7.0: class-word emission posture. `"native"` (default when
       // absent) maps classes through COPILOT_TIER_MODEL_MAP; `"conservative"`
       // restores the pre-2.7.0 omit posture. `models.tiers` pins are honored
@@ -816,7 +816,9 @@ jobs:
     // narrow case that needs them.
     if (ctx.features.githubAgents && !ctx.features.agents) {
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
-      const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
+      // D10-SA10.6-01: github-agents ride the selection seam like every other
+      // reader-routed class ("github-agents" ↔ manifest.content.items.githubAgents).
+      const ghAgents = await this.readTrackedCanonicalFiles(ctx, "github-agents");
       for (const agent of ghAgents) {
         // D5-39 (Cycle 11 Wave 3, D5, P6): NORMALIZE the github-agent
         // frontmatter instead of shipping the authored fence verbatim. The

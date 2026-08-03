@@ -195,6 +195,34 @@ async function resolveTargetName(
   return dirName.trim();
 }
 
+/**
+ * release/2.8.6: child argv for the pre-flight auto-update re-exec
+ * (`maybeSelfUpdateBeforeInit` via the chained `initCommand`). By the time
+ * the check runs, setup has already scaffolded the target directory and
+ * `process.chdir`'d into it — so the re-exec re-enters `setup .` (the current
+ * directory, which the emptiness guard accepts: it holds only `.git` plus
+ * ignored metadata at this point) rather than replaying the original
+ * positional, which would scaffold a nested `<dir>/<dir>` from the inherited
+ * cwd. `--remote` is dropped deliberately: the remote was already created (or
+ * warned about) in this parent run, and replaying `gh repo create` against an
+ * existing repo would only add failure noise. `--dry-run` never reaches the
+ * chain (dry runs return before `initCommand`).
+ */
+function buildSetupReExecArgv(opts: SetupOptions): string[] {
+  const args: string[] = ["setup", "."];
+  if (opts.tools) args.push("--tools", opts.tools);
+  if (opts.preset) args.push("--preset", opts.preset);
+  if (opts.maturity) args.push("--maturity", opts.maturity);
+  // Defensive completeness: a headless run skips the update check entirely,
+  // so --yes never reaches a re-exec in practice — but a forwarded flag set
+  // must stay faithful to the invocation it mirrors.
+  if (opts.yes === true) args.push("--yes");
+  if (opts.quiet === true) args.push("--quiet");
+  if (opts.format) args.push("--format", opts.format);
+  if (opts.verbose === true) args.push("--verbose");
+  return args;
+}
+
 export async function setupCommand(
   dir: string | undefined,
   opts: SetupOptions = {},
@@ -347,5 +375,11 @@ export async function setupCommand(
     quiet: opts.quiet,
     format: opts.format,
     verbose: opts.verbose,
+    // F-SEC-03 (sec-2.8.6-p4): setup's own --dry-run early-returns before
+    // this chain, so the thread-through is defense-in-depth — if that early
+    // return ever moves, the pre-flight update skip still holds.
+    dryRun: opts.dryRun,
+    // Pre-flight auto-update re-exec override — see buildSetupReExecArgv.
+    reExecArgv: buildSetupReExecArgv(opts),
   });
 }

@@ -70,6 +70,7 @@ import {
 } from "../shared/ui.js";
 import { emitJson } from "../shared/output.js";
 import { beginCommand } from "../shared/commandOutput.js";
+import { maybeSelfUpdateBeforeInit } from "../shared/initUpdateCheck.js";
 import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import {
   runStepMachine,
@@ -482,11 +483,63 @@ function warnBoardDroppedForSolo(
     preset, projectType, "team", index, undefined, projectLanguages, selectionOptions,
   );
   if (!selectionHasBoardContent(teamSelection)) return;
+  // release/2.8.6: name the two REAL levers. The prior "or `hatch3r config` to
+  // switch later" pointed at a dead end — config had no team-size surface
+  // (SCALAR_CONFIG_KEYS carried no team_size and no interactive step existed).
+  // Both levers below re-resolve the selection with the team filter.
   info(
-    `Board workflows are team-scoped and were not installed for this solo repo. ` +
-    `Re-run with ${chalk.bold("--team-size team")} to add them, ` +
-    `or ${chalk.bold("hatch3r config")} to switch later.`,
+    `Board workflows are team-scoped (ctx:team-only) and are not part of this solo selection. ` +
+    `Add them by re-running ${chalk.bold("hatch3r init --team-size team")}, ` +
+    `or later via ${chalk.bold("hatch3r config team_size=team")} (also settable in the interactive \`hatch3r config\` team-size step).`,
   );
+}
+
+/**
+ * release/2.8.6 (D10-37 extension): compute the item set the solo team-size
+ * filter excluded from `soloSelection` — the items the SAME preset ships at
+ * `teamSize: "team"` that the realized solo selection lacks. Derived from a
+ * fresh `resolveSelection` at team size, never from a hard-coded id list, so
+ * tag/id changes in the canonical corpus keep the disclosure honest. Pure and
+ * in-memory (same cost class as `warnBoardDroppedForSolo`'s probe); callers
+ * invoke it only on solo selections. Consumed by init's success-box/JSON
+ * disclosure and by `hatch3r config`'s re-selection disclosure (config.ts).
+ */
+export function computeTeamOnlyFilteredItems(
+  preset: ContentPreset,
+  projectType: "greenfield" | "brownfield",
+  index: ContentIndex,
+  projectLanguages: string[] | undefined,
+  selectionOptions: { role?: RoleId; facets?: FacetId[] },
+  soloSelection: ContentSelection,
+): Array<{ type: string; id: string }> {
+  const teamSelection = resolveSelection(
+    preset, projectType, "team", index, undefined, projectLanguages, selectionOptions,
+  );
+  const soloIds = getAllContentIds(soloSelection);
+  const filtered: Array<{ type: string; id: string }> = [];
+  for (const id of getAllContentIds(teamSelection)) {
+    if (soloIds.has(id)) continue;
+    const item = index.byId.get(id);
+    filtered.push({ type: item?.type ?? "unknown", id });
+  }
+  return filtered;
+}
+
+/**
+ * Group a filtered-item list by content class for one-line-per-class display
+ * (`commands: a, b; skills: c, …`). Class order follows first appearance in
+ * the resolution, keeping output deterministic for a given corpus.
+ */
+export function formatTeamOnlyFilteredByClass(
+  filtered: ReadonlyArray<{ type: string; id: string }>,
+): string[] {
+  const byType = new Map<string, string[]>();
+  for (const { type, id } of filtered) {
+    const bucket = byType.get(type) ?? [];
+    bucket.push(id);
+    byType.set(type, bucket);
+  }
+  return [...byType.entries()].map(([type, ids]) => `${type}s: ${ids.join(", ")}`);
 }
 
 // Git detection functions imported from ../../workspace/git.js
@@ -679,6 +732,16 @@ export interface RunInitOptions {
    */
   contentFilter?: { role?: RoleId; facets?: FacetId[] };
   /**
+   * release/2.8.6 (D10-37 extension): the items the solo team-size filter
+   * excluded from `contentSelection` — computed by
+   * {@link computeTeamOnlyFilteredItems} at the selection site (callers pass
+   * it only for solo+full resolutions, where the disclosure fires). Threaded
+   * so the success box can enumerate the actual filtered ids grouped by class
+   * and the `--format json` payload can carry them as
+   * `teamOnlyFilteredItems`; omitted/empty ⇒ the generic one-line note.
+   */
+  teamOnlyFiltered?: Array<{ type: string; id: string }>;
+  /**
    * D14-SA14.2-H1 (D14, P4/P1): opt-in for per-package monorepo emission.
    * When false/omitted (the default), `runInit` writes adapter output only to
    * the repo root even on a monorepo — per-package copying (`outputs ×
@@ -744,7 +807,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, communicationStyle, defaultEffort, perPackage, conflicts } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, communicationStyle, defaultEffort, perPackage, conflicts, teamOnlyFiltered } = options;
   // D14-SA14.2-H1 (D14, P4/P1): per-package monorepo emission is opt-in.
   // `emitPerPackage` is the single gate the snapshot-path collection and the
   // write pass both read; the `manifest.packages` non-empty check is applied
@@ -1680,6 +1743,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       projectType: contentSelection.projectType,
       teamSize: contentSelection.teamSize,
       contentItemCount: countSelectionItems(contentSelection),
+      // release/2.8.6 (D10-37 extension): the ids the solo team-size filter
+      // excluded (solo+full disclosure data) — machine-readable so a `--yes
+      // --format json` caller sees the filtered set without parsing human
+      // chrome (which json mode suppresses via quiet). Empty when nothing was
+      // filtered or the selection is team-sized.
+      teamOnlyFilteredItems: teamOnlyFiltered ?? [],
       worktreeEnabled: !!manifest.worktree?.enabled,
       isGreenfield: isGreenfieldForJson,
       adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
@@ -1731,10 +1800,26 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     contentSelection.teamSize === "solo" &&
     contentSelection.preset === "full"
   ) {
+    // release/2.8.6 (D10-37 extension): enumerate the ACTUAL filtered ids
+    // (grouped by class, computed at the selection site via
+    // computeTeamOnlyFilteredItems — never hard-coded) and name BOTH levers:
+    // the init flag and the new config team-size setting. Falls back to the
+    // generic one-liner when the caller did not thread the list.
+    const filteredCount = teamOnlyFiltered?.length ?? 0;
     summaryLines.push(
       chalk.dim(
-        `  Note: team-scoped workflows (ctx:team-only) are excluded for solo even under full; ` +
-          `floor-tagged items still ship. Pass 'hatch3r init --team-size team' to include the team-scoped set.`,
+        `  Note: ${filteredCount > 0 ? `${filteredCount} ` : ""}team-scoped workflows (ctx:team-only) are excluded for solo even under full; ` +
+          `floor-tagged items still ship.`,
+      ),
+    );
+    if (teamOnlyFiltered && teamOnlyFiltered.length > 0) {
+      for (const line of formatTeamOnlyFilteredByClass(teamOnlyFiltered)) {
+        summaryLines.push(chalk.dim(`    ${line}`));
+      }
+    }
+    summaryLines.push(
+      chalk.dim(
+        `  Include them with 'hatch3r init --team-size team' or later 'hatch3r config team_size=team'.`,
       ),
     );
   }
@@ -2346,6 +2431,16 @@ export async function initCommand(
      * non-monorepo (no packages detected).
      */
     perPackage?: boolean;
+    /**
+     * release/2.8.6 — INTERNAL (not a CLI flag): child argv override for the
+     * pre-flight auto-update's re-exec (`maybeSelfUpdateBeforeInit`). Set by
+     * `hatch3r setup` when chaining into init (`["setup", ".", ...flags]`)
+     * so a re-exec re-enters setup against the already-scaffolded directory
+     * instead of replaying the original positional and nesting `<dir>/<dir>`.
+     * Absent on direct `init` runs — the argv is then derived from
+     * `process.argv` (see `buildInitReExecArgv`).
+     */
+    reExecArgv?: readonly string[];
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -2368,7 +2463,12 @@ export async function initCommand(
   // `--no-banner` keeps the success box but drops the banner. quiet/json
   // already suppress printBanner internally, so only the explicit flag needs
   // a local gate (C9-H26 semantics preserved).
-  if (opts.noBanner !== true) {
+  // release/2.8.6: a pre-flight auto-update re-exec child (HATCH3R_RE_EXEC=1,
+  // see `maybeSelfUpdateBeforeInit` below) also skips the banner — the parent
+  // printed it moments earlier. The env guard exists in addition to the
+  // `--no-banner` append on the child argv because the `setup` chain cannot
+  // take the flag (`setup` does not register `--no-banner` in program.ts).
+  if (opts.noBanner !== true && process.env.HATCH3R_RE_EXEC !== "1") {
     printBanner();
   }
   // F16.1-C1 / D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the
@@ -2564,6 +2664,34 @@ export async function initCommand(
           ...(cliFacets.length > 0 ? { facets: cliFacets } : {}),
         }
       : undefined;
+
+  // release/2.8.6: pre-flight auto-update. When a semver-NEWER hatch3r exists
+  // on the registry (strict `semverGt` direction guard — never a downgrade
+  // offer, F-SEC-01), interactive init offers a one-confirm (default Yes)
+  // self-update through the existing `runSelfUpdate` machinery and re-execs
+  // the invoked command (init, or setup when chained) so generation runs on
+  // current code and canonical content. Skips silently for: re-exec children,
+  // the `--no-update-check`/HATCH3R_NO_UPDATE_CHECK opt-out, the
+  // NO_UPDATE_NOTIFIER/`--no-update-notifier` library opt-outs (F-SEC-05),
+  // NODE_ENV=test, CI, headless runs (`--yes`/`--quick`/`--default`),
+  // `--resume`, `--dry-run` (F-SEC-03 — an accepted update installs and
+  // re-execs, both real side effects), non-TTY stdin/stdout, a manifest
+  // `versionConstraint` pin (F-SEC-02, verbose note — a pin means "do not
+  // move"), and dev-source checkouts. Registry probe is 3s-capped and
+  // every AVAILABILITY failure fails OPEN (init proceeds on the current
+  // version) — network problems never block init; the one hard stop is a
+  // post-install signature-verification failure (INTEGRITY_ERROR, exit 73),
+  // which refuses to proceed on an unverifiable install (see the module doc
+  // in initUpdateCheck.ts). Placed after the eager flag validation
+  // (fail-fast VALIDATION_ERRORs above keep precedence and a re-exec child
+  // re-enters with zero side effects behind it) and before the non-TTY
+  // preflight + `detectAmbiguity` — the first prompt sites.
+  await maybeSelfUpdateBeforeInit({
+    headless: headlessRun,
+    resume: opts.resume === true,
+    dryRun: opts.dryRun === true,
+    reExecArgv: opts.reExecArgv,
+  });
 
   // D3-SA3.2-11 (D3, CQ5 / P1): non-TTY preflight — the init-side mirror of
   // config's D1-18 guard (src/cli/commands/config.ts). The interactive flow
@@ -2790,6 +2918,13 @@ export async function initCommand(
 
     warnBoardPrerequisites(contentSelection);
     warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
+    // release/2.8.6 (D10-37 extension): compute the solo-filtered id set for
+    // the success-box/JSON disclosure (solo+full only — the disclosure's
+    // trigger). In-memory resolution, same cost class as the board probe above.
+    const teamOnlyFiltered =
+      teamSize === "solo" && contentSelection.preset === "full"
+        ? computeTeamOnlyFilteredItems(preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection)
+        : undefined;
 
     await checkExisting(rootDir, true, contentSelection, opts.dryRun);
     // D1-SA1.1-02 (D1, P1): run the `--import` step BEFORE adapter generation.
@@ -2802,7 +2937,7 @@ export async function initCommand(
     // manifest, no adapter output) and self-creates its target dir, so it runs
     // safely ahead of runInit.
     await runToolImport(rootDir, opts.import, true, opts.dryRun);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, communicationStyle: cliCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, teamOnlyFiltered, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
     return;
   }
 
@@ -3146,6 +3281,12 @@ export async function initCommand(
 
   warnBoardPrerequisites(contentSelection);
   warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
+  // release/2.8.6 (D10-37 extension): solo+full disclosure data — see the
+  // headless site for rationale.
+  const teamOnlyFiltered =
+    teamSize === "solo" && contentSelection.preset === "full"
+      ? computeTeamOnlyFilteredItems(selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection)
+      : undefined;
 
   await checkExisting(rootDir, false, contentSelection, opts.dryRun);
   // D1-SA1.1-02 (D1, P1): import before generation on the interactive path too,
@@ -3154,7 +3295,7 @@ export async function initCommand(
   // preview + confirm now precede the generation spinner — acceptable per the
   // finding, since a declined confirm still leaves disk untouched before init.
   await runToolImport(rootDir, opts.import, false, opts.dryRun);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, communicationStyle: resolvedCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, communicationStyle: resolvedCommunicationStyle, defaultEffort: cliDefaultEffort, contentFilter: cliContentFilter, teamOnlyFiltered, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────

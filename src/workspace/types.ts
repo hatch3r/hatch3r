@@ -198,7 +198,7 @@ export interface WorkspaceRepoSyncResult {
   /**
    * Flattened failure message. Kept as a plain string (not widened in
    * place, DD-B2 deviation) because renderers outside this slice
-   * interpolate it directly (`init.ts:3646` template literal) — a silent
+   * interpolate it directly (`init.ts:3963` template literal) — a silent
    * `[object Object]` regression. The structured twin is
    * {@link errorDetail}; the two are set together and `error` always equals
    * `errorDetail.message`.

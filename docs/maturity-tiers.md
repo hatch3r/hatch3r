@@ -39,7 +39,7 @@ Earlier 2.0.0 drafts modeled maturity as a content-admission gate: `tier:*` tags
 - The Stage-6 admission check and the `maturity` option on `resolveSelection` are removed; selection is now **tier-invariant** (every tier resolves the identical artifact set).
 - Maturity is **calibration-only**: it sets investment depth via the adapter header and `rules/hatch3r-right-sizing.md`, and it tightens user-content gates at `team`+.
 
-Existing installs are unaffected by the model change: because selection is tier-invariant, no artifact is added or removed when you run `sync` after upgrading. Relevance still comes from the unchanged `ctx:*` / `lang:*` / conditional-`scope` axes (for example, team-only artifacts are still gated by `ctx:team-only` + `--team-size`, independent of maturity).
+Existing installs are unaffected by the model change: because selection is tier-invariant, no artifact is added or removed when you run `sync` after upgrading. Relevance still comes from the unchanged `ctx:*` / `lang:*` / conditional-`scope` axes (for example, team-only artifacts are still gated by `ctx:team-only` + the team-size setting — `hatch3r init --team-size <v>` at install, or `hatch3r config team_size=<v>` / the interactive `hatch3r config` team-size step afterwards, both of which re-resolve the selection and report the added/removed items — independent of maturity).
 
 ---
 

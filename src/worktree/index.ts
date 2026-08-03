@@ -284,7 +284,16 @@ export function parseWorktreeInclude(content: string): WorktreeEntry[] {
  * of cleanup's symlink/copy-file/copy-dir branches, so the per-file symlink tree
  * survived. A receipt of concrete created paths removes both leaks (CWE-459).
  */
-const WORKTREE_RECEIPT_PATH = join(HATCH3R_DIR, "worktree-receipt.json");
+/**
+ * Worktree-root-relative path of the setup receipt, in POSIX form: it doubles
+ * as the gitignore-syntax pattern `ensureWorktreesIgnored` writes into
+ * `.git/info/exclude` (gitignore patterns require `/` separators; the
+ * `join(worktreeRoot, ...)` call sites normalize it for Windows filesystem
+ * use). Mirrored into the committed-`.gitignore` registry
+ * (`src/env/mcpEnv.ts::REQUIRED_GITIGNORE_ENTRIES`, release/2.8.6) so both
+ * ignore surfaces stay in lock-step with the writer below.
+ */
+export const WORKTREE_RECEIPT_RELPATH = `${HATCH3R_DIR}/worktree-receipt.json`;
 
 interface WorktreeReceiptEntry {
   /** Path relative to the worktree root. */
@@ -313,7 +322,7 @@ async function writeWorktreeReceipt(
     createdAt: new Date().toISOString(),
     entries,
   };
-  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_RELPATH);
   try {
     await mkdir(dirname(receiptPath), { recursive: true });
     await atomicWriteFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
@@ -329,7 +338,7 @@ async function writeWorktreeReceipt(
 async function readWorktreeReceipt(
   worktreeRoot: string,
 ): Promise<WorktreeReceipt | null> {
-  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_RELPATH);
   let raw: string;
   try {
     raw = await readFile(receiptPath, "utf-8");
@@ -794,7 +803,7 @@ async function cleanupFromReceipt(
   }
 
   // Remove the receipt itself, then prune its (now possibly empty) directory.
-  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_RELPATH);
   try {
     await unlink(receiptPath);
   } catch (err) {
@@ -1160,12 +1169,44 @@ export function isValidBranchName(name: string): boolean {
 // ─── .git/info/exclude management ────────────────────────────────────────────
 
 /**
- * Idempotently appends a managed block to `<mainRoot>/.git/info/exclude` that
- * adds `<WORKTREES_DIR>/` to the per-clone exclude list. Per-clone (untracked,
- * not committed), so no PR diff and no team coordination needed.
+ * Entries the managed exclude block must contain. `<WORKTREES_DIR>/` keeps the
+ * worktree farm out of the MAIN repo's `git status`; the receipt line keeps
+ * `.hatch3r/worktree-receipt.json` out of every LINKED worktree's status —
+ * `info/exclude` lives in the common dir shared by all worktrees of the clone
+ * and its patterns match relative to each worktree's own root
+ * (git-scm.com/docs/gitignore, accessed 2026-08-03), so the single line here
+ * covers the receipt `setupWorktree` writes into each worktree.
+ */
+const EXCLUDE_BLOCK_ENTRIES: readonly string[] = [
+  `${WORKTREES_DIR}/`,
+  WORKTREE_RECEIPT_RELPATH,
+];
+
+/**
+ * Idempotently maintains a managed block in `<mainRoot>/.git/info/exclude`
+ * carrying {@link EXCLUDE_BLOCK_ENTRIES}. Per-clone (untracked, not
+ * committed), so no PR diff and no team coordination needed.
  *
- * If the managed block is already present, returns false; otherwise appends
- * and returns true. Caller can use the return value to decide whether to log.
+ * Idempotency is content-aware, not marker-presence-only (release/2.8.6): a
+ * block written by an older hatch3r carries `.worktrees/` but not the receipt
+ * entry, so when both markers are present but any required entry is missing,
+ * the inner region is rewritten in place between the markers as a
+ * UNION-PRESERVE (F-SEC-04, sec-2.8.6-p4): the canonical entry list first,
+ * then every non-canonical inner line the user hand-added (ignore patterns
+ * and comment lines alike, deduped, original relative order kept) — a
+ * wholesale canonical rewrite would silently DELETE a user ignore line such
+ * as `*.pem` and re-expose a local secret to `git add -A`. Preserved lines
+ * are named on the verbose channel. Everything outside the markers is
+ * preserved byte-for-byte. A block with
+ * both markers and every entry is a no-op. A START marker without its END is
+ * left untouched: hatch3r's own writes are atomic (F-1.10.11), so that shape
+ * only arises from hand edits, which this function refuses to guess at — the
+ * refusal emits a verbose()-channel diagnostic naming the file and the
+ * recovery (review-2.8.6-r1 F7).
+ *
+ * Returns true when the file was written (fresh append or in-place upgrade),
+ * false on the no-op paths. Caller can use the return value to decide
+ * whether to log.
  */
 export async function ensureWorktreesIgnored(mainRoot: string): Promise<boolean> {
   const excludePath = join(mainRoot, ".git", "info", "exclude");
@@ -1181,12 +1222,62 @@ export async function ensureWorktreesIgnored(mainRoot: string): Promise<boolean>
     await mkdir(dirname(excludePath), { recursive: true });
   }
 
-  if (existing.includes(EXCLUDE_BLOCK_START)) return false;
+  const startIdx = existing.indexOf(EXCLUDE_BLOCK_START);
+  if (startIdx !== -1) {
+    const endIdx = existing.indexOf(EXCLUDE_BLOCK_END, startIdx);
+    if (endIdx === -1) {
+      // Hand-truncated block (START without its END): refuse to guess where
+      // the user's own patterns begin — leave the file untouched. Not silent
+      // (review-2.8.6-r1 F7): emit the module's verbose()-channel diagnostic
+      // (the recordWorktreeProbeFailure substrate) naming the file, the
+      // refusal, and the recovery.
+      verbose(
+        `worktree: ${excludePath} has a managed-block START marker without its END ("${EXCLUDE_BLOCK_END}") — ` +
+          `left untouched. Restore the END marker (or delete the whole block), then re-run \`hatch3r worktree-setup\`.`,
+      );
+      return false;
+    }
+    const innerLines = existing
+      .slice(startIdx + EXCLUDE_BLOCK_START.length, endIdx)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const innerSet = new Set(innerLines);
+    const missing = EXCLUDE_BLOCK_ENTRIES.filter((entry) => !innerSet.has(entry));
+    if (missing.length === 0) return false;
+    // Legacy-block upgrade (release/2.8.6), union-preserve (F-SEC-04,
+    // sec-2.8.6-p4): rewrite marker-to-marker as canonical entries first,
+    // then every non-canonical inner line the user hand-added (comments
+    // included), deduped, in original relative order — never discard a user
+    // ignore line (`*.pem` between the markers must survive the upgrade).
+    // Everything outside the markers is preserved byte-for-byte via the same
+    // atomic write as the fresh-append path.
+    const canonicalSet = new Set<string>(EXCLUDE_BLOCK_ENTRIES);
+    const preserved: string[] = [];
+    const seen = new Set<string>();
+    for (const line of innerLines) {
+      if (canonicalSet.has(line) || seen.has(line)) continue;
+      seen.add(line);
+      preserved.push(line);
+    }
+    if (preserved.length > 0) {
+      verbose(
+        `worktree: kept ${preserved.length} user-added line(s) inside the managed block of ${excludePath} ` +
+          `through the upgrade: ${preserved.join(", ")}`,
+      );
+    }
+    const upgraded =
+      existing.slice(0, startIdx) +
+      [EXCLUDE_BLOCK_START, ...EXCLUDE_BLOCK_ENTRIES, ...preserved, EXCLUDE_BLOCK_END].join("\n") +
+      existing.slice(endIdx + EXCLUDE_BLOCK_END.length);
+    await atomicWriteFile(excludePath, upgraded);
+    return true;
+  }
 
   const block = [
     "",
     EXCLUDE_BLOCK_START,
-    `${WORKTREES_DIR}/`,
+    ...EXCLUDE_BLOCK_ENTRIES,
     EXCLUDE_BLOCK_END,
     "",
   ].join("\n");

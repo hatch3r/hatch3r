@@ -1862,3 +1862,86 @@ describe("CopilotAdapter MCP sandbox (D9-SA9.3-08 / CL-2 U11)", () => {
     }
   });
 });
+
+// ── D10-SA10.6-01 (release/2.8.6): selection allowlist on the Copilot surface,
+// including the github-agents class ("github-agents" ↔ items.githubAgents),
+// which emits only under features.githubAgents && !features.agents (D5-41).
+describe("CopilotAdapter selection allowlist (D10-SA10.6-01)", () => {
+  const adapter = new CopilotAdapter();
+
+  function selectionContent(items: Partial<{
+    agents: string[]; skills: string[]; rules: string[]; commands: string[];
+    prompts: string[]; hooks: string[]; githubAgents: string[];
+  }>) {
+    return {
+      preset: "custom" as const,
+      projectType: "brownfield" as const,
+      teamSize: "solo" as const,
+      items: {
+        agents: [], skills: [], rules: [], commands: [],
+        prompts: [], hooks: [], githubAgents: [],
+        ...items,
+      },
+    };
+  }
+
+  it("emits only the selected subset per class (commands via cmd- form) and keeps companions", async () => {
+    const manifest = createManifest({
+      tools: ["copilot"],
+      content: selectionContent({
+        agents: ["test-agent"],
+        skills: ["test-skill"],
+        rules: ["scoped-rule"],
+        commands: ["cmd-test-command"],
+      }),
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const paths = outputs.map((o) => o.path);
+    const pathSet = new Set(paths);
+
+    expect(pathSet.has(".github/agents/hatch3r-test-agent.agent.md")).toBe(true);
+    expect(pathSet.has(".github/skills/hatch3r-test-skill/SKILL.md")).toBe(true);
+    expect(pathSet.has(".github/prompts/hatch3r-test-command.prompt.md")).toBe(true);
+
+    expect(paths.some((p) => p.includes("hatch3r-readonly-agent"))).toBe(false);
+
+    // Companion subtrees bypass the selection seam.
+    expect(paths.some((p) => p.includes("fake-mode"))).toBe(true);
+    expect(paths.some((p) => p.includes("pickup-fake"))).toBe(true);
+  });
+
+  it("filters github-agents by the githubAgents selection", async () => {
+    // github-agents emit only when the regular-agent path is off (D5-41).
+    const base = { agents: false, githubAgents: true } as const;
+
+    // Selected → emitted.
+    const selected = createManifest({
+      tools: ["copilot"],
+      features: { ...base },
+      content: selectionContent({ githubAgents: ["test-gh-agent"] }),
+    });
+    const withSelection = await adapter.generate(FIXTURES_DIR, selected);
+    expect(
+      withSelection.some((o) => o.path === ".github/agents/hatch3r-test-gh-agent.agent.md"),
+    ).toBe(true);
+
+    // Non-empty union, gh-agent NOT selected → dropped.
+    const deselected = createManifest({
+      tools: ["copilot"],
+      features: { ...base },
+      content: selectionContent({ agents: ["test-agent"] }),
+    });
+    const withoutSelection = await adapter.generate(FIXTURES_DIR, deselected);
+    expect(
+      withoutSelection.some((o) => o.path === ".github/agents/hatch3r-test-gh-agent.agent.md"),
+    ).toBe(false);
+  });
+
+  it("absent manifest.content keeps the full pre-2.8.6 emission", async () => {
+    const outputs = await adapter.generate(FIXTURES_DIR, createManifest({ tools: ["copilot"] }));
+    const pathSet = new Set(outputs.map((o) => o.path));
+    expect(pathSet.has(".github/agents/hatch3r-test-agent.agent.md")).toBe(true);
+    expect(pathSet.has(".github/agents/hatch3r-readonly-agent.agent.md")).toBe(true);
+    expect(pathSet.has(".github/prompts/hatch3r-test-command.prompt.md")).toBe(true);
+  });
+});

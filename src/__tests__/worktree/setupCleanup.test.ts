@@ -28,6 +28,8 @@ import {
 import {
   setupWorktree,
   cleanupWorktree,
+  ensureWorktreesIgnored,
+  WORKTREE_RECEIPT_RELPATH,
 } from "../../worktree/index.js";
 import { wrapInManagedBlock } from "../../merge/managedBlocks.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -613,6 +615,47 @@ describe("setupWorktree + cleanupWorktree inverse property (D1-SA1.10-02)", () =
       expect(existsSync(join(wtPath, ".env.mcp"))).toBe(false);
       expect(existsSync(join(wtPath, "shared", "a.js"))).toBe(false);
       expect(existsSync(join(wtPath, "shared", "nested", "b.js"))).toBe(false);
+    } finally {
+      removeRealWorktree(wtPath);
+    }
+  });
+
+  // release/2.8.6: the receipt itself must not dirty the fresh worktree.
+  // `worktree-setup` runs `ensureWorktreesIgnored` against the MAIN repo
+  // before populating; `info/exclude` lives in the common dir shared by all
+  // linked worktrees and its patterns match relative to each worktree's own
+  // root, so the single `.hatch3r/worktree-receipt.json` line covers the
+  // receipt in every worktree. Without it, `git status` inside a fresh
+  // worktree reported the receipt as untracked and worktree-cleanup's dirty
+  // gate threatened that "uncommitted work will be DESTROYED".
+  it("receipt is git-ignored inside the worktree once the exclude block is written (release/2.8.6)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".env\n", "utf-8");
+    writeFileSync(join(mainRepo, ".env"), "SECRET=42\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+    writeIncludeFile(mainRepo, [{ pattern: ".env", strategy: "copy" }]);
+
+    await ensureWorktreesIgnored(mainRepo);
+    const wtPath = addRealWorktree("feat-receipt-ignored");
+    try {
+      await setupWorktree(mainRepo, wtPath);
+      // The receipt was written — the ignore assertions cannot pass vacuously.
+      expect(existsSync(join(wtPath, WORKTREE_RECEIPT_RELPATH))).toBe(true);
+      // The main repo's exclude pattern matches relative to the WORKTREE root.
+      const checkIgnore = execFileSync(
+        "git",
+        ["check-ignore", WORKTREE_RECEIPT_RELPATH],
+        { cwd: wtPath },
+      )
+        .toString()
+        .trim();
+      expect(checkIgnore).toBe(WORKTREE_RECEIPT_RELPATH);
+      // User-facing contract: the freshly set-up worktree's status is clean,
+      // so worktree-cleanup's dirty gate stays quiet.
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: wtPath,
+      }).toString();
+      expect(status).toBe("");
     } finally {
       removeRealWorktree(wtPath);
     }

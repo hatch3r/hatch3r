@@ -13,10 +13,12 @@ import {
   MANIFEST_FILE,
   MATURITY_TIERS,
   ORCHESTRATION_EFFORTS,
+  TEAM_SIZES,
   VALID_COMMUNICATION_STYLES,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
   VALID_ORCHESTRATION_EFFORTS,
+  VALID_TEAM_SIZES,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type CliToolId,
@@ -29,6 +31,7 @@ import {
   type MaturityTier,
   type OrchestrationEffort,
   type Platform,
+  type TeamSize,
   type Tool,
 } from "../../types.js";
 import { assertManifest } from "../shared/requireManifest.js";
@@ -72,11 +75,14 @@ import {
   mcpServersStep,
   platformStep,
   presetStep,
+  teamSizeStep,
   toolsStep,
 } from "../shared/flowSteps.js";
+import { computeTeamOnlyFilteredItems, formatTeamOnlyFilteredByClass } from "./init.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import {
+  archiveCustomizeOverrides,
   buildContentIndex,
   countSelectionItems,
   selectionSummary,
@@ -345,13 +351,25 @@ async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Pro
  * - `default_effort`      — 2.8.0: persisted default orchestration intensity
  *                           (light|standard|deep; absent ⇒ auto-tier; an
  *                           explicit `--effort` run flag overrides).
+ * - `team_size`           — 2.8.6: the `ctx:team-only` content gate
+ *                           (solo|team), persisted under
+ *                           `manifest.content.teamSize`. Unlike the four
+ *                           manifest-scalar keys above, a changed write ALSO
+ *                           re-resolves `manifest.content` through the same
+ *                           `resolveSelection` shape init/config use, so the
+ *                           added/removed item delta is computed and reported
+ *                           (previously `hatch3r config` had NO team-size
+ *                           surface and the init advisory pointed here as a
+ *                           dead end), AND chains `runRegenerate` so the
+ *                           re-resolved selection is materialized into tool
+ *                           outputs in the same run (review-2.8.6-r1 F2).
  *
  * The structure is shaped so further scalar keys (e.g. `costTracking.currency`)
  * can be added without changing the dispatch layer.
  */
-type ScalarConfigKey = "maturity" | "confidence_floor" | "communication_style" | "default_effort";
+type ScalarConfigKey = "maturity" | "confidence_floor" | "communication_style" | "default_effort" | "team_size";
 
-const SCALAR_CONFIG_KEYS = new Set<string>(["maturity", "confidence_floor", "communication_style", "default_effort"]);
+const SCALAR_CONFIG_KEYS = new Set<string>(["maturity", "confidence_floor", "communication_style", "default_effort", "team_size"]);
 
 function isScalarConfigKey(key: string): key is ScalarConfigKey {
   return SCALAR_CONFIG_KEYS.has(key);
@@ -463,6 +481,33 @@ function applyScalarConfigWrite(
     manifest.defaultEffort = value as OrchestrationEffort;
     return { previous, next: value };
   }
+  if (key === "team_size") {
+    // 2.8.6: closed enum (solo|team) mirroring init's `--team-size` flag
+    // validation (`validateFlag(opts.teamSize, ["solo", "team"], ...)`), with
+    // the same write-time rejection shape as the other scalar keys.
+    if (!VALID_TEAM_SIZES.has(value)) {
+      throw new HatchError(
+        `Invalid team size: "${value}". Valid: ${[...TEAM_SIZES].join(", ")}`,
+        undefined,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...TEAM_SIZES].join(", ")}.`,
+      );
+    }
+    // teamSize lives on the content selection, not the manifest root — a
+    // manifest without `content` (pre-content-selection generations) has no
+    // selection to re-scope, so the write cannot proceed meaningfully.
+    if (!manifest.content) {
+      throw new HatchError(
+        "No content selection found in .hatch3r/hatch.json — team_size scopes the content selection.",
+        undefined,
+        "CONFIG_ERROR",
+        "Run `hatch3r init` (or `hatch3r update`) to establish a content selection, then set team_size.",
+      );
+    }
+    const previous = manifest.content.teamSize;
+    manifest.content.teamSize = value as TeamSize;
+    return { previous, next: value };
+  }
   // Exhaustive guard for future keys — the type system enforces this branch
   // is unreachable today.
   throw new HatchError(
@@ -500,12 +545,96 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
     // derive intensity from task shape and adapters emit no directive line.
     return readDefaultEffort(manifest) ?? "auto-tier";
   }
+  if (key === "team_size") {
+    // 2.8.6: read from the content selection. A manifest without `content`
+    // has no team size to report — same actionable error as the write path.
+    if (!manifest.content) {
+      throw new HatchError(
+        "No content selection found in .hatch3r/hatch.json — team_size scopes the content selection.",
+        undefined,
+        "CONFIG_ERROR",
+        "Run `hatch3r init` (or `hatch3r update`) to establish a content selection first.",
+      );
+    }
+    return manifest.content.teamSize;
+  }
   throw new HatchError(
     `Unsupported config key: ${key}`,
     undefined,
     "VALIDATION_ERROR",
     `Use one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
   );
+}
+
+/**
+ * release/2.8.6: content-delta report for a scalar `team_size` write —
+ * the added/removed item lists plus the solo+full still-filtered set the
+ * disclosure enumerates.
+ */
+interface TeamSizeContentDelta {
+  added: Array<{ type: string; id: string }>;
+  removed: Array<{ type: string; id: string }>;
+  teamOnlyFiltered: Array<{ type: string; id: string }>;
+}
+
+/**
+ * release/2.8.6: re-resolve `manifest.content` after a scalar `team_size`
+ * write, using the SAME `resolveSelection` shape the interactive flow uses
+ * (release/2.8.5 BUG-4 alignment: stored languages + persisted --role/--facets
+ * filter, context stages active). Mutates `manifest.content` to the new
+ * selection (persisted by the caller) and returns the item delta so the
+ * added/removed report shows exactly which items a solo↔team flip
+ * adds/removes. For a `custom`-preset selection, the currently tracked ids
+ * are threaded as the custom baseline — the user's explicit picks stay the
+ * source of truth and only the context filter re-applies. Consequence
+ * (review-2.8.6-r1 F3): on custom, a solo→team flip yields an EMPTY `added`
+ * delta — the baseline holds only previously-picked ids, so team-only items
+ * enter via a re-pick in interactive `hatch3r config` — while team→solo
+ * still moves `ctx:team-only` picks into `removed` via the context filter.
+ */
+async function reresolveContentForTeamSize(
+  manifest: HatchManifest,
+  newTeamSize: TeamSize,
+): Promise<TeamSizeContentDelta> {
+  // Caller (applyScalarConfigWrite) already rejected a content-less manifest.
+  const content = manifest.content!;
+  const index = await buildContentIndex(resolveBundledContentRoot());
+  const preset = getPreset(content.preset as PresetId);
+  const oldIds = getAllContentIds(content);
+  const customSelections = content.preset === "custom" ? [...oldIds] : undefined;
+  const persistedFilter = readContentFilter(manifest);
+  const selectionOptions = { role: persistedFilter.role, facets: persistedFilter.facets };
+  const newSelection = resolveSelection(
+    preset,
+    content.projectType,
+    newTeamSize,
+    index,
+    customSelections,
+    manifest.languages,
+    selectionOptions,
+  );
+  const newIds = getAllContentIds(newSelection);
+
+  const added: Array<{ type: string; id: string }> = [];
+  for (const id of newIds) {
+    if (!oldIds.has(id)) added.push({ type: index.byId?.get(id)?.type ?? "unknown", id });
+  }
+  const removed: Array<{ type: string; id: string }> = [];
+  for (const id of oldIds) {
+    if (!newIds.has(id)) removed.push({ type: index.byId?.get(id)?.type ?? "unknown", id });
+  }
+  // Task 2d: when the re-selection is still solo under the full profile, the
+  // context filter keeps excluding the team-only set — enumerate it so the
+  // scalar surface gets the same disclosure init's success box carries.
+  const teamOnlyFiltered =
+    newTeamSize === "solo" && newSelection.preset === "full"
+      ? computeTeamOnlyFilteredItems(
+          preset, content.projectType, index, manifest.languages, selectionOptions, newSelection,
+        )
+      : [];
+
+  manifest.content = newSelection;
+  return { added, removed, teamOnlyFiltered };
 }
 
 /**
@@ -516,7 +645,8 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
  *
  * Accepts four shapes (D1-SA1.2-L3 — the verb+eq form was reachable but
  * previously undocumented); `<key>` is any member of {@link SCALAR_CONFIG_KEYS}
- * (`maturity`, `confidence_floor`):
+ * (`maturity`, `confidence_floor`, `communication_style`, `default_effort`,
+ * `team_size`):
  *   configCommand("maturity=team")        — set form (single arg with `=`)
  *   configCommand("set", "maturity team") — set form (verb + space-separated value)
  *   configCommand("set", "maturity=team") — set form (verb + `=`-joined value)
@@ -533,10 +663,12 @@ async function handleScalarConfig(
   const dryRun = cliOpts?.dryRun === true;
   // F16.1-C1 (Decision 27 / Bucket 2.2): record a `passed` checkpoint after a
   // scalar-config manifest write under `.config-workspace/checkpoint.json`.
-  // The scalar set/get forms are a single-phase mutation (no adapter
+  // Four of the five scalar forms are a single-phase mutation (no adapter
   // regenerate), so one wave-1 "passed" marker is the complete progress
-  // record. Best-effort: failure routes through verbose() and never blocks
-  // the config write that already succeeded.
+  // record; a CHANGED `team_size` write additionally chains `runRegenerate`
+  // (review-2.8.6-r1 F2), which records its own config-namespaced phase
+  // checkpoints on top of this marker. Best-effort: failure routes through
+  // verbose() and never blocks the config write that already succeeded.
   const recordScalarCheckpoint = async (): Promise<void> => {
     const meta: CheckpointMeta = {
       baselineSha: HATCH3R_VERSION,
@@ -572,20 +704,77 @@ async function handleScalarConfig(
   // W5-bigfour: shared epilogue for the two scalar SET forms (`key=value`
   // and `set key value`). Validation already happened (applyScalarConfigWrite
   // throws on bad input). `--dry-run` prints the would-change and skips the
-  // snapshot + manifest write + checkpoint; JSON mode emits the standard
-  // envelope with the same {key, value, previous} fields the human lines
-  // render.
-  const finishScalarSet = async (key: ScalarConfigKey, previous: string | undefined, next: string): Promise<void> => {
+  // snapshot + manifest write + checkpoint + regenerate; JSON mode emits the
+  // standard envelope with the same {key, value, previous} fields the human
+  // lines render. release/2.8.6: `contentDelta` (team_size only) threads the
+  // re-resolution report — added/removed items + the solo+full still-filtered
+  // disclosure — into both output modes, and its presence gates the
+  // post-write adapter regeneration (review-2.8.6-r1 F2).
+  const finishScalarSet = async (
+    key: ScalarConfigKey,
+    previous: string | undefined,
+    next: string,
+    contentDelta?: TeamSizeContentDelta,
+  ): Promise<void> => {
+    // Human-mode content-delta lines (rendered after the Set/dry-run line).
+    // info()/isQuiet() keep these off a `--quiet` stream; JSON mode never
+    // reaches them (the envelope carries the same data as fields).
+    const printContentDelta = (): void => {
+      if (!contentDelta) return;
+      const { added, removed, teamOnlyFiltered } = contentDelta;
+      if (added.length > 0 || removed.length > 0) {
+        info(`Content selection re-resolved: ${added.length} added, ${removed.length} removed.`);
+        for (const line of formatTeamOnlyFilteredByClass(added)) {
+          info(chalk.dim(`  + ${line}`));
+        }
+        for (const line of formatTeamOnlyFilteredByClass(removed)) {
+          info(chalk.dim(`  - ${line}`));
+        }
+      }
+      if (teamOnlyFiltered.length > 0) {
+        info(
+          chalk.dim(
+            `Note: ${teamOnlyFiltered.length} team-scoped items (ctx:team-only) stay excluded for solo even under the full profile; floor-tagged items still ship.`,
+          ),
+        );
+        for (const line of formatTeamOnlyFilteredByClass(teamOnlyFiltered)) {
+          info(chalk.dim(`    ${line}`));
+        }
+        info(chalk.dim(`  Include them with 'hatch3r config team_size=team'.`));
+      }
+    };
+    // JSON-envelope fields for the content delta (same data as the human lines).
+    const deltaJsonFields = contentDelta
+      ? {
+          contentAdded: contentDelta.added,
+          contentRemoved: contentDelta.removed,
+          teamOnlyFilteredItems: contentDelta.teamOnlyFiltered,
+        }
+      : {};
     if (dryRun) {
       if (format === "json") {
         finishCommand(format, {
           command: "config",
           title: "",
           lines: [],
-          json: { status: "dry-run", key, value: next, previous: previous ?? null },
+          // review-2.8.6-r1 F2: `wouldRegenerate` previews the post-write
+          // adapter regeneration a live team_size change now chains, so the
+          // dry-run envelope is honest about the full write set.
+          json: {
+            status: "dry-run",
+            key,
+            value: next,
+            previous: previous ?? null,
+            ...deltaJsonFields,
+            ...(contentDelta ? { wouldRegenerate: true } : {}),
+          },
         });
       } else {
         info(`Dry run: would set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)} (no write).`);
+        printContentDelta();
+        if (contentDelta) {
+          info(chalk.dim("Adapter outputs would be regenerated from the new selection (skipped in dry run)."));
+        }
       }
       return;
     }
@@ -600,6 +789,45 @@ async function handleScalarConfig(
     );
     await writeManifest(rootDir, manifest);
     await recordScalarCheckpoint();
+    // review-2.8.6-r1 F2: `team_size` is the only scalar key whose write
+    // changes the CONTENT SELECTION — the other four are manifest-root dials
+    // adapters pick up on their next regenerate, so no sibling scalar
+    // regenerates (checked 2026-08-03: `finishScalarSet` was manifest-only for
+    // all five). Without this chain, the persisted selection and the on-disk
+    // tool outputs diverge until a manual `hatch3r sync`, while the init
+    // advisory and docs advertise this scalar as the recovery lever. Reuses
+    // the scalar snapshot session (D2-7 pattern) so the single advertised
+    // rollback session reverts the manifest AND the regenerated outputs.
+    let regenerated = false;
+    if (contentDelta) {
+      try {
+        const regenResult = await runRegenerate(rootDir, manifest, {
+          snapshotCommandName: "config",
+          ...(scalarSnap.sessionId ? { reuseSessionId: scalarSnap.sessionId } : {}),
+        });
+        // Same partial-failure contract the interactive flow enforces (D1-3):
+        // exit-2 ADAPTER_ERROR when some but not all adapters failed.
+        throwOnPartialAdapterFailure(regenResult.failedTools, manifest.tools.length);
+        regenerated = true;
+      } catch (err) {
+        // Never silently claim success: the manifest write landed, so name
+        // both facts — what succeeded, what failed — plus the `hatch3r sync`
+        // fallback. Preserve the original exitCode/errorCode (keeps the D1-3
+        // exit-2 partial-failure convention CI branches on).
+        const isHatch = err instanceof HatchError;
+        const detail = err instanceof Error ? err.message : String(err);
+        const revertHint = scalarSnap.sessionId
+          ? `, or revert the change with \`hatch3r rollback --session=${scalarSnap.sessionId}\``
+          : "";
+        throw new HatchError(
+          `team_size was saved to .hatch3r/hatch.json, but adapter regeneration failed: ${detail}`,
+          isHatch ? (err as HatchError).exitCode : undefined,
+          isHatch ? (err as HatchError).errorCode : "ADAPTER_ERROR",
+          `The config write itself succeeded. Run \`hatch3r sync\` to materialize the re-resolved selection into tool outputs${revertHint}.`,
+          { cause: err },
+        );
+      }
+    }
     if (format === "json") {
       finishCommand(format, {
         command: "config",
@@ -611,6 +839,11 @@ async function handleScalarConfig(
           previous: previous ?? null,
           changed: previous !== next,
           snapshotSessionId: scalarSnap.sessionId ?? null,
+          ...deltaJsonFields,
+          // review-2.8.6-r1 F2: present only on the content-selection-changing
+          // scalar (team_size); regeneration failure throws above, so a
+          // success envelope always reports true here.
+          ...(contentDelta ? { regenerated } : {}),
         },
       });
       return;
@@ -619,6 +852,10 @@ async function handleScalarConfig(
       info(`${key} is already set to "${next}". No change.`);
     } else {
       info(`Set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+      printContentDelta();
+      if (regenerated) {
+        info("Adapter outputs regenerated from the new selection.");
+      }
       if (scalarSnap.sessionId) {
         info(`Snapshot: ${scalarSnap.sessionId} (revert: hatch3r rollback --session=${scalarSnap.sessionId})`);
       }
@@ -629,7 +866,14 @@ async function handleScalarConfig(
   const inlineSet = parseScalarKeyValue(arg1);
   if (inlineSet) {
     const { previous, next } = applyScalarConfigWrite(manifest, inlineSet.key, inlineSet.value);
-    await finishScalarSet(inlineSet.key, previous, next);
+    // release/2.8.6: a changed team_size flows through the same re-resolution
+    // shape the interactive flow uses, so the added/removed report shows the
+    // team-only items appearing/disappearing (an unchanged write skips it).
+    const contentDelta =
+      inlineSet.key === "team_size" && previous !== next
+        ? await reresolveContentForTeamSize(manifest, next as TeamSize)
+        : undefined;
+    await finishScalarSet(inlineSet.key, previous, next, contentDelta);
     return true;
   }
 
@@ -694,9 +938,15 @@ async function handleScalarConfig(
       );
     }
     const { previous, next } = applyScalarConfigWrite(manifest, key, value);
+    // release/2.8.6: same team_size re-resolution as the inline `key=value`
+    // form above — both set shapes report the item delta.
+    const contentDelta =
+      key === "team_size" && previous !== next
+        ? await reresolveContentForTeamSize(manifest, next as TeamSize)
+        : undefined;
     // Decision 27 (Bucket 2.2): snapshot before `set` form writes too
     // (inside finishScalarSet, skipped under --dry-run).
-    await finishScalarSet(key, previous, next);
+    await finishScalarSet(key, previous, next, contentDelta);
     return true;
   }
 
@@ -970,6 +1220,10 @@ async function configCommandImpl(
     mcpGate: boolean;
     mcpServers: string[];
     worktreeEnabled: boolean;
+    // release/2.8.6: the ctx:team-only content gate, prompted just before the
+    // preset step so the preset "(~N items)" estimates track the in-run
+    // choice. Persisted via the re-resolved `manifest.content.teamSize`.
+    teamSize: TeamSize;
     preset: PresetId;
     customItems: string[] | undefined;
     // C / E (2.1.0): investment-calibration dials. Both unconditional steps,
@@ -1076,6 +1330,15 @@ async function configCommandImpl(
         return wtAnswer.enabled as boolean;
       },
     },
+    // release/2.8.6: interactive team-size surface — parity with the scalar
+    // `config team_size=<v>` form and the previously-dead-end init advisory
+    // ("or `hatch3r config` to switch later"). Sequenced BEFORE the preset
+    // step so the preset estimates below track the in-run choice.
+    teamSizeStep<ConfigState>({
+      message: "Team size (content scope):",
+      defaultTeamSize: contentTeamSize ?? "solo",
+      skip: () => !manifest.content,
+    }),
     // F10.6-1 (D10) / D10-12 (Cycle 11): the shared presetStep surfaces the
     // omitted clusters by name from the realized post-floor delta so
     // reconfiguring a preset is an informed choice. release/2.8.5 (BUG-4):
@@ -1083,10 +1346,12 @@ async function configCommandImpl(
     // applies (config used to pass `skipContextFilters`, so its "(~N items)"
     // counts disagreed with init's on the same repo). No `customUniverseHint`
     // — same rendering as the pre-extraction inline step otherwise.
+    // release/2.8.6: teamSize resolves from the in-run step above so a
+    // solo↔team flip is reflected in the "(~N items)" estimates.
     presetStep<ConfigState>({
       index: contentIndex,
       projectType: contentProjectType!,
-      teamSize: contentTeamSize!,
+      teamSize: (s) => s.teamSize ?? contentTeamSize!,
       projectLanguages: manifest.languages,
       defaultPreset: () => manifest.content!.preset as PresetId,
       skip: () => !manifest.content,
@@ -1228,10 +1493,24 @@ async function configCommandImpl(
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  // D10-SA10.6-01 (release/2.8.6): `.customize.*` overrides rescued into the
+  // archive for removed items — surfaced in the success summary below.
+  const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
+  // release/2.8.6: team-size change tracking (summary line) + the solo+full
+  // still-filtered disclosure data — populated inside the content block.
+  let teamSizeSummaryChange: { from: TeamSize; to: TeamSize } | null = null;
+  let configTeamOnlyFiltered: Array<{ type: string; id: string }> = [];
   if (manifest.content) {
     const previousContent = manifest.content;
-    const { projectType, teamSize } = manifest.content;
+    const { projectType } = manifest.content;
+    // release/2.8.6: the interactive team-size step (sequenced before the
+    // preset step) feeds the SAME re-resolution below that init uses, so a
+    // solo→team flip reports the team-only items under "Content added" (and
+    // team→solo under "Content removed"). Fallback to the persisted value
+    // covers the step's skip predicate (no content ⇒ this block is skipped
+    // anyway) defensively.
+    const teamSize = stepState.teamSize ?? manifest.content.teamSize;
     const index = contentIndex;
     const selectedPreset = getPreset(stepState.preset);
     const customSelections = stepState.customItems;
@@ -1372,18 +1651,21 @@ async function configCommandImpl(
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          // D10-SA10.6-02 (Cycle 12, D10, P1): do NOT archive this item's
-          // `.customize.*` overrides. Under Decision 16 ("dial not gate") a
-          // preset/capability "removal" only drops the id from
-          // `manifest.content`; the adapters still emit the artifact
-          // (`src/adapters/base.ts::readTrackedCanonicalFiles` filters by
-          // adapter-scope, never by the tracked selection). Moving the override
-          // into `.hatch3r-archive/` while the artifact keeps emitting silently
-          // reverted a still-installed artifact to canonical and reported it
-          // "removed". Leaving the override live keeps the customization applied
-          // to the artifact that never actually left. Re-enable archival only
-          // for a genuine emission-dropping removal — an allowlist the emission
-          // layer honors (D10-SA10.6-01).
+          // D10-SA10.6-01 (release/2.8.6): removal is now a genuine
+          // emission-dropping removal — the adapters honor
+          // `manifest.content.items` as an allowlist
+          // (`src/adapters/base.ts::filterBySelection`), so the artifact this
+          // id names stops emitting on the regenerate below. Archiving its
+          // hand-authored `.customize.*` overrides is therefore re-enabled
+          // (D10-35 rescue semantics: moved into `.hatch3r-archive/customize/`,
+          // never hard-deleted, restorable by moving back). The Cycle-12
+          // D10-SA10.6-02 hold — "do not archive while the artifact still
+          // emits" — is obsolete now that its predicate is false. `--dry-run`
+          // skips the write; the removed-item diff row still renders.
+          if (cliOpts?.dryRun !== true) {
+            const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
+            archivedCustomizeFiles.push(...rescued);
+          }
         }
       }
     }
@@ -1394,15 +1676,55 @@ async function configCommandImpl(
       previousContent.preset !== newSelection.preset ||
       previousContent.projectType !== newSelection.projectType ||
       previousContent.teamSize !== newSelection.teamSize;
+    // release/2.8.6: surface the team-size flip as its own summary line
+    // (computeDiff tracks item deltas, not the metadata dial) and compute the
+    // solo+full still-filtered set for the config disclosure (task parity
+    // with init's success box — a re-selection under full at solo still
+    // filters the team-only set, and the summary names it + the levers).
+    if (previousContent.teamSize !== newSelection.teamSize) {
+      teamSizeSummaryChange = { from: previousContent.teamSize, to: newSelection.teamSize };
+    }
+    if (newSelection.teamSize === "solo" && newSelection.preset === "full") {
+      configTeamOnlyFiltered = computeTeamOnlyFilteredItems(
+        selectedPreset,
+        projectType,
+        index,
+        manifest.languages,
+        { role: persistedFilter.role, facets: persistedFilter.facets },
+        newSelection,
+      );
+    }
 
     // F10.5-1 (Cycle 10): No canonical or root AGENTS.md emission here,
-    // aligning with sync.ts:303 + init.ts:509-510 + update.ts:304-306 Wave 3
-    // contract. Adapters source canonical content from the bundled package
+    // aligning with sync.ts:303 + init.ts:1314-1337 (the Pass-2 adapter-output
+    // write loop) + update.ts:304-306 Wave 3 contract. Adapters source canonical content from the bundled package
     // via `resolveBundledContentRoot()`; archive `TOOL_PATH_PREFIXES` has no
     // AGENTS.md entry, so writing one from config left a dangling root
     // `AGENTS.md` after tool switches or `hatch3r clean`. Content changes
     // are manifest-only; `runRegenerate` below rebuilds adapter outputs.
   }
+
+  // release/2.8.6: shared team-size summary block — a `~ Team size` change
+  // line plus the solo+full still-filtered disclosure — appended identically
+  // to the dry-run preview and the live "Config updated" box (computeDiff
+  // tracks item deltas, not the metadata dial, mirroring the maturity/floor
+  // handling).
+  const pushTeamSizeSummaryLines = (lines: string[]): void => {
+    if (teamSizeSummaryChange) {
+      lines.push(`${chalk.cyan("~")} Team size: ${teamSizeSummaryChange.from} ${chalk.cyan("→")} ${teamSizeSummaryChange.to}`);
+    }
+    if (configTeamOnlyFiltered.length > 0) {
+      lines.push(
+        chalk.dim(
+          `  Note: ${configTeamOnlyFiltered.length} team-scoped workflows (ctx:team-only) are excluded for solo even under full; floor-tagged items still ship.`,
+        ),
+      );
+      for (const line of formatTeamOnlyFilteredByClass(configTeamOnlyFiltered)) {
+        lines.push(chalk.dim(`    ${line}`));
+      }
+      lines.push(chalk.dim(`  Include them by re-running with team size 'team' (or 'hatch3r config team_size=team').`));
+    }
+  };
 
   // --- Compute diff ---
   // D1-M5: pass content changes (computed by the apply loops above) directly
@@ -1445,6 +1767,8 @@ async function configCommandImpl(
     if (communicationStyleChanged && selectedCommunicationStyle !== undefined) {
       dryLines.push(`${chalk.cyan("~")} Communication style: ${selectedCommunicationStyle}`);
     }
+    // release/2.8.6: mirror the live box's team-size change + disclosure lines.
+    pushTeamSizeSummaryLines(dryLines);
     dryLines.push("");
     dryLines.push(
       chalk.dim(
@@ -1824,6 +2148,9 @@ async function configCommandImpl(
   if (communicationStyleChanged && selectedCommunicationStyle !== undefined) {
     summaryLines.push(`${chalk.cyan("~")} Communication style: ${selectedCommunicationStyle}`);
   }
+  // release/2.8.6: team-size change + solo+full still-filtered disclosure
+  // (same lines as the dry-run preview).
+  pushTeamSizeSummaryLines(summaryLines);
 
   summaryLines.push("");
   summaryLines.push(label("Files", `${updateResult.copiedFiles} canonical files updated`));
@@ -1841,6 +2168,25 @@ async function configCommandImpl(
   if (allArchivedFiles.length > 0) {
     summaryLines.push("");
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
+  }
+
+  // D10-SA10.6-01 (release/2.8.6): disclose the removed items' rescued
+  // `.customize.*` overrides (D10-35 rescue semantics — moved, never
+  // hard-deleted; restore by moving back to `.hatch3r/`).
+  if (archivedCustomizeFiles.length > 0) {
+    summaryLines.push("");
+    summaryLines.push(
+      label(
+        "Overrides archived",
+        `${archivedCustomizeFiles.length} .customize file(s) → ${ARCHIVE_DIR}/customize/ (restore by moving back to .hatch3r/)`,
+      ),
+    );
+    for (const f of archivedCustomizeFiles.slice(0, 10)) {
+      summaryLines.push(`    ${chalk.dim(f)}`);
+    }
+    if (archivedCustomizeFiles.length > 10) {
+      summaryLines.push(`    ${chalk.dim(`… and ${archivedCustomizeFiles.length - 10} more`)}`);
+    }
   }
 
   // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract

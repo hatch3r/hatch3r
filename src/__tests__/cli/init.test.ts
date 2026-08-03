@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { mockPromptsByName } from "./inquirerMock.js";
+import { maybeSelfUpdateBeforeInit } from "../../cli/shared/initUpdateCheck.js";
 
 // Mock inquirer so interactive paths can be exercised. The --yes paths in
 // initCommand do not call inquirer.prompt, so existing non-interactive tests
@@ -39,6 +40,16 @@ vi.mock("../../cliTools/detect.js", () => ({
   probeBin: vi.fn().mockResolvedValue(""),
 }));
 
+// release/2.8.6: mock the pre-flight auto-update so (a) the wiring describe
+// below can assert call ordering/arguments and (b) no test in this file can
+// reach the network-probing real helper. (The real helper would self-skip
+// under NODE_ENV=test anyway — the mock makes the isolation structural, not
+// environmental.) The helper's own behavior is unit-tested in
+// src/__tests__/cli/shared/initUpdateCheck.test.ts.
+vi.mock("../../cli/shared/initUpdateCheck.js", () => ({
+  maybeSelfUpdateBeforeInit: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Wave 6 (1.9.0): the hatch3r footprint moved from `.agents/` to `.hatch3r/`.
 // For the rewritten init tests, `AGENTS_DIR` refers to `.hatch3r/` so existing
 // `join(tempDir, AGENTS_DIR, "hatch.json")` reads pick up the new location.
@@ -66,7 +77,7 @@ afterEach(() => {
 });
 
 describe("init command", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; resume?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; resume?: boolean; json?: boolean; preset?: string; dryRun?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -132,6 +143,79 @@ describe("init command", () => {
       // A real init completed: the manifest landed and no prompt was reached.
       await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
       expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Pre-flight auto-update wiring (release/2.8.6) ─────────────
+  //
+  // The helper's decision logic (skip matrix, prompts, re-exec, fail-open) is
+  // unit-tested in src/__tests__/cli/shared/initUpdateCheck.test.ts. These
+  // tests pin WHERE initCommand invokes it — after the eager flag validation,
+  // before the non-TTY preflight and the first prompt site — and WHAT it
+  // forwards ({ headless, resume, dryRun, reExecArgv }).
+  describe("pre-flight auto-update wiring (release/2.8.6)", () => {
+    beforeEach(() => {
+      vi.mocked(maybeSelfUpdateBeforeInit).mockClear();
+    });
+
+    it("invokes the check once, forwarding the headless marker (which the helper skips on)", async () => {
+      await initCommand({ yes: true });
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledTimes(1);
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledWith({
+        headless: true,
+        resume: false,
+        dryRun: false,
+        reExecArgv: undefined,
+      });
+    });
+
+    // F-SEC-03 (sec-2.8.6-p4): --dry-run must reach the helper's skip gate —
+    // an accepted pre-flight update npm-installs globally and re-execs, both
+    // real side effects a dry-run promises not to perform.
+    it("forwards dryRun:true so a --dry-run run never installs or re-execs", async () => {
+      await initCommand({ yes: true, dryRun: true });
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledWith(
+        expect.objectContaining({ dryRun: true }),
+      );
+    });
+
+    it("forwards resume:true so a resumed run never self-updates mid-checkpoint", async () => {
+      // No checkpoint exists in the fresh tempDir → --resume warns and falls
+      // through to a fresh init; the check site still sees resume:true.
+      await initCommand({ yes: true, resume: true });
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledWith(
+        expect.objectContaining({ resume: true }),
+      );
+    });
+
+    it("runs AFTER eager flag validation: an invalid --preset aborts before any update probe", async () => {
+      await expect(
+        initCommand({ yes: true, preset: "not-a-preset" }),
+      ).rejects.toBeInstanceOf(HatchError);
+      expect(maybeSelfUpdateBeforeInit).not.toHaveBeenCalled();
+    });
+
+    it("runs BEFORE the non-TTY preflight and the first prompt site", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      vi.mocked(inquirer.prompt).mockClear();
+      await expect(initCommand({})).rejects.toMatchObject({ exitCode: 2 });
+      // The check site was reached (the real helper self-skips under non-TTY);
+      // no inquirer prompt fired around it.
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("can never run under --format json: interactive json is exit-2 before the check; headless json passes headless:true (which skips it)", async () => {
+      // (a) json without --yes: beginCommand rejects before the check site.
+      await expect(initCommand({ json: true })).rejects.toMatchObject({ exitCode: 2 });
+      expect(maybeSelfUpdateBeforeInit).not.toHaveBeenCalled();
+      // (b) json with --yes reaches the site only as a headless run — the
+      // helper's headless gate (unit-tested) skips it, so no prompt can ever
+      // interleave with the single-JSON-document stdout contract.
+      await initCommand({ yes: true, json: true });
+      expect(maybeSelfUpdateBeforeInit).toHaveBeenCalledWith(
+        expect.objectContaining({ headless: true }),
+      );
     });
   });
 
@@ -3351,6 +3435,23 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     expect(stdout).toContain("Hatch complete");
   });
 
+  // CQ5-8 (test-2.8.6-p4): a pre-flight auto-update re-exec child suppresses
+  // the banner via the HATCH3R_RE_EXEC env guard (the parent printed it
+  // moments earlier) — this covers the `setup` chain, which cannot take
+  // `--no-banner` (setup does not register the flag).
+  it("a re-exec child (HATCH3R_RE_EXEC=1) suppresses the banner but keeps the success box", async () => {
+    process.env.HATCH3R_RE_EXEC = "1";
+    try {
+      await initCommand({ yes: true });
+
+      const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stdout).not.toContain("Crack the egg");
+      expect(stdout).toContain("Hatch complete");
+    } finally {
+      delete process.env.HATCH3R_RE_EXEC;
+    }
+  });
+
   it("--json emits a single machine-readable JSON line and no chrome", async () => {
     // W5-bigfour: the payload flows through emitJson (process.stdout.write).
     const stdoutRaw = await captureStdoutWrite(() =>
@@ -3976,6 +4077,83 @@ describe("init Wave-3 Medium fixes (D10-37, D14-17, D1-15, D6-12)", () => {
     // The inverted prior wording must be gone.
     expect(stdout).not.toContain("includes team-only workflows even on solo");
     expect(stdout).not.toContain("--preset=standard");
+    // release/2.8.6 (D10-37 extension): the disclosure enumerates the ACTUAL
+    // filtered ids grouped by class (computed from the resolution — the exact
+    // membership contract lives in compound.test.ts) and names the config
+    // lever alongside the init flag. Assert space-free tokens that survive
+    // boxen word-wrapping.
+    expect(stdout).toContain("hatch3r-board-init");
+    expect(stdout).toContain("hatch3r-test-agent");
+    expect(stdout).toContain("team_size=team");
+    // The advisory (stderr-adjacent info stream also lands on console.log in
+    // this harness) now names BOTH real levers instead of the dead-end bare
+    // `hatch3r config` (which had no team-size surface before 2.8.6).
+    expect(stdout).not.toContain("hatch3r config to switch later");
+  });
+
+  /**
+   * release/2.8.6: the init JSON payload flows through the shared emitJson
+   * funnel (process.stdout.write, not console.log) — capture stdout chunks
+   * around an initCommand run, mirroring the W5-bigfour chrome suite's helper.
+   */
+  async function captureStdoutWrite(run: () => Promise<void>): Promise<string> {
+    const chunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await run();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    return chunks.join("");
+  }
+
+  // release/2.8.6: the same disclosure must reach a headless `--yes --json`
+  // caller as machine-readable data — human notices are quiet-gated in json
+  // mode, so the payload carries the filtered set instead.
+  it("release/2.8.6: solo+full --yes --json payload enumerates teamOnlyFilteredItems without corrupting the JSON document", async () => {
+    const stdoutRaw = await captureStdoutWrite(() =>
+      initCommand({ yes: true, tools: "claude", preset: "full", teamSize: "solo", json: true }),
+    );
+    const jsonLines = stdoutRaw
+      .split("\n")
+      .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
+    expect(jsonLines.length).toBe(1);
+    const payload = JSON.parse(jsonLines[0]);
+    const filtered = payload.teamOnlyFilteredItems as Array<{ type: string; id: string }>;
+    expect(Array.isArray(filtered)).toBe(true);
+    const ids = filtered.map((f) => f.id);
+    // Representative members per class; exact 11-item membership is pinned in
+    // compound.test.ts against the live corpus.
+    expect(ids).toContain("cmd-hatch3r-board-fill");
+    expect(ids).toContain("hatch3r-board-init");
+    expect(ids).toContain("hatch3r-test-agent");
+    // Every entry carries a class for grouping.
+    for (const f of filtered) {
+      expect(typeof f.type).toBe("string");
+      expect(f.type.length).toBeGreaterThan(0);
+    }
+    // Stream discipline: no human chrome interleaved on stdout in json mode.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Hatch complete");
+  });
+
+  // release/2.8.6: a team-sized full install carries no filtered set — the
+  // disclosure stays silent and the payload field is empty.
+  it("release/2.8.6: team+full --yes --json payload has an empty teamOnlyFilteredItems", async () => {
+    const stdoutRaw = await captureStdoutWrite(() =>
+      initCommand({ yes: true, tools: "claude", preset: "full", teamSize: "team", json: true }),
+    );
+    const jsonLines = stdoutRaw
+      .split("\n")
+      .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
+    expect(jsonLines.length).toBe(1);
+    const payload = JSON.parse(jsonLines[0]);
+    expect(payload.teamOnlyFilteredItems).toEqual([]);
   });
 
   // D14-17: the resolved maturity tier must be surfaced in the success box so

@@ -132,14 +132,13 @@ jobs:
       # /website dependabot PRs (.github/dependabot.yml), not by blocking PRs.
       - name: Security audit (website deps, fail >=high)
         working-directory: website
-        # release/2.8.5: bare `--audit-level=high` was permanently red on the
-        # serve-handler→minimatch→brace-expansion chain (root advisory 1124334 /
-        # GHSA-mh99-v99m-4gvg — no patched release exists on the majors
-        # serve-handler pins). The gate now allowlists exactly that root
-        # advisory id in website/scripts/audit-gate.mjs; any other high or
-        # critical advisory — including new ones inside the same subtree —
-        # still fails. The script prints a removal notice once the upstream
-        # fix lands.
+        # release/2.8.6: the gate's allowlist is empty — the 2.8.5
+        # brace-expansion entry (GHSA-mh99-v99m-4gvg) was retired when upstream
+        # backported the fix to the pinned 1.x line and the website lockfile
+        # moved to brace-expansion 1.1.18. The gate still fails on any
+        # non-allowlisted high/critical advisory; future allowlist entries in
+        # website/scripts/audit-gate.mjs must record the GHSA id alongside the
+        # numeric advisory id (npm renumbers ids across database refreshes).
         run: npm audit --package-lock-only --json | node scripts/audit-gate.mjs
 
       - name: Security audit (website deps, report >=moderate)

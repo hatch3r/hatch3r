@@ -1015,7 +1015,7 @@ export class ClaudeAdapter extends BaseAdapter {
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
       // provenance tracker introduced by C8-D12-M3.
-      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
+      const rules = await this.readTrackedCanonicalFiles(ctx, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
       // loads rule files alphabetically; the prefix makes load order explicit.
@@ -1077,7 +1077,7 @@ export class ClaudeAdapter extends BaseAdapter {
     const mcpServers = ctx.features.mcp ? ctx.manifest.mcp.servers : [];
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      const agents = await this.readUserFacingCanonicalFiles(ctx, "agents");
       // D9-SA9.1-05 / CL-2 U11 (Cycle 12): resolve the maxTurns ceiling and the
       // memory map ONCE per generate (not per agent) so an invalid config value
       // warns once per sync instead of once per emitted agent.

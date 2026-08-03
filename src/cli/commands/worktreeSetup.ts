@@ -468,6 +468,15 @@ async function runFromPath(
     return;
   }
 
+  // release/2.8.6: from-path mode writes the setup receipt into the worktree
+  // too (setupWorktree → writeWorktreeReceipt), so it needs the same per-clone
+  // exclude entries as name mode — otherwise the receipt shows as untracked
+  // and worktree-cleanup's dirty gate flags the fresh worktree. The
+  // `.worktrees/` entry is a no-op safety net when the target lives elsewhere.
+  // Skipped under --dry-run (early return above — no writes).
+  const added = await ensureWorktreesIgnored(mainRoot);
+  if (added) info(`Added ${WORKTREES_DIR}/ + worktree-receipt excludes to ${chalk.dim(".git/info/exclude")} (per-clone)`);
+
   const s = createSpinner("Populating worktree files...");
   s.start();
   const result = await setupWorktree(mainRoot, targetPath, { force: opts.force });
@@ -547,10 +556,14 @@ async function runByName(
     return;
   }
 
-  // Per-clone gitignore so .worktrees/ doesn't appear in the main repo's
-  // `git status`. No tracked file change, no PR diff.
+  // Per-clone exclude entries (.git/info/exclude is untracked — no PR diff):
+  // `.worktrees/` keeps the farm out of the main repo's `git status`, and the
+  // setup-receipt line keeps `.hatch3r/worktree-receipt.json` out of every
+  // linked worktree's status (info/exclude lives in the shared common dir;
+  // patterns match relative to each worktree's own root). The durable
+  // committed twin is src/env/mcpEnv.ts::REQUIRED_GITIGNORE_ENTRIES.
   const added = await ensureWorktreesIgnored(mainRoot);
-  if (added) info(`Added ${WORKTREES_DIR}/ to ${chalk.dim(".git/info/exclude")} (per-clone)`);
+  if (added) info(`Added ${WORKTREES_DIR}/ + worktree-receipt excludes to ${chalk.dim(".git/info/exclude")} (per-clone)`);
 
   const spinnerText =
     plan.mode === "attach"

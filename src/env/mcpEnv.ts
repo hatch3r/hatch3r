@@ -5,6 +5,11 @@ import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { verbose } from "../cli/shared/ui.js";
 import { WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES } from "../pipeline/checkpoint.js";
+// release/2.8.6: the worktree setup-receipt path is imported from its writer
+// (same anti-drift pattern as WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES above)
+// so the committed-gitignore entry cannot fall out of lock-step with the file
+// `setupWorktree` actually writes.
+import { WORKTREE_RECEIPT_RELPATH } from "../worktree/index.js";
 
 export interface EnvVar {
   name: string;
@@ -289,10 +294,21 @@ export function parseEnvFile(content: string): Record<string, string> {
  * machine-local run state; a blanket `.hatch3r/` line already dominates the
  * `.hatch3r/*` subset via `isCoveredByGitignore`.
  *
+ * release/2.8.6: `.hatch3r/worktree-receipt.json` — the setup receipt
+ * `hatch3r worktree-setup` writes into each worktree so `worktree-cleanup`
+ * can invert setup exactly (D1-SA1.10-02; imported as
+ * `src/worktree/index.ts::WORKTREE_RECEIPT_RELPATH` so the entry cannot
+ * drift from the writer). The committed entry rides branch checkouts into
+ * every worktree and clone, complementing the per-clone `.git/info/exclude`
+ * line `ensureWorktreesIgnored` maintains; without it a freshly set-up
+ * worktree reports the receipt as untracked and `worktree-cleanup`'s dirty
+ * gate flags it as uncommitted work.
+ *
  * The trailing slash on directory entries makes the gitignore match
  * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
  * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`, the
- * `.hatch3r/*.jsonl`/`*.json` logs, `.hatch3r/.lock`) stay unsuffixed.
+ * `.hatch3r/*.jsonl`/`*.json` logs, `.hatch3r/.lock`,
+ * `.hatch3r/worktree-receipt.json`) stay unsuffixed.
  * `.hatch3r/provenance.json.bak*` is a glob: it covers both the canonical
  * `.bak` copy pre-2.7.1 force-overwrites left beside the manifest (the
  * release/2.7.1 writer passes `backup: false` and removes it) and any
@@ -318,6 +334,7 @@ const REQUIRED_GITIGNORE_ENTRIES: readonly string[] = [
   ".hatch3r/calibration-state.json",
   ".hatch3r/calibration-log.jsonl",
   ".hatch3r/archive/",
+  WORKTREE_RECEIPT_RELPATH,
 ];
 
 /**
@@ -359,7 +376,8 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  * (advisory pipeline lock-note), `.hatch3r/calibration-state.json` +
  * `.hatch3r/calibration-log.jsonl` (reviewer-calibration counter + log),
  * `.hatch3r/archive/` (removed-tool archive copies) — the last nine per
- * 2.2.0-S1. See {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
+ * 2.2.0-S1 — and `.hatch3r/worktree-receipt.json` (worktree setup receipt,
+ * release/2.8.6). See {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
  */
 export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   const gitignorePath = join(rootDir, ".gitignore");

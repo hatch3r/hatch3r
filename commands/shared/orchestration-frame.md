@@ -17,7 +17,7 @@ Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` 
 Citation template (drop into the command where the block used to live):
 
 ```
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff | In-Session Plan Gate | Execute-Now Continuation | Browser Verification (opt-in)}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation | Plan-Execution Handoff | Completion Ledger + Disposition Gate | In-Session Plan Gate | Execute-Now Continuation | Browser Verification (opt-in)}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
 ```
 
 `<…>` slots below are the only text a command varies; everything outside them is invariant and lives here.
@@ -171,6 +171,21 @@ Top acceptance criteria (full list in the plan file):
 **Position rule:** the block appears immediately AFTER the `## Iteration Summary` recap — the first of the two sanctioned post-recap trailers. When the Remaining Work terminal block (`rules/hatch3r-iteration-summary.md` → Remaining Work) also fires, it renders after this block as the run's very last output.
 
 Per-command slot: `<plan-path>` (the command's documented artifact path), the `<one-line scope>` source, and the acceptance-criteria source (spec section, investigation report, or plan step list).
+
+---
+
+## Completion Ledger + Disposition Gate (run end, Tier ≥ 2)
+
+Authoritative rule: `rules/hatch3r-iteration-summary.md` → Completion Ledger + Disposition Gate. At flow end on Tier ≥ 2 runs — after the recap and the Plan-Execution Handoff block when it fires, before the `## Remaining Work` terminal block — emit the run's completion inventory:
+
+```
+ledger: scope <N> items — done <a> · deferred <b> · blocked <c> (<a>/<N>)
+  - <item> — <deferred|blocked>: <reason>
+```
+
+When the ledger shows <100%, ask ONE bundled disposition question via the platform question tool per `agents/shared/user-question-protocol.md` — options `1. Continue now (follow up in this session)` · `2. Keep deferred (default)` · `3. Queue as a new workflow or prepare handoff (/hatch3r-handoff prepare)` · `4. Stop here` — then close with the `## Remaining Work` block, each item carrying its `disposition: kept | followed-up | queued:<ref> | handoff:<ref> | stopped` suffix. At 100% the ledger line emits with NO ask. Non-interactive runs apply option 2 and emit `Default applied: kept deferred (non-interactive)`. Epic/batch flows maintain ONE cumulative ledger across sub-issue iterations, re-emitting updated totals at each iteration boundary (`sub-issues: done <a> · deferred <b> · blocked <c> (<a>/<N>)`). A producer run that continued through the Execute-Now Continuation (§Execute-Now Continuation) ledgers the executed scope, not only the plan-production scope.
+
+Per-command slot: the scope-item source (issue set, plan steps, spec sections) and, for cumulative flows, the iteration boundary (dependency level, sub-issue completion).
 
 ---
 

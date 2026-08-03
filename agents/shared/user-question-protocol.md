@@ -29,6 +29,8 @@ This protocol defines how hatch3r agents and commands surface clarifying or tria
 - The answer is verifiable by reading code, running a test, or grepping the repo — verify first, ask only if verification fails.
 - The choice is reversible, low-stakes, and the safer default is obvious — pick the default and note it.
 
+The end-of-flow disposition ASK (`rules/hatch3r-iteration-summary.md` → Disposition Gate: continue now / keep deferred / queue-or-handoff / stop, fired when the Completion Ledger shows <100%) is a workflow decision point, not a status update — the second bullet above does not suppress it; at 100% completion no ASK fires.
+
 ## How To Ask
 
 1. Check whether your target platform exposes a native question or triage tool (see Platform-Native Tool below).

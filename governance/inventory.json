@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-07-28",
+  "lastUpdated": "2026-08-03",
   "counts": {
     "adapters": 3,
     "agents": 30,
@@ -7,7 +7,7 @@
     "cliSkills": 6,
     "rules": 74,
     "rulesMdc": 74,
-    "commands": 32,
+    "commands": 33,
     "hooks": 7,
     "pipeline": 22,
     "cliCommands": 20,
@@ -17,7 +17,7 @@
     "commandsRework": 3,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 275,
+    "testFiles": 277,
     "cliTools": 39,
     "cliToolsTier1": 11,
     "cliToolsTier2": 13,
@@ -280,6 +280,7 @@
     ],
     "commands": [
       "hatch3r-api-spec.md",
+      "hatch3r-ask.md",
       "hatch3r-auth-scaffold.md",
       "hatch3r-benchmark.md",
       "hatch3r-board-fill.md",
@@ -555,6 +556,7 @@
       "src/__tests__/cli/shared/errors.test.ts",
       "src/__tests__/cli/shared/flowSteps.parity.test.ts",
       "src/__tests__/cli/shared/flowSteps.test.ts",
+      "src/__tests__/cli/shared/initUpdateCheck.test.ts",
       "src/__tests__/cli/shared/output.test.ts",
       "src/__tests__/cli/shared/requireManifest.test.ts",
       "src/__tests__/cli/shared/updateNotifier.test.ts",
@@ -616,6 +618,7 @@
       "src/__tests__/e2e/cliFlow.test.ts",
       "src/__tests__/e2e/costTelemetryWire.test.ts",
       "src/__tests__/e2e/createFlow.test.ts",
+      "src/__tests__/e2e/selectionRemovalFlow.test.ts",
       "src/__tests__/env/mcpEnv.test.ts",
       "src/__tests__/env/secretDetection.test.ts",
       "src/__tests__/governance/archive-path-currency-gate.test.ts",

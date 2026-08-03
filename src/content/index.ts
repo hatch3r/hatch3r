@@ -29,7 +29,7 @@ import {
   FACET_TAG_ADMISSIONS,
   type FacetId,
 } from "./tags.js";
-import { verbose } from "../cli/shared/ui.js";
+import { verbose, warn } from "../cli/shared/ui.js";
 
 /**
  * Record a content-probe failure: emit a verbose() line to stderr (visible
@@ -540,6 +540,165 @@ export const COMMAND_ID_PREFIX = "cmd-";
 export function applyCommandPrefix(id: string, type: string): string {
   if (type !== "command" || id.startsWith(COMMAND_ID_PREFIX)) return id;
   return `${COMMAND_ID_PREFIX}${id}`;
+}
+
+/**
+ * Selection-set membership test for a canonical artifact id (D10-SA10.6-01).
+ *
+ * The single shared membership predicate for every consumer that asks "is this
+ * canonical artifact in the manifest's `content.items` selection?" — the
+ * adapter emission allowlist (`src/adapters/base.ts::filterBySelection`) and
+ * the customization-summary inert reclassification
+ * (`src/adapters/customizationSummary.ts`) both route through it so the two
+ * surfaces can never disagree on membership.
+ *
+ * Id-form mapping:
+ * - `type` is the SINGULAR `CanonicalFile.type` form (`"command"`, `"agent"`,
+ *   `"skill"`, ...). Selection sets store command ids with the `cmd-` prefix
+ *   (`resolveSelection` filters catalog items, whose command ids carry it via
+ *   {@link applyCommandPrefix}), while the adapter-side `CanonicalFile.id`
+ *   never does — so the current-form key is `applyCommandPrefix(id, type)`
+ *   (idempotent: an already-prefixed catalog id passes through unchanged).
+ *   The pre-fix `customizationSummary.ts` predicate skipped this mapping, so
+ *   every selected command override was mislabeled `inert` (the cmd- gap).
+ * - Legacy tolerance, mirroring the prefix-tolerant orphan-customize scan in
+ *   `src/cli/commands/sync.ts`: pre-prefix manifests may store the
+ *   un-`cmd-`-prefixed command id and/or the bare (no `hatch3r-`) form of any
+ *   id, so both are accepted as membership.
+ */
+export function isIdInSelection(
+  canonicalId: string,
+  type: string,
+  selectedIds: ReadonlySet<string>,
+): boolean {
+  if (selectedIds.has(applyCommandPrefix(canonicalId, type))) return true;
+  if (selectedIds.has(canonicalId)) return true;
+  const bare = canonicalId.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
+  return selectedIds.has(bare);
+}
+
+/**
+ * D10-SA10.6-01: per-class selected-id sets derived from
+ * `manifest.content.items`. A class key ABSENT from the map is unfiltered
+ * (that class emits everything); a present key filters the class to its set
+ * (plus the protected bypass in {@link classifySelection}). Built by
+ * {@link buildSelectionAllowlist} below; typed here so the single
+ * shared verdict predicate below and both of its consumers (the adapter
+ * emission filter and the status/verify emission-expectation mirror) share
+ * one definition.
+ */
+export type SelectionAllowlist = Partial<
+  Record<keyof ContentSelection["items"], ReadonlySet<string>>
+>;
+
+/**
+ * Three-way selection verdict for one canonical file:
+ * - `keep` — emit; the selection does not drop this file.
+ * - `drop` — the file is absent from its class's selection set.
+ * - `keep-protected-missing` — protected file absent from the selection:
+ *   ALWAYS emitted, but the caller should surface a repair warning
+ *   (`resolveSelection` records protected ids unconditionally, so this state
+ *   only arises from a hand-edited or corrupted manifest).
+ */
+export type SelectionVerdict = "keep" | "drop" | "keep-protected-missing";
+
+/**
+ * D10-SA10.6-01 (single shared drop predicate — review fix F1): decide how the
+ * tracked content selection treats one canonical file. Consumed by BOTH the
+ * adapter emission filter (`src/adapters/base.ts::filterBySelection`) and the
+ * status/verify emission-expectation mirror
+ * (`src/cli/commands/status.ts::buildEmissionExpectations`) so the two
+ * surfaces cannot drift.
+ *
+ * Keep rules, in order:
+ * - `allowlist === null` — filter disabled (absent content / empty union).
+ * - `source === "user"` — user-tier artifacts are governed by the
+ *   `adapters: [...]` scope filter, never by the canonical selection
+ *   (`content.items` tracks canonical ids only).
+ * - CLI-tooling skills (`type: "skill"`, id `hatch3r-cli-*`) — the class is
+ *   governed by its own dedicated selection surface, `manifest.cliTools`
+ *   (applied by `BaseAdapter.readCliFilteredSkills`), never double-gated by
+ *   `content.items`: the config/cli-tools flows never write cli-skill ids
+ *   into the content selection, so a membership test here would drop every
+ *   enabled CLI skill. Same rationale as the hooks and MCP exemptions (own
+ *   selection surface).
+ * - No {@link TYPE_TO_SELECTION_KEY} row (`check`, `policy`, `learning`) —
+ *   class outside the selection surface.
+ * - Class key absent from the allowlist — missing/non-array in the manifest,
+ *   or the hooks v1 asymmetry.
+ * - `protected: true` — never dropped; verdict distinguishes the
+ *   missing-from-selection case so callers can warn.
+ * Everything else is a plain {@link isIdInSelection} membership test.
+ */
+export function classifySelection(
+  file: { id: string; type: string; source?: "canonical" | "user"; protected?: boolean },
+  allowlist: SelectionAllowlist | null,
+): SelectionVerdict {
+  if (allowlist === null) return "keep";
+  if (file.source === "user") return "keep";
+  if (file.type === "skill" && file.id.startsWith("hatch3r-cli-")) return "keep";
+  const key = TYPE_TO_SELECTION_KEY[file.type];
+  if (!key) return "keep";
+  const selected = allowlist[key];
+  if (!selected) return "keep";
+  const member = isIdInSelection(file.id, file.type, selected);
+  if (file.protected === true) {
+    return member ? "keep" : "keep-protected-missing";
+  }
+  return member ? "keep" : "drop";
+}
+
+/**
+ * D10-SA10.6-01: derive the emission allowlist from a manifest's tracked
+ * content selection. Pure — the caller owns warn-once bookkeeping (see
+ * `BaseAdapter.selectionAllowlistFor` in `src/adapters/base.ts`). Lives here
+ * beside {@link classifySelection} and {@link SelectionAllowlist} so the
+ * builder, the type, and the verdict predicate share one home (CQ8).
+ *
+ * Returns `null` (filter disabled — every canonical artifact emits, the
+ * pre-2.8.6 behavior) when:
+ * - `content` is absent — legacy "full" manifests and direct test invocations
+ *   record no selection; or
+ * - the union of every `items` array is EMPTY — the fail-open guard for
+ *   malformed or legacy-empty selections, e.g. a workspace member manifest
+ *   whose `preset: "custom"` selection resolved zero ids
+ *   (`src/workspace/resolve.ts::buildSelectionFromIds` against ids the current
+ *   corpus no longer carries). Filtering on an all-empty selection would emit
+ *   nothing, which is never what a manifest that predates selection-honoring
+ *   emission intended. Fail-open precedent:
+ *   `src/adapters/customizationSummary.ts::selectionSetFromManifest` (absent
+ *   content → unfiltered classification).
+ *
+ * Per-class belt-and-suspenders: a class key missing from `items` (or carrying
+ * a non-array) contributes no allowlist entry, so that class is unfiltered;
+ * `hatch3r validate` flags the malformed manifest shape separately.
+ *
+ * The `hooks` class is deliberately NEVER filtered (no map entry even when
+ * `items.hooks` is populated — its ids still count toward the union-emptiness
+ * probe above): hook markdown feeds the settings/hooks.json CONFIG artifacts
+ * (`readHookDefinitions`, not the canonical-file readers), and the generated
+ * hook set carries the ASI02 tool-allowlist guard entries — dropping one of
+ * those via a stale selection would silently disable a security control. This
+ * is the v1 asymmetry: selection governs content classes, not hook config.
+ */
+export function buildSelectionAllowlist(
+  content: ContentSelection | undefined,
+): SelectionAllowlist | null {
+  if (!content || typeof content !== "object") return null;
+  const items = (content as { items?: unknown }).items;
+  if (!items || typeof items !== "object") return null;
+  const record = items as Record<string, unknown>;
+  const allow: { [K in keyof ContentSelection["items"]]?: ReadonlySet<string> } = {};
+  let unionSize = 0;
+  for (const key of Object.values(TYPE_TO_SELECTION_KEY)) {
+    const list = record[key];
+    if (!Array.isArray(list)) continue; // missing / non-array ⇒ class unfiltered
+    const ids = new Set<string>(list.filter((v): v is string => typeof v === "string"));
+    unionSize += ids.size;
+    if (key === "hooks") continue; // v1 asymmetry — see JSDoc above
+    allow[key] = ids;
+  }
+  return unionSize === 0 ? null : allow;
 }
 
 // ── Content type configs ───────────────────────────────────────
@@ -1523,11 +1682,14 @@ export async function buildSelectionsFromDisk(
  * file as a `.hatch3r-archive/customize/...` repo-relative path so the caller
  * can surface it in the removal summary (D10-35, Cycle 11 Wave 3, D10, P1).
  *
- * Failure handling: a missing override (ENOENT) is skipped silently; any
- * other stat error degrades to a verbose line and skips the archive; an
- * archive write failure (permission, disk) also degrades to a verbose line —
- * in every case the live override is still removed so the on-disk override
- * set stays consistent with the manifest selection.
+ * Failure handling (review fix F5): a missing override (ENOENT) is skipped
+ * silently; any other stat error degrades to a verbose line and skips BOTH
+ * the archive and the removal; an archive copy failure (permission, disk)
+ * surfaces via warn() and PRESERVES the live override in place — the
+ * original is removed only after its archive copy succeeded, so a
+ * hand-authored override is never hard-deleted without a rescued copy. A
+ * preserved-on-failure override is inert going forward (its artifact left
+ * the selection) but recoverable by hand.
  */
 export async function archiveCustomizeOverrides(
   rootDir: string,
@@ -1572,31 +1734,39 @@ export async function archiveCustomizeOverrides(
       exists = true;
     } catch (err) {
       // ENOENT: no override to rescue — leave `exists` false and skip the
-      // move. Any other stat error (e.g. permission) also degrades to "skip
-      // the archive"; the original `rm` below still runs so the on-disk
-      // selection stays consistent.
+      // move. Any other stat error (e.g. permission) also degrades to skip —
+      // no archive AND no removal (the override is left in place; `exists`
+      // stays false and the loop continues).
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code !== "ENOENT") {
         const message = err instanceof Error ? err.message : String(err);
         verbose(`archiveCustomizeOverrides: stat ${srcPath} skipped — ${message}`);
       }
     }
-    if (exists) {
-      try {
-        // `cp` overwrites a same-named prior archive copy — acceptable since
-        // the archive is an inspection/restore convenience, not a versioned
-        // store.
-        await mkdir(archiveDir, { recursive: true });
-        await cp(srcPath, join(archiveDir, fileName));
-        archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
-      } catch (err) {
-        // Archive write failed (permission, disk) — downgrade to a verbose
-        // line and still remove the original so the selection is consistent.
-        const message = err instanceof Error ? err.message : String(err);
-        verbose(`archiveCustomizeOverrides: archive ${srcPath} skipped — ${message}`);
-      }
+    if (!exists) continue;
+    let copied = false;
+    try {
+      // `cp` overwrites a same-named prior archive copy — acceptable since
+      // the archive is an inspection/restore convenience, not a versioned
+      // store.
+      await mkdir(archiveDir, { recursive: true });
+      await cp(srcPath, join(archiveDir, fileName));
+      archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
+      copied = true;
+    } catch (err) {
+      // Review fix F5: an archive copy failure (permission, disk) must NOT
+      // cascade into hard-deleting the hand-authored override — surface the
+      // failure loudly and leave the file in place. The preserved override
+      // is inert (its artifact left the selection) but recoverable.
+      const message = err instanceof Error ? err.message : String(err);
+      warn(
+        `Could not archive customize override ${srcPath} — ${message}. ` +
+          `The file is left in place (not removed) so the hand-authored override is never lost; ` +
+          `fix the archive failure and re-run, or move it out of .hatch3r/ manually.`,
+      );
     }
-    await rm(srcPath, { force: true });
+    // The original is removed only after its archive copy succeeded.
+    if (copied) await rm(srcPath, { force: true });
   }
 
   return { archivedCustomizeFiles };

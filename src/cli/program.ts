@@ -76,7 +76,7 @@ export const PROGRAM_DESCRIPTION =
 // security pipeline); the bare `/learn` slash command still lives in the editor.
 export const AGENT_COMMAND_NAMES = new Set([
   // commands/hatch3r-*.md — editor-only orchestrators (all must be listed)
-  "api-spec", "auth-scaffold", "benchmark", "board-fill", "board-pickup",
+  "api-spec", "ask", "auth-scaffold", "benchmark", "board-fill", "board-pickup",
   "bug-pipeline", "bug-plan", "codebase-map", "create", "debug",
   "design-system-create", "diagnose", "feature-plan", "handoff", "healthcheck",
   "incident-response", "migration-plan", "onboard", "pack-install", "plan",

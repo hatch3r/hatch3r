@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -551,6 +551,66 @@ describe("workspace sync", () => {
     // tracked as excluded.
     expect(manifest.content.items.rules).toContain("hatch3r-agent-orchestration");
     expect(manifest.workspace.excludedContent).not.toContain("hatch3r-agent-orchestration");
+
+    // D10-SA10.6-01 (release/2.8.6): the exclusion now has an ON-DISK effect —
+    // the member's adapter emission honors the selection as an allowlist, so
+    // the excluded rule's `.mdc` never materializes while the retained floor
+    // rule's does.
+    const emittedRules = await readdir(join(tempDir, "api", ".cursor", "rules"));
+    expect(emittedRules.some((f) => f.includes("hatch3r-agent-orchestration"))).toBe(true);
+    expect(emittedRules.some((f) => f.includes("hatch3r-git-conventions"))).toBe(false);
+  });
+
+  // D10-SA10.6-01 fail-open: a legacy workspace whose defaults selection
+  // resolves ZERO known ids (buildSelectionFromIds matches nothing against the
+  // current corpus → `preset: "custom"` with all-empty items) must still emit —
+  // the empty-union selection DISABLES the emission allowlist rather than
+  // emitting nothing.
+  it("still emits member outputs when the workspace selection resolves zero known ids (empty-union fail-open)", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-emptyunion-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const staleContent: ContentSelection = {
+      preset: "custom",
+      projectType: "brownfield",
+      teamSize: "solo",
+      items: {
+        // Ids the current corpus does not carry — every one resolves to no
+        // catalog item, so the member selection materializes all-empty.
+        agents: ["hatch3r-agent-retired-long-ago"],
+        skills: [],
+        rules: ["hatch3r-rule-retired-long-ago"],
+        commands: [],
+        prompts: [],
+        hooks: [],
+        githubAgents: [],
+      },
+    };
+    const wsManifest = createWorkspaceManifest(
+      "test",
+      { ...defaults, content: staleContent },
+      [{ path: "api", name: "api", sync: true }],
+      "manual",
+    );
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const result = await syncWorkspaceRepos(tempDir);
+    expect(result.repos).toHaveLength(1);
+    expect(result.repos[0].action).toBe("synced");
+
+    // The member manifest records the all-empty custom selection…
+    const raw = await readFile(join(tempDir, "api", AGENTS_DIR, "hatch.json"), "utf-8");
+    const manifest = JSON.parse(raw);
+    const unionSize = (Object.values(manifest.content.items) as string[][]).reduce(
+      (sum, arr) => sum + arr.length,
+      0,
+    );
+    expect(unionSize).toBe(0);
+
+    // …and the adapter run still emitted real outputs (fail-open, not zero).
+    const emittedRules = await readdir(join(tempDir, "api", ".cursor", "rules"));
+    expect(emittedRules.length).toBeGreaterThan(0);
   });
 
   // D1-SA1.10-05 (Cycle 12): a workspace member must sweep adapter outputs the
