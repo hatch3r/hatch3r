@@ -1,6 +1,7 @@
 import { HatchError, WORKTREE_CAPABLE_TOOLS, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { ClaudeAdapter } from "./claude.js";
+import { CodexAdapter } from "./codex.js";
 import { CopilotAdapter } from "./copilot.js";
 import { CursorAdapter } from "./cursor.js";
 
@@ -18,6 +19,7 @@ const adapterFactories: Record<Tool, () => Adapter> = {
   cursor: () => new CursorAdapter(),
   copilot: () => new CopilotAdapter(),
   claude: () => new ClaudeAdapter(),
+  codex: () => new CodexAdapter(),
 };
 
 /**
@@ -176,6 +178,11 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // https://code.visualstudio.com/docs/agent-customization/hooks
   // https://code.visualstudio.com/docs/agent-customization/custom-agents
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  effortOverride: false, nativeQuestionTool: false, cliTools: true  },
+  // OpenAI's repository skill surface loads `.agents/skills/*/SKILL.md` and
+  // requires `name` + `description` frontmatter. This adapter emits only that
+  // documented surface; every unrelated capability remains false. Source:
+  // https://learn.chatgpt.com/docs/build-skills (accessed 2026-08-09).
+  codex:    { agents: false, skills: true, rules: false, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, handoffs: false, worktree: WORKTREE_CAPABLE_TOOLS.has("codex"), customization: true, modelOverride: false, effortOverride: false, nativeQuestionTool: false, cliTools: true },
 };
 
 // D2-SA2.5-07 (Cycle 12 Wave 4): value-level projection of the AdapterCapability
@@ -243,6 +250,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
 }
 
 export { ClaudeAdapter } from "./claude.js";
+export { CodexAdapter } from "./codex.js";
 export { CopilotAdapter } from "./copilot.js";
 export { CursorAdapter } from "./cursor.js";
 export type { Adapter, AdapterContext } from "./base.js";

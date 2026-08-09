@@ -360,7 +360,7 @@ export function toolsStep<TState extends { tools: Tool[] }>(
           "At least one tool must be selected.",
           undefined,
           "VALIDATION_ERROR",
-          "Select at least one of claude, cursor, or copilot (space toggles, enter confirms), " +
+          "Select at least one of claude, cursor, copilot, or codex (space toggles, enter confirms), " +
             "or pass an explicit `--tools <list>` on headless runs.",
         );
       }

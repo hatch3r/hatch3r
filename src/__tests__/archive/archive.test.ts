@@ -16,6 +16,7 @@ import { ARCHIVE_DIR, MANAGED_BLOCK_START, MANAGED_BLOCK_END, type HatchManifest
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import { CodexAdapter } from "../../adapters/codex.js";
 import type { BaseAdapter } from "../../adapters/base.js";
 import { resolveTestPath } from "../fixtures.js";
 
@@ -152,6 +153,33 @@ My custom additions that should be preserved`;
       expect(result.archivedFiles).toContain("CLAUDE.md");
       expect(result.archivedFiles).toContain(".mcp.json");
       expect(result.archivedFiles).toContain(".claude/rules/hatch3r-test.md");
+    });
+
+    it("archives only managed hatch3r skills from the shared Codex skill directory", async () => {
+      const skillsRoot = join(tempDir, ".agents", "skills");
+      const generated = join(skillsRoot, "hatch3r-plan", "SKILL.md");
+      const userHatch3r = join(skillsRoot, "hatch3r-personal", "SKILL.md");
+      const thirdParty = join(skillsRoot, "third-party", "SKILL.md");
+      await mkdir(join(skillsRoot, "hatch3r-plan"), { recursive: true });
+      await mkdir(join(skillsRoot, "hatch3r-personal"), { recursive: true });
+      await mkdir(join(skillsRoot, "third-party"), { recursive: true });
+      await writeFile(generated, wrapManaged("generated Codex skill"));
+      await writeFile(userHatch3r, "---\nname: hatch3r-personal\n---\nUser content\n");
+      await writeFile(thirdParty, "---\nname: third-party\n---\nThird-party content\n");
+
+      const collected = await collectToolFiles(tempDir, "codex");
+      expect(collected).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
+
+      const result = await archiveToolOutputs(tempDir, "codex");
+      expect(result.archivedFiles).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
+      await expect(access(generated)).rejects.toThrow();
+      await expect(access(userHatch3r)).resolves.toBeUndefined();
+      await expect(access(thirdParty)).resolves.toBeUndefined();
+    });
+
+    it("matches only hatch3r-namespaced Codex skill output paths", () => {
+      expect(fileMatchesTool(".agents/skills/hatch3r-plan/SKILL.md", "codex")).toBe(true);
+      expect(fileMatchesTool(".agents/skills/personal/SKILL.md", "codex")).toBe(false);
     });
 
     it("migrates agent customizations from file path", async () => {
@@ -578,6 +606,7 @@ describe("TOOL_PATH_PREFIXES output coverage (D10-11)", () => {
     { tool: "cursor", adapter: new CursorAdapter() },
     { tool: "claude", adapter: new ClaudeAdapter() },
     { tool: "copilot", adapter: new CopilotAdapter() },
+    { tool: "codex", adapter: new CodexAdapter() },
   ];
 
   for (const { tool, adapter } of adapters) {
@@ -637,6 +666,7 @@ describe("TOOL_PATH_PREFIXES top-level-root coverage (D10-33)", () => {
     { tool: "cursor", adapter: new CursorAdapter() },
     { tool: "claude", adapter: new ClaudeAdapter() },
     { tool: "copilot", adapter: new CopilotAdapter() },
+    { tool: "codex", adapter: new CodexAdapter() },
   ];
 
   // The top-level output root of a path: the first segment plus "/" when the

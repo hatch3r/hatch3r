@@ -1,8 +1,8 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-07-28 (release/2.8.5 — no `ADAPTER_CAPABILITIES` key added or removed this release; rows re-verified against `src/adapters/index.ts` unchanged. Prior regeneration: 2026-07-14, release/2.7.0 — Agent Model Customization section for the 4-class ladder + effort axis; File Path Mapping rows regenerated 2026-07-11 from a full in-memory run of all 3 adapters, Cycle-12 D9-SA9.4-01; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.8.5
+> **Last verified**: 2026-08-09 (Codex repository-skills adapter added; other Codex capability surfaces remain intentionally unsupported) | **hatch3r version**: 2.8.5
 
-Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
+Living reference for framework capabilities vs. adapter implementations. hatch3r supports Claude Code, Cursor, GitHub Copilot, and a skills-only Codex adapter. The Codex slice restores native repository-skill generation without claiming parity for agents, rules, commands, hooks, or MCP. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
 ## Legend
 
@@ -43,6 +43,7 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 | **cursor** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
 | **copilot** | Y | Y | Y | --[^prompts] | Y | Y | -- | Y[^ghagents] | -- | Y | -- |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
+| **codex** | -- | -- | Y | -- | -- | -- | -- | -- | -- | -- | -- |
 
 [^prompts]: copilot `prompts: --` matches `ADAPTER_CAPABILITIES.copilot.prompts = false` (`src/adapters/index.ts:125`): hatch3r ships no canonical `prompts/` content, so no adapter emits a `.github/prompts/*.prompt.md` from a *prompts* source (D9-H-5, Cycle 10). The platform's native `.github/prompts/` picker stays an unutilized enhancement surface (`PLATFORM_CAPABILITY_SEED.copilot.prompts = supported`). Copilot's *commands* still route to `.github/prompts/hatch3r-{id}.prompt.md` under the separate `commands` flag (see [File Path Mapping → Copilot](#copilot)). The cell-vs-`ADAPTER_CAPABILITIES` agreement of every boolean-backed Implementation Matrix column is pinned by `src/__tests__/adapters/capability-matrix-doc.test.ts`.
 
@@ -61,12 +62,13 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 | **cursor** | Y | `WORKTREE_CAPABLE_TOOLS.has("cursor")` |
 | **copilot** | Y | `WORKTREE_CAPABLE_TOOLS.has("copilot")` |
 | **claude** | Y | `WORKTREE_CAPABLE_TOOLS.has("claude")` |
+| **codex** | Y | `WORKTREE_CAPABLE_TOOLS.has("codex")` |
 
-All 3 tools are worktree-capable: each materializes adapter output under a single repo subtree that survives a `git worktree` (`src/types.ts::TOOL_WORKTREE_SUPPORT`, all `true`). The other two derived booleans, `customization` and `modelOverride`, are behavioral facts about every adapter's `doGenerate()` (unconditional `applyCustomization` / agent-loop `resolveAgentModel` calls) — `true` for all 3 adapters, pinned by the same drift test; `modelOverride` surfaces in the matrix `model` column and the [Agent Model Customization](#agent-model-customization) section below.
+All four tools are worktree-capable. `customization` is also true for all four adapters. `modelOverride` remains true for the three full adapters and false for the skills-only Codex adapter; these values are pinned by the drift test.
 
 ### Agent Model Customization
 
-All 3 adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-customize` skill for per-agent overrides.
+Claude Code, Cursor, and GitHub Copilot emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. The skills-only Codex adapter does not yet emit model preferences. Resolution order for supported adapters: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-customize` skill for per-agent overrides.
 
 Since 2.2.0, per-artifact model configuration extends beyond agents: `models.skills` / `models.commands` id maps in `hatch.json` (and `.customize.yaml` `model:` on skills/commands) emit where the platform supports it — Claude Code skills + commands (`model:` frontmatter; omitted = inherit), Copilot prompt files (string form only), Cursor none (no per-file model surface for rules/commands). Copilot SKILL.md model support is unverified (2026-07-08), so nothing is emitted there. `models.default` keeps agents-only semantics, so unconfigured projects generate byte-identical skills/commands.
 
@@ -104,24 +106,26 @@ Tracks whether the adapter exposes a documented platform-native question/triage 
 | **claude** | Y | `AskUserQuestion` tool (verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents) |
 | **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/subagents) |
 | **copilot** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration) |
+| **codex** | -- | No always-available skill-level question tool documented; plain-text fallback applies |
 
 When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
 
 ### CLI Tools (Agent-Tooling Surface)
 
-Tracks whether the adapter emits per-tool CLI skills from `skills/hatch3r-cli-*` (the CLI-tooling pivot positions OS-native CLI tools as the token-efficient agent-tooling story; MCP is opt-in). Source of truth: the `cliTools` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). All 3 adapters opt in.
+Tracks whether the adapter emits per-tool CLI skills from `skills/hatch3r-cli-*` (the CLI-tooling pivot positions OS-native CLI tools as the token-efficient agent-tooling story; MCP is opt-in). Source of truth: the `cliTools` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). All four adapters opt in.
 
 | Adapter | CLI tools |
 |---------|:---------:|
 | **cursor** | Y |
 | **claude** | Y |
 | **copilot** | Y |
+| **codex** | Y |
 
 ---
 
 ## Bridge Orchestration
 
-All 3 adapters emit bridge files that inline orchestration content from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
+The three full adapters emit bridge files that inline orchestration content from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). The skills-only Codex adapter does not emit this bridge. The full-adapter content comprises:
 
 - **Mandatory Behaviors** — 6 directives (load skill, spawn researcher, spawn specialists, use Task tool, propagate rules, consult learnings)
 - **Agent Quick Reference** — table of agents with "When to Use"
@@ -205,6 +209,14 @@ The Claude adapter generates `.claude/settings.json` with tool permissions and t
 | `teammateMode` | `"tool-using" \| "full-trust" \| "manual-approval"` | `"tool-using"` | How spawned teammates operate |
 
 When omitted, the adapter falls back to sensible defaults so existing projects continue to work without changes.
+
+### Codex
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| skills | `.agents/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) plus the managed skill body |
+
+Codex support is currently skills-only. The shared `.agents/skills/` directory is a co-tenant surface, so cleanup is restricted to managed `hatch3r-*` skill files and preserves user-authored or third-party skills.
 
 ### Companion content
 

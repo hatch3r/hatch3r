@@ -12,6 +12,7 @@ export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   claude: "Claude Code",
   cursor: "Cursor",
   copilot: "GitHub Copilot",
+  codex: "Codex",
 };
 
 export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
@@ -67,6 +68,7 @@ export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
   claude: "/",
   cursor: "/",
   copilot: "/",
+  codex: "$",
 };
 
 /**

@@ -133,7 +133,8 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
 export type AdapterName =
   | "claude"
   | "copilot"
-  | "cursor";
+  | "cursor"
+  | "codex";
 
 /**
  * Translate an agent id's hatch3r policy to the Claude Code `tools:`
@@ -410,6 +411,8 @@ const ASK_USER_TOOLS: Readonly<Record<string, AskUserToolEntry | null>> = {
   cursor: null,
   // verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration (no native question tool documented; plain-text fallback applies).
   copilot: null,
+  // verified 2026-08-09 @ https://learn.chatgpt.com/docs/build-skills (skills are portable instructions; no always-available skill-level question tool is documented).
+  codex: null,
 };
 
 /**

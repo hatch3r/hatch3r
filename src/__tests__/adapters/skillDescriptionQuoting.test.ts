@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import { CodexAdapter } from "../../adapters/codex.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { AdapterOutput, Tool } from "../../types.js";
 
@@ -57,6 +58,7 @@ describe("skill description YAML quoting (picker safety, byte-0 frontmatter)", (
     { tool: "claude", make: () => new ClaudeAdapter() },
     { tool: "cursor", make: () => new CursorAdapter() },
     { tool: "copilot", make: () => new CopilotAdapter() },
+    { tool: "codex", make: () => new CodexAdapter() },
   ];
 
   for (const { tool, make } of adapters) {

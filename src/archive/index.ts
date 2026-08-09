@@ -86,10 +86,10 @@ interface ParsedOutputPath {
   id: string;
 }
 
-// Wave 7: trimmed to the 3 retained adapters (cursor, claude, copilot).
-// Pre-1.9 tools (windsurf/codex/amp/gemini/cline/aider/kiro/opencode/goose/
-// zed/amazon-q/antigravity) were removed in Wave 1; their archive prefixes
-// are no longer needed because `inventoryArtifacts` only enumerates `Tool`.
+// Codex shares `.agents/skills/` with user-authored and third-party skills, so
+// its entry deliberately uses a hatch3r-only wildcard instead of sweeping the
+// whole directory. `collectToolFiles` additionally requires a managed block
+// for wildcard matches before disclosing or removing them.
 export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   cursor: [".cursor/"],
   claude: [".claude/", "CLAUDE.md", ".mcp.json"],
@@ -112,6 +112,7 @@ export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
     // CI instead of leaking files.
     ".github/checks/",
   ],
+  codex: [".agents/skills/hatch3r-*/SKILL.md"],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [
@@ -150,7 +151,8 @@ function stripFrontmatter(content: string): string {
 /**
  * True when `filePath` (repo-relative, posix-style) is covered by `tool`'s
  * {@link TOOL_PATH_PREFIXES} entry — a directory prefix (`endsWith("/")`)
- * matches by `startsWith`, an exact-file prefix matches by equality. This is
+ * matches by `startsWith`, a single-asterisk prefix matches its literal
+ * prefix and suffix, and an exact-file prefix matches by equality. This is
  * the same coverage predicate {@link collectToolFiles} archives against, so
  * any adapter output path it returns `false` for would be orphaned on tool
  * removal (the D10-11 leak). Exported so the archive structural test in
@@ -160,9 +162,17 @@ function stripFrontmatter(content: string): string {
 export function fileMatchesTool(filePath: string, tool: Tool): boolean {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return false;
-  return prefixes.some((prefix) =>
-    prefix.endsWith("/") ? filePath.startsWith(prefix) : filePath === prefix,
-  );
+  return prefixes.some((prefix) => {
+    if (prefix.endsWith("/")) return filePath.startsWith(prefix);
+    const wildcard = prefix.indexOf("*");
+    if (wildcard !== -1) {
+      return (
+        filePath.startsWith(prefix.slice(0, wildcard)) &&
+        filePath.endsWith(prefix.slice(wildcard + 1))
+      );
+    }
+    return filePath === prefix;
+  });
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -218,7 +228,37 @@ export async function collectToolFiles(rootDir: string, tool: Tool): Promise<str
 
   for (const prefix of prefixes) {
     const absPath = join(rootDir, prefix);
-    if (prefix.endsWith("/")) {
+    const wildcard = prefix.indexOf("*");
+    if (wildcard !== -1) {
+      const literalPrefix = prefix.slice(0, wildcard);
+      const slash = literalPrefix.lastIndexOf("/");
+      const parentRel = literalPrefix.slice(0, slash + 1);
+      const entryPrefix = literalPrefix.slice(slash + 1);
+      const suffix = prefix.slice(wildcard + 1);
+      const absParent = join(rootDir, parentRel);
+      try {
+        const entries = await readdir(absParent, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory() || !entry.name.startsWith(entryPrefix)) continue;
+          const relPath = toPosixPath(join(parentRel, entry.name, suffix));
+          const candidate = join(rootDir, relPath);
+          try {
+            const content = await readFile(candidate, "utf-8");
+            if (hasManagedBlock(content, candidate)) files.push(relPath);
+          } catch (err) {
+            recordArchiveProbeFailure(
+              `collectToolFiles: readFile(${candidate}) — wildcard candidate unavailable for ${tool}`,
+              err,
+            );
+          }
+        }
+      } catch (err) {
+        recordArchiveProbeFailure(
+          `collectToolFiles: readdir(${absParent}) — wildcard parent missing for ${tool}`,
+          err,
+        );
+      }
+    } else if (prefix.endsWith("/")) {
       try {
         const entries = await readdir(absPath, { recursive: true, withFileTypes: true });
         for (const entry of entries) {

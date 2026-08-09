@@ -72,7 +72,7 @@ export interface RunOptions {
   /** Bundled content root; defaults to `resolveBundledContentRoot()`. */
   root?: string;
   /** Override the adapter set (test injection). */
-  tools?: readonly Tool[];
+  tools?: readonly RuleAdapter[];
 }
 
 export interface RunResult {
@@ -83,9 +83,10 @@ export interface RunResult {
   checkedTools: number;
 }
 
-// The 3 supported adapters (CONSTITUTION §6 Decision 12). Each emits glob
-// frontmatter on its rule channel under a different key/path.
-export const ADAPTER_TOOLS: readonly Tool[] = ["claude", "copilot", "cursor"];
+// The three adapters with rule emission. The skills-only Codex adapter has no
+// rule channel and is intentionally outside this rule-parity validator.
+export const ADAPTER_TOOLS = ["claude", "copilot", "cursor"] as const satisfies readonly Tool[];
+type RuleAdapter = (typeof ADAPTER_TOOLS)[number];
 
 // Per-adapter rule-channel descriptor: the output directory prefix every
 // per-rule emission lives under, and the extractor that pulls the emitted glob
@@ -101,7 +102,7 @@ export interface RuleChannel {
   extract(content: string): Set<string> | null;
 }
 
-export const RULE_CHANNELS: Record<Tool, RuleChannel> = {
+export const RULE_CHANNELS: Record<RuleAdapter, RuleChannel> = {
   cursor: {
     dirPrefix: ".cursor/rules/",
     fileSuffix: ".mdc",

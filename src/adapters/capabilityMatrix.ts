@@ -29,9 +29,9 @@ import { HatchError, type Tool } from "../types.js";
 
 /**
  * The set of audited adapters. Aligned with `Tool` in `src/types.ts` and
- * with the 3-adapter cut (1.9.0).
+ * with the current adapter registry.
  */
-export type AuditedAdapter = "claude" | "cursor" | "copilot";
+export type AuditedAdapter = Tool;
 
 /**
  * Native platform capability granularity. Per-capability status:
@@ -326,6 +326,14 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
     { id: "handoffs", name: "Agent handoffs (VS Code)", status: "supported", detail: "declarative agent-to-agent routing, GA; no adapter emission yet (verified 2026-06-06)" },
     { id: "workflow-setup-steps", name: "copilot-setup-steps workflow", status: "supported", detail: "build/install steps for hosted agents" },
   ],
+  codex: [
+    {
+      id: "skills",
+      name: "Repository skills (.agents/skills/)",
+      status: "supported",
+      detail: "SKILL.md format with name and description frontmatter",
+    },
+  ],
 };
 
 /**
@@ -375,6 +383,9 @@ const PLATFORM_TO_DECLARED_KEY: Record<AuditedAdapter, Record<string, string | n
     "github-agents": "githubAgents",
     handoffs: null, // no declared boolean — VS Code handoffs (GA) not yet adapter-emitted (D9-18); CL-2 candidate
     "workflow-setup-steps": null,
+  },
+  codex: {
+    skills: "skills",
   },
 };
 
@@ -621,6 +632,15 @@ function sourcesFor(adapter: AuditedAdapter): FindingSource[] {
           url: "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
           accessed: ACCESS_DATE,
           author: "Microsoft",
+          trust_tier: "official-docs",
+        },
+      ];
+    case "codex":
+      return [
+        {
+          url: "https://learn.chatgpt.com/docs/build-skills",
+          accessed: "2026-08-09",
+          author: "OpenAI",
           trust_tier: "official-docs",
         },
       ];

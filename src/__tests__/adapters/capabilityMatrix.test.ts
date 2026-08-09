@@ -84,6 +84,14 @@ describe("capabilityMatrix", () => {
       expect(row.declared.githubAgents).toBe(true);
     });
 
+    it("returns the skills-only declared row for codex", () => {
+      const row = enumerateAdapterCapabilities("codex");
+      expect(row.adapter).toBe("codex");
+      expect(row.declared.skills).toBe(true);
+      expect(row.declared.agents).toBe(false);
+      expect(row.declared.commands).toBe(false);
+    });
+
     it("throws on unknown adapter", () => {
       // @ts-expect-error — intentional invalid input to verify guard
       expect(() => enumerateAdapterCapabilities("aider")).toThrow(/unknown adapter/);
@@ -173,6 +181,15 @@ describe("capabilityMatrix", () => {
       expect(sub?.status).toBe("supported");
       // The stale `unsupported` single-hooks row must be gone.
       expect(plat.capabilities.find((c) => c.id === "hooks")).toBeUndefined();
+    });
+
+    it("seed for codex records its repository skill surface", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-capmatrix-"));
+      process.env[ENV_KEY] = join(tempDir, "absent.md");
+      const plat = await enumeratePlatformCapabilities("codex");
+      expect(plat.capabilities).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "skills", status: "supported" })]),
+      );
     });
   });
 

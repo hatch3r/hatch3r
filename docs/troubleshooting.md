@@ -53,7 +53,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** As of v1.9.0, hatch3r ships 3 adapters: `claude`, `cursor`, `copilot`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools claude,cursor`. The 12 other adapters previously shipped (`aider`, `amazon-q`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`) were removed in v1.9.0; pick one of the 3 supported targets instead.
+**Solution:** hatch3r ships four adapters: `claude`, `cursor`, `copilot`, and skills-only `codex`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools claude,codex`. The other adapters removed in v1.9.0 remain unsupported.
 
 ### Not in a git repository
 

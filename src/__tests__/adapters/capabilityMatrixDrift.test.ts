@@ -67,11 +67,11 @@ import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 
-// All 3 registered tools (must stay in lockstep with TOOLS / adapter factory
+// All registered tools (must stay in lockstep with TOOLS / adapter factory
 // map in src/adapters/index.ts). Test will fail-fast if a new tool is added
 // to TOOLS without being added here, because the length mismatch surfaces in
 // the assertion below.
-const TOOLS_UNDER_TEST: Tool[] = ["cursor", "copilot", "claude"];
+const TOOLS_UNDER_TEST: Tool[] = ["cursor", "copilot", "claude", "codex"];
 
 // Keys of Features that the matrix declares per-column.
 const FEATURE_KEYS: Array<keyof Features> = [
@@ -222,7 +222,7 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
     // Guard: if someone adds a tool to TOOLS without adding it to
     // TOOLS_UNDER_TEST, this assertion surfaces the gap before the per-tool
     // tests run. Keep in lockstep with src/types.ts `TOOLS`.
-    const expectedCount = 3;
+    const expectedCount = 4;
     expect(TOOLS_UNDER_TEST.length).toBe(expectedCount);
   });
 
@@ -239,13 +239,13 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
 
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
-  // ADAPTER_CAPABILITIES.cliTools must be `true` for all 3 retained adapters
-  // (cursor, claude, copilot), each of which exposes a native `skills: true`
+  // ADAPTER_CAPABILITIES.cliTools must be `true` for every retained adapter,
+  // each of which exposes a native `skills: true`
   // surface. The matrix drives the runtime warning emitted by
   // `getUnsupportedFeatureWarnings` for users who select CLI tools on an
   // adapter that doesn't render them.
   describe("cliTools capability (Wave 5 plan §4.6)", () => {
-    const CLI_TOOLS_TRUE: ReadonlyArray<Tool> = ["cursor", "claude", "copilot"];
+    const CLI_TOOLS_TRUE: ReadonlyArray<Tool> = ["cursor", "claude", "copilot", "codex"];
 
     it("declares cliTools: true for adapters with skills surfaces", () => {
       for (const tool of CLI_TOOLS_TRUE) {
@@ -273,9 +273,9 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
         (c) => c.cliTools,
       ).length;
       const falseCount = total - trueCount;
-      // 3 true + 0 false = 3 (the full adapter matrix after the 3-adapter pivot).
-      expect(total).toBe(3);
-      expect(trueCount).toBe(3);
+      // 4 true + 0 false = 4 (the full adapter matrix).
+      expect(total).toBe(4);
+      expect(trueCount).toBe(4);
       expect(falseCount).toBe(0);
     });
   });
@@ -304,6 +304,7 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
       cursor: resolve(import.meta.dirname, "../../adapters/cursor.ts"),
       claude: resolve(import.meta.dirname, "../../adapters/claude.ts"),
       copilot: resolve(import.meta.dirname, "../../adapters/copilot.ts"),
+      codex: resolve(import.meta.dirname, "../../adapters/codex.ts"),
     };
 
     function adapterInvokes(tool: Tool, symbol: string): boolean {
@@ -321,7 +322,9 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
       });
 
       it(`${tool}.customization equals applyCustomization invocation in doGenerate`, () => {
-        const invokes = adapterInvokes(tool, "applyCustomization");
+        const invokes =
+          adapterInvokes(tool, "applyCustomization") ||
+          adapterInvokes(tool, "processSkillsWithFmCliFiltered");
         expect(
           ADAPTER_CAPABILITIES[tool].customization,
           `${tool}: ADAPTER_CAPABILITIES.customization=${ADAPTER_CAPABILITIES[tool].customization} but ` +

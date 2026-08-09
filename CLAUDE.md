@@ -4,7 +4,7 @@
 
 > This file governs framework development. It is NOT generated output — it is the agentic setup for developing hatch3r itself.
 
-hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agnostic agentic coding setups for 3 AI coding tools (Claude Code, Cursor, GitHub Copilot) from a canonical source model (this repo's top-level `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`) and platform adapters. In v1.9.0 the adapter set was hard-cut from 15 to 3 and canonical content is shipped in the bundled npm package — end-user repos no longer materialize a `.agents/` mirror.
+hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agnostic agentic coding setups for 4 AI coding tools (Claude Code, Cursor, GitHub Copilot, and skills-only Codex) from a canonical source model (this repo's top-level `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`) and platform adapters. Canonical content is shipped in the bundled npm package; Codex output uses its native `.agents/skills/` repository surface.
 
 ---
 
@@ -13,7 +13,7 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 | Directory | Contents |
 |-----------|----------|
 | `src/cli/commands/` | 20 CLI commands: init, setup, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup, cli-tools, mcp, explain, rollback, provenance, show, deps, learn <!-- count auto-derived; see governance/inventory.json (cliCommands) --> |
-| `src/adapters/` | 3 platform adapters: cursor, claude, copilot <!-- count auto-derived; see governance/inventory.json (adapters) --> |
+| `src/adapters/` | 4 platform adapters: cursor, claude, copilot, codex <!-- count auto-derived; see governance/inventory.json (adapters) --> |
 | `src/pipeline/` | 22 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, checkpoint, circuitBreaker, complianceVerification, costEstimator, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, repoSubstitution, retryWithBackoff, reviewLoop, snapshot, spaceTelemetry <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
 | `src/content/` | Content indexing, presets (10: minimal/standard/full/custom + 6 project archetypes — web-app, api-service, cli-tool, monorepo, legacy, security — composable via `--preset a,b`), tag system |
 | `src/merge/` | Safe write (temp+rename atomic), managed block tracking |

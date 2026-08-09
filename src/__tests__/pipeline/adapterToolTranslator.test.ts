@@ -288,7 +288,7 @@ describe("ADAPTER_ALLOWLIST_COVERAGE + buildAllowlistCoverageTable (C9-H6)", () 
 });
 
 describe("ASK_USER_TOOLS + toAskUserPlatformNote", () => {
-  const KNOWN_ADAPTERS = ["claude", "cursor", "copilot"];
+  const KNOWN_ADAPTERS = ["claude", "cursor", "copilot", "codex"];
 
   it("returns an entry or null for every known adapter", () => {
     for (const a of KNOWN_ADAPTERS) {
@@ -334,7 +334,7 @@ describe("buildAskUserPlatformTable + substituteCanonicalPlatformMarker", () => 
     expect(table.split("\n")[0]).toBe("| Adapter | Platform-Native Question Tool |");
     expect(table.split("\n")[1]).toBe("|---------|-------------------------------|");
     const rowLines = table.split("\n").slice(2);
-    expect(rowLines.length).toBe(3);
+    expect(rowLines.length).toBe(4);
   });
 
   it("table cites AskUserQuestion in the claude row", () => {

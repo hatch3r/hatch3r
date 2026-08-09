@@ -27,6 +27,9 @@ describe("getAdapter", () => {
 
     const claude = getAdapter("claude");
     expect(claude.name).toBe("claude");
+
+    const codex = getAdapter("codex");
+    expect(codex.name).toBe("codex");
   });
 
   it("throws for unknown tool", () => {
@@ -63,17 +66,17 @@ describe("getAdapter", () => {
       expect(e).toBeInstanceOf(HatchError);
       const hint = (e as HatchError).recoveryHint;
       expect(hint).toBe(
-        "Supported tools: claude, copilot, cursor. Re-run with one of these via `--tools`.",
+        "Supported tools: claude, codex, copilot, cursor. Re-run with one of these via `--tools`.",
       );
       // The hint must enumerate every tool the registry can actually build.
-      for (const tool of ["claude", "copilot", "cursor"]) {
+      for (const tool of ["claude", "codex", "copilot", "cursor"]) {
         expect(hint).toContain(tool);
       }
     }
   });
 
   it("returns adapters for all supported tools", () => {
-    const tools: Tool[] = ["cursor", "copilot", "claude"];
+    const tools: Tool[] = ["cursor", "copilot", "claude", "codex"];
     for (const tool of tools) {
       const adapter = getAdapter(tool);
       expect(adapter.name).toBe(tool);
@@ -185,7 +188,7 @@ describe("getUnsupportedFeatureWarnings", () => {
   // has a column + a warning row" holds. Because all 3 adapters support it, the
   // warning never fires — pin that so a future `handoffs: false` adapter (or a
   // dropped column) surfaces here.
-  it("does not warn when handoffs is enabled (all 3 adapters support it)", () => {
+  it("does not warn when handoffs is enabled for adapters that support it", () => {
     for (const tool of ["cursor", "claude", "copilot"] as Tool[]) {
       const manifest = makeManifest({ handoffs: true });
       const warnings = getUnsupportedFeatureWarnings(tool, manifest);
@@ -283,7 +286,7 @@ describe("adapter sourceFiles provenance (C9-H39)", () => {
   // The provenance contract requires sourceFiles to be non-empty on at least
   // one output. Run each adapter with full feature flags so the canonical
   // read path is exercised. All 3 retained adapters consume canonical content.
-  const ADAPTERS_WITH_CANONICAL_READS: Tool[] = ["cursor", "claude", "copilot"];
+  const ADAPTERS_WITH_CANONICAL_READS: Tool[] = ["cursor", "claude", "copilot", "codex"];
 
   for (const tool of ADAPTERS_WITH_CANONICAL_READS) {
     it(`adapter "${tool}" populates sourceFiles on at least one output`, async () => {

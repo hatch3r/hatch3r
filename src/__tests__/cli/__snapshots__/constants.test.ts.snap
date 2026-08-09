@@ -105,6 +105,7 @@ exports[`data constants > PLATFORM_MCP_SERVER matches snapshot 1`] = `
 exports[`data constants > TOOL_DISPLAY_NAMES matches snapshot 1`] = `
 {
   "claude": "Claude Code",
+  "codex": "Codex",
   "copilot": "GitHub Copilot",
   "cursor": "Cursor",
 }
@@ -123,6 +124,10 @@ exports[`data constants > TOOL_PROMPT_CHOICES matches snapshot 1`] = `
   {
     "name": "GitHub Copilot",
     "value": "copilot",
+  },
+  {
+    "name": "Codex",
+    "value": "codex",
   },
 ]
 `;

@@ -1,7 +1,7 @@
 {
-  "lastUpdated": "2026-08-03",
+  "lastUpdated": "2026-08-09",
   "counts": {
-    "adapters": 3,
+    "adapters": 4,
     "agents": 30,
     "skills": 55,
     "cliSkills": 6,
@@ -17,7 +17,7 @@
     "commandsRework": 3,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 277,
+    "testFiles": 278,
     "cliTools": 39,
     "cliToolsTier1": 11,
     "cliToolsTier2": 13,
@@ -26,6 +26,7 @@
   "files": {
     "adapters": [
       "claude.ts",
+      "codex.ts",
       "copilot.ts",
       "cursor.ts"
     ],
@@ -484,6 +485,7 @@
       "src/__tests__/adapters/capabilityMatrix.test.ts",
       "src/__tests__/adapters/capabilityMatrixDrift.test.ts",
       "src/__tests__/adapters/claude.test.ts",
+      "src/__tests__/adapters/codex.test.ts",
       "src/__tests__/adapters/commandArgumentHint.test.ts",
       "src/__tests__/adapters/concurrent.test.ts",
       "src/__tests__/adapters/contextBudget.test.ts",

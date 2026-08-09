@@ -394,9 +394,16 @@ describe("analyzeRepo", () => {
       expect(info.existingTools).toContain("claude");
     });
 
-    // W1-C (release/1.9.0): repoAnalyzer detects only the 3 supported adapters —
-    // claude, cursor, copilot. Detection cases for the 12 removed adapters
-    // (aider/amazonq/amp/antigravity/cline/codex/gemini/goose/kiro/opencode/
+    it("detects Codex from .agents/skills/ directory", async () => {
+      const root = await createTempRepo();
+      await mkdir(join(root, ".agents", "skills"), { recursive: true });
+
+      const info = await analyzeRepo(root);
+      expect(info.existingTools).toContain("codex");
+    });
+
+    // W1-C (release/1.9.0): detection cases for the adapters that remain
+    // removed (aider/amazonq/amp/antigravity/cline/gemini/goose/kiro/opencode/
     // windsurf/zed) were deleted alongside the adapter sources.
 
     it("returns empty array when no tools detected", async () => {
@@ -409,11 +416,13 @@ describe("analyzeRepo", () => {
     it("detects multiple supported tools simultaneously", async () => {
       const root = await createTempRepo();
       await mkdir(join(root, ".cursor"), { recursive: true });
+      await mkdir(join(root, ".agents", "skills"), { recursive: true });
       await writeFile(join(root, "CLAUDE.md"), "# Claude");
 
       const info = await analyzeRepo(root);
       expect(info.existingTools).toContain("cursor");
       expect(info.existingTools).toContain("claude");
+      expect(info.existingTools).toContain("codex");
     });
   });
 

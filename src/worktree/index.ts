@@ -101,6 +101,9 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
     { pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
     { pattern: ".vscode/mcp.json", strategy: "copy", reason: "VS Code MCP config" },
   ],
+  codex: [
+    { pattern: ".agents/skills/hatch3r-*/", strategy: "copy", reason: "Codex hatch3r skills" },
+  ],
 };
 
 // ─── Generate ────────────────────────────────────────────────────────────────

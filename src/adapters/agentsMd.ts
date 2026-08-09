@@ -43,7 +43,7 @@ export const AGENTS_MD_PATH = "AGENTS.md";
  * are a pure function of the manifest, so ownership never changes content —
  * only which adapter's output set carries the file.
  */
-export const AGENTS_MD_OWNER_PRIORITY: readonly Tool[] = ["claude", "cursor", "copilot"];
+export const AGENTS_MD_OWNER_PRIORITY: readonly Tool[] = ["claude", "cursor", "copilot", "codex"];
 
 /**
  * Resolve which adapter (if any) emits `AGENTS.md` for this manifest.
@@ -72,6 +72,8 @@ const TOOL_SURFACE_POINTERS: Record<Tool, string> = {
     "- **Cursor** — start at `.cursor/rules/hatch3r-bridge.mdc`; rules in `.cursor/rules/*.mdc`, agents in `.cursor/agents/`, commands in `.cursor/commands/`.",
   copilot:
     "- **GitHub Copilot** — start at `.github/copilot-instructions.md`; scoped instructions in `.github/instructions/`, agents in `.github/agents/`, skills in `.github/skills/`, prompts in `.github/prompts/`.",
+  codex:
+    "- **Codex** — repository skills are in `.agents/skills/`; invoke one explicitly with `$skill-name` or let Codex select it from its description.",
 };
 
 /**

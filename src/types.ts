@@ -615,7 +615,7 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["claude", "cursor", "copilot"] as const;
+export const TOOLS = ["claude", "cursor", "copilot", "codex"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
@@ -642,6 +642,7 @@ export const TOOL_WORKTREE_SUPPORT: Record<Tool, boolean> = {
   cursor: true,
   copilot: true,
   claude: true,
+  codex: true,
 };
 
 /**

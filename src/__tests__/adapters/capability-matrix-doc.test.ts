@@ -53,7 +53,7 @@ const COLUMN_TO_CAP_KEY: Record<string, keyof (typeof ADAPTER_CAPABILITIES)["cur
   hooks: "hooks",
 };
 
-const TOOLS_UNDER_TEST: Tool[] = ["cursor", "copilot", "claude"];
+const TOOLS_UNDER_TEST: Tool[] = ["cursor", "copilot", "claude", "codex"];
 
 /** Split a markdown table row into trimmed cells, dropping the leading/trailing
  *  empty fields produced by the outer pipes. */

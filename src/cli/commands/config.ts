@@ -1433,7 +1433,7 @@ async function configCommandImpl(
       "At least one tool must be selected.",
       undefined,
       "VALIDATION_ERROR",
-      "Re-run `hatch3r config` and select at least one tool (claude, cursor, or copilot).",
+      "Re-run `hatch3r config` and select at least one tool (claude, cursor, copilot, or codex).",
     );
   }
 

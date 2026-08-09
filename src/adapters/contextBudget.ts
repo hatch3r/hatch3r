@@ -53,6 +53,7 @@ export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
   claude: 200_000,
   cursor: 120_000,
   copilot: 128_000,
+  codex: 128_000,
 };
 
 /**
