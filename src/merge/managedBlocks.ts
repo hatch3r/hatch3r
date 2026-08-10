@@ -6,6 +6,20 @@ import {
 } from "../types.js";
 
 /**
+ * TOML uses `#` comments just like YAML. Keep this adapter-local extension in
+ * the merge layer until the shared path vocabulary is widened: every managed
+ * block read/write entry point in this module routes through it, so Codex
+ * `.codex/config.toml` never receives HTML markers.
+ */
+function managedMarkersForPath(filePath?: string): ManagedBlockMarkers {
+  if (filePath?.toLowerCase().endsWith(".toml")) {
+    const hashMarkers = MANAGED_BLOCK_VARIANTS.find((variant) => variant.start.startsWith("# "));
+    if (hashMarkers) return hashMarkers;
+  }
+  return getMarkersForPath(filePath);
+}
+
+/**
  * D6-M13 (Cycle 9 / Wave 3): Managed-block markers are positionally inert
  * for prompt-caching purposes. The `HATCH3R:BEGIN` / `HATCH3R:END` markers
  * delimit which slice of an adapter-output file hatch3r owns vs. which is
@@ -80,7 +94,7 @@ function detectMarkers(
   // Path-aware precedence: try the variant this path would EMIT first, then
   // the rest in declared order. De-duplicate so the preferred variant is not
   // scanned twice.
-  const preferred = filePath ? getMarkersForPath(filePath) : undefined;
+  const preferred = filePath ? managedMarkersForPath(filePath) : undefined;
   const ordered = preferred
     ? [preferred, ...MANAGED_BLOCK_VARIANTS.filter((v) => v.start !== preferred.start)]
     : MANAGED_BLOCK_VARIANTS;
@@ -320,7 +334,7 @@ export function insertManagedBlock(
   managedContent: string,
   filePath?: string,
 ): string {
-  const outputMarkers = getMarkersForPath(filePath);
+  const outputMarkers = managedMarkersForPath(filePath);
   const detected = detectMarkers(existingContent, filePath);
 
   if (!detected) {
@@ -579,7 +593,7 @@ function wrapWithMarkers(content: string, markers: ManagedBlockMarkers): string 
  * cursor.ts route through this helper for that reason.
  */
 export function wrapManagedFor(path: string, content: string): string {
-  return wrapWithMarkers(content, getMarkersForPath(path));
+  return wrapWithMarkers(content, managedMarkersForPath(path));
 }
 
 /**
@@ -600,7 +614,7 @@ export function wrapManagedFor(path: string, content: string): string {
  * markers are the YAML variant.
  */
 export function wrapInManagedBlock(content: string, filePath?: string): string {
-  return wrapWithMarkers(content, getMarkersForPath(filePath));
+  return wrapWithMarkers(content, managedMarkersForPath(filePath));
 }
 
 /**
@@ -631,7 +645,7 @@ export function hasManagedBlock(content: string, filePath?: string): boolean {
 export function wouldChangeMarkerVariant(existingContent: string, filePath?: string): boolean {
   const detected = detectMarkers(existingContent, filePath);
   if (!detected) return false;
-  const outputMarkers = getMarkersForPath(filePath);
+  const outputMarkers = managedMarkersForPath(filePath);
   return (
     detected.variant.start !== outputMarkers.start || detected.variant.end !== outputMarkers.end
   );

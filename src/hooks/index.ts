@@ -97,7 +97,7 @@ export async function readHookDefinitions(
       if (warnings) warnings.push(formatHookWarning(fullPath, result.error));
       continue;
     }
-    const hook = result.hook;
+    const hook: HookDefinition = { ...result.hook, sourcePath: fullPath };
     // #119: Prevent hook ID duplication across files
     if (seenIds.has(hook.id)) {
       if (warnings) {

@@ -43,7 +43,12 @@ export const AGENTS_MD_PATH = "AGENTS.md";
  * are a pure function of the manifest, so ownership never changes content —
  * only which adapter's output set carries the file.
  */
-export const AGENTS_MD_OWNER_PRIORITY: readonly Tool[] = ["claude", "cursor", "copilot", "codex"];
+// Codex is first because its adapter emits the native repository instruction
+// projection at this exact path. BaseAdapter detects that existing output and
+// does not append the optional thin pointer, leaving projectCodexInstructions
+// as the single writer while preventing another selected adapter from
+// colliding with it during a multi-tool run.
+export const AGENTS_MD_OWNER_PRIORITY: readonly Tool[] = ["codex", "claude", "cursor", "copilot"];
 
 /**
  * Resolve which adapter (if any) emits `AGENTS.md` for this manifest.

@@ -1304,6 +1304,36 @@ export const AVAILABLE_CLI_TOOLS = {
   },
 } as const satisfies Record<CliToolId, CliToolMeta>;
 
+/**
+ * High-frequency tools that retain one standalone `hatch3r-cli-{id}` skill.
+ * Every other registry id is documented by the shared CLI toolbox skill.
+ */
+export const STANDALONE_CLI_TOOLS = [
+  "ripgrep",
+  "jq",
+  "gh",
+  "fd",
+  "fzf",
+] as const satisfies readonly CliToolId[];
+
+const STANDALONE_CLI_TOOL_SET: ReadonlySet<CliToolId> = new Set(
+  STANDALONE_CLI_TOOLS,
+);
+
+/** Registry-derived ids represented by `hatch3r-cli-toolbox`. */
+export const TOOLBOX_CLI_TOOLS: readonly CliToolId[] = Object.freeze(
+  (Object.keys(AVAILABLE_CLI_TOOLS) as CliToolId[]).filter(
+    (id) => !STANDALONE_CLI_TOOL_SET.has(id),
+  ),
+);
+
+const TOOLBOX_CLI_TOOL_SET: ReadonlySet<string> = new Set(TOOLBOX_CLI_TOOLS);
+
+/** Whether an enabled CLI-tool selection needs the shared toolbox skill. */
+export function cliToolSelectionUsesToolbox(selected: readonly string[]): boolean {
+  return selected.some((id) => TOOLBOX_CLI_TOOL_SET.has(id));
+}
+
 /** Tier-1 default-on tools (the picker pre-checks these). */
 export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
   "ripgrep",

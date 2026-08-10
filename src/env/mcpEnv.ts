@@ -123,13 +123,17 @@ export function getSourceEnvMcpDisclaimer(
   }
 
   return [
-    "# Cursor / Claude Code: Source this file, then start or restart your editor (VS Code/Copilot auto-loads it).",
+    "# Cursor / Claude Code / Codex: Source this file, then start or restart your editor or Codex (VS Code/Copilot auto-loads it).",
     ...shellBlocks,
+    "",
+    "# Codex reads MCP variables from its launching process. Source, then launch Codex in the same shell:",
+    `#   POSIX: ${SOURCE_POSIX} && codex`,
+    `#   PowerShell: ${SOURCE_POWERSHELL}; codex`,
     "",
     "# macOS GUI-launched editors (Finder, Dock, Spotlight) do NOT inherit shell-sourced env vars.",
     "# Two reliable workarounds:",
     "#   1. Launch the editor from a terminal AFTER sourcing this file:",
-    `#      ${SOURCE_POSIX} && open -a Cursor .   # or: code .  /  cursor .  /  claude .`,
+    `#      ${SOURCE_POSIX} && open -a Cursor .   # or: code .  /  cursor .  /  claude .  /  codex`,
     "#   2. Make the values persistent across logins via launchctl (per var):",
     "#      launchctl setenv VAR_NAME \"$VAR_NAME\"   # then quit and relaunch the editor",
     "",

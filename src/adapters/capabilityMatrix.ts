@@ -333,6 +333,16 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
       status: "supported",
       detail: "SKILL.md format with name and description frontmatter",
     },
+    { id: "sub-agents", name: "Project custom agents (.codex/agents/*.toml)", status: "supported", detail: "native project subagent definitions" },
+    { id: "agents-md-rules", name: "Repository rules through AGENTS.md", status: "supported", detail: "Hatcher bridge; Codex has no native glob-scoped rule files" },
+    { id: "command-skill-bridge", name: "Command workflows as explicitly invoked skills", status: "supported", detail: "Hatcher bridge; not repository slash commands" },
+    { id: "mcp", name: "Project MCP (.codex/config.toml)", status: "supported", detail: "stdio and Streamable HTTP with environment-variable indirection" },
+    { id: "hooks", name: "Project hooks (.codex/hooks.json or config.toml)", status: "supported", detail: "trust and hook-hash approval remain user-controlled" },
+    { id: "project-config", name: "Project configuration (.codex/config.toml)", status: "supported" },
+    { id: "model-effort", name: "Per-agent model and reasoning effort", status: "supported" },
+    { id: "slash-commands", name: "Repository-defined slash commands", status: "unsupported", detail: "command workflows use the explicit skill bridge" },
+    { id: "glob-rules", name: "Native repository glob-scoped rules", status: "unsupported", detail: "AGENTS.md routes matching work to projected rule files" },
+    { id: "native-question-tool", name: "Always-available native question tool", status: "unsupported", detail: "host-dependent interactive input with required plain-text fallback" },
   ],
 };
 
@@ -386,6 +396,16 @@ const PLATFORM_TO_DECLARED_KEY: Record<AuditedAdapter, Record<string, string | n
   },
   codex: {
     skills: "skills",
+    "sub-agents": "agents",
+    "agents-md-rules": "rules",
+    "command-skill-bridge": "commands",
+    mcp: "mcp",
+    hooks: "hooks",
+    "project-config": null,
+    "model-effort": "modelOverride",
+    "slash-commands": null,
+    "glob-rules": null,
+    "native-question-tool": "nativeQuestionTool",
   },
 };
 
@@ -578,73 +598,64 @@ function severityFor(capabilityId: string): FindingSeverity {
  * Access dates track `docs/adapter-capability-matrix.md` last-verified line;
  * keep this map in sync when re-verifying.
  */
+const CAPABILITY_SOURCE_ACCESS_DATE = "2026-06-06";
+const CODEX_SOURCE_ACCESS_DATE = "2026-08-09";
+
+function officialSource(
+  url: string,
+  author: string,
+  accessed: string = CAPABILITY_SOURCE_ACCESS_DATE,
+): FindingSource {
+  return { url, accessed, author, trust_tier: "official-docs" };
+}
+
+const CODEX_FINDING_SOURCES = [
+  officialSource("https://learn.chatgpt.com/docs/build-skills", "OpenAI", CODEX_SOURCE_ACCESS_DATE),
+  officialSource(
+    "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
+    "OpenAI",
+    CODEX_SOURCE_ACCESS_DATE,
+  ),
+  officialSource(
+    "https://learn.chatgpt.com/docs/agent-configuration/subagents",
+    "OpenAI",
+    CODEX_SOURCE_ACCESS_DATE,
+  ),
+  officialSource(
+    "https://learn.chatgpt.com/docs/config-file/config-reference",
+    "OpenAI",
+    CODEX_SOURCE_ACCESS_DATE,
+  ),
+] as const satisfies readonly FindingSource[];
+
+const ADAPTER_FINDING_SOURCES = {
+  claude: [
+    officialSource("https://code.claude.com/docs/en/plugins-reference", "Anthropic"),
+    officialSource("https://docs.anthropic.com/en/docs/claude-code", "Anthropic"),
+  ],
+  cursor: [
+    officialSource("https://cursor.com/docs/agents", "Cursor"),
+    officialSource("https://docs.cursor.com/context/rules-for-ai", "Cursor"),
+  ],
+  copilot: [
+    officialSource(
+      "https://docs.github.com/en/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot",
+      "GitHub",
+    ),
+    officialSource(
+      "https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills",
+      "GitHub",
+    ),
+    officialSource(
+      "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+      "Microsoft",
+    ),
+  ],
+  codex: CODEX_FINDING_SOURCES,
+} as const satisfies Record<AuditedAdapter, readonly FindingSource[]>;
+
 function sourcesFor(adapter: AuditedAdapter): FindingSource[] {
-  const ACCESS_DATE = "2026-06-06"; // docs/adapter-capability-matrix.md last-verified
-  switch (adapter) {
-    case "claude":
-      return [
-        {
-          url: "https://code.claude.com/docs/en/plugins-reference",
-          accessed: ACCESS_DATE,
-          author: "Anthropic",
-          trust_tier: "official-docs",
-        },
-        {
-          url: "https://docs.anthropic.com/en/docs/claude-code",
-          accessed: ACCESS_DATE,
-          author: "Anthropic",
-          trust_tier: "official-docs",
-        },
-      ];
-    case "cursor":
-      return [
-        {
-          url: "https://cursor.com/docs/agents",
-          accessed: ACCESS_DATE,
-          author: "Cursor",
-          trust_tier: "official-docs",
-        },
-        {
-          url: "https://docs.cursor.com/context/rules-for-ai",
-          accessed: ACCESS_DATE,
-          author: "Cursor",
-          trust_tier: "official-docs",
-        },
-      ];
-    case "copilot":
-      return [
-        {
-          url: "https://docs.github.com/en/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot",
-          accessed: ACCESS_DATE,
-          author: "GitHub",
-          trust_tier: "official-docs",
-        },
-        {
-          url: "https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills",
-          accessed: ACCESS_DATE,
-          author: "GitHub",
-          trust_tier: "official-docs",
-        },
-        {
-          // D9-17 / D9-18 (Cycle 11 D9, P3): VS Code agent-customization surface
-          // — documents the Preview PreToolUse hook (permissionDecision:"deny" +
-          // agent-scoped hooks:) and agent handoffs the copilot seed now cites.
-          url: "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
-          accessed: ACCESS_DATE,
-          author: "Microsoft",
-          trust_tier: "official-docs",
-        },
-      ];
-    case "codex":
-      return [
-        {
-          url: "https://learn.chatgpt.com/docs/build-skills",
-          accessed: "2026-08-09",
-          author: "OpenAI",
-          trust_tier: "official-docs",
-        },
-      ];
-  }
+  return [...ADAPTER_FINDING_SOURCES[adapter]];
 }
 
 /**

@@ -49,6 +49,8 @@ export interface HookDefinition {
   agent: string;
   /** Human-readable description of the hook's purpose. */
   description: string;
+  /** Exact canonical file that supplied this definition, when read from disk. */
+  sourcePath?: string;
   /** Optional conditions that narrow when the hook fires. */
   condition?: HookCondition;
 }
