@@ -9,21 +9,16 @@ import { tmpdir } from "node:os";
 // suite cannot reach deterministically:
 //   - size-mismatch throw  (destStat.size !== srcStat.size)
 //   - content-mismatch throw (sizes equal, SHA-256 digests differ)
-// Both branches gate `await rm(absPath)` — a same-size-corrupted copy that
+// Both branches gate verified source removal — a same-size-corrupted copy that
 // slipped past the size check would otherwise delete the user's only good
-// source. The prior coverage gap declined these paths citing a "cannot mock
-// node:fs/promises" blocker; this file disproves it with the repo's standard
-// `vi.doMock("node:fs/promises", importOriginal)` pattern (the same one
-// safeWrite.lockBranches.test.ts and orphanCleanup.errorBranches.test.ts use),
-// overriding only `cp` so the destination bytes diverge from the source while
-// every other fs primitive stays real.
+// source. The tests use the repo's standard `vi.doMock(..., importOriginal)`
+// pattern, overriding only the archive
+// destination snapshot metadata while every filesystem primitive stays real.
 //
-// Each test mocks `cp(src, dest)` to write a controlled destination via the
-// real `writeFile`, then asserts archiveToolOutputs rejects AND the source
-// file still exists (the rm never ran).
+// Each test asserts archiveToolOutputs rejects AND the source file still exists.
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("archiveToolOutputs — integrity-violation branches (mocked cp)", () => {
+describe("archiveToolOutputs — integrity-violation branches", () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -33,27 +28,27 @@ describe("archiveToolOutputs — integrity-violation branches (mocked cp)", () =
 
   afterEach(async () => {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
-    vi.doUnmock("node:fs/promises");
+    vi.doUnmock("../../merge/repositoryPathSafety.js");
     vi.resetModules();
   });
 
   it("rejects with FS_ERROR on a size mismatch and leaves the source intact", async () => {
-    // A no-managed-block file routes straight to the cp + post-copy validation
+    // A no-managed-block file routes straight to the archive + validation
     // (the migration branch is skipped), isolating the integrity check.
     const relPath = ".cursor/mcp.json";
     await mkdir(join(tempDir, ".cursor"), { recursive: true });
     const sourceAbs = join(tempDir, relPath);
     await writeFile(sourceAbs, JSON.stringify({ mcpServers: { a: 1 } }));
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        // Write a destination that is deliberately SHORTER than the source so
-        // destStat.size !== srcStat.size fires the size-mismatch throw before
-        // the hash is ever computed.
-        cp: vi.fn(async (_src: string, dest: string) => {
-          await actual.writeFile(dest, "x");
+        readRepositoryFileSnapshot: vi.fn(async (rootDir: string, path: string) => {
+          const snapshot = await actual.readRepositoryFileSnapshot(rootDir, path);
+          return path.startsWith(".hatch3r-archive/")
+            ? { ...snapshot, identity: { ...snapshot.identity, size: snapshot.identity.size + 1 } }
+            : snapshot;
         }),
       };
     });
@@ -77,15 +72,15 @@ describe("archiveToolOutputs — integrity-violation branches (mocked cp)", () =
     const sourceBytes = "AAAAAAAAAAAAAAAA"; // 16 bytes
     await writeFile(sourceAbs, sourceBytes);
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        // Same byte length, different bytes: the size check passes, the SHA-256
-        // comparison fails. This is the corruption class size-only validation
-        // would silently accept (disk bit-flip, concurrent writer, network FS).
-        cp: vi.fn(async (_src: string, dest: string) => {
-          await actual.writeFile(dest, "BBBBBBBBBBBBBBBB"); // 16 bytes, divergent
+        readRepositoryFileSnapshot: vi.fn(async (rootDir: string, path: string) => {
+          const snapshot = await actual.readRepositoryFileSnapshot(rootDir, path);
+          return path.startsWith(".hatch3r-archive/")
+            ? { ...snapshot, identity: { ...snapshot.identity, sha256: "0".repeat(64) } }
+            : snapshot;
         }),
       };
     });

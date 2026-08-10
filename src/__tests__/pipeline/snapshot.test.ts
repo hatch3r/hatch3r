@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, access, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, stat, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import {
   applyRollback,
   buildSessionId,
@@ -54,6 +54,48 @@ describe("pipeline/snapshot", () => {
   });
 
   describe("createSnapshot", () => {
+    it.each([
+      "../outside.txt",
+      "nested/../../outside.txt",
+      "/tmp/hatch3r-outside.txt",
+      "C:\\outside.txt",
+      "C:outside.txt",
+      "\\windows-rooted\\outside.txt",
+      "\\\\server\\share\\outside.txt",
+      "nested/./file.txt",
+      "nested//file.txt",
+      "nested\nfile.txt",
+    ])("rejects unsafe repository lifecycle input %j before creating snapshot state", async (path) => {
+      await expect(createSnapshot("sess-unsafe-input", [path], { projectRoot }))
+        .rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+      expect(await fileExists(join(projectRoot, ".hatch3r"))).toBe(false);
+    });
+
+    it("requires an explicit opt-in for external snapshot API inputs", async () => {
+      const external = join(projectRoot, "..", "external.txt");
+      await expect(createSnapshot("sess-external-default", [external], { projectRoot }))
+        .rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+    });
+
+    it.runIf(platform() !== "win32")("rejects a symlinked source ancestor without reading its outside sentinel", async () => {
+      const outside = await mkdtemp(join(tmpdir(), "hatch3r-snapshot-outside-"));
+      try {
+        await mkdir(join(outside, "skills"), { recursive: true });
+        const sentinel = join(outside, "skills", "owned.md");
+        await writeFile(sentinel, "outside\n");
+        await symlink(outside, join(projectRoot, ".agents"));
+
+        await expect(createSnapshot(
+          "sess-source-symlink",
+          [join(projectRoot, ".agents", "skills", "owned.md")],
+          { projectRoot },
+        )).rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+        expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+
     it("captures existing files byte-for-byte", async () => {
       const fileA = join(projectRoot, "a.txt");
       const fileB = join(projectRoot, "subdir", "b.txt");
@@ -135,7 +177,10 @@ describe("pipeline/snapshot", () => {
       // External path simulated by going up beyond projectRoot. Use a path
       // that will not exist, so the tombstone branch records it.
       const external = "/this/should/never/exist/external-file.txt";
-      const result = await createSnapshot("sess-ext", [external], { projectRoot });
+      const result = await createSnapshot("sess-ext", [external], {
+        projectRoot,
+        allowExternalPaths: true,
+      });
       const meta = JSON.parse(
         await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
       );
@@ -158,7 +203,10 @@ describe("pipeline/snapshot", () => {
     });
 
     it("captures projectRoot itself as _external/root when passed in paths", async () => {
-      const result = await createSnapshot("sess-root", [projectRoot], { projectRoot });
+      const result = await createSnapshot("sess-root", [projectRoot], {
+        projectRoot,
+        allowExternalPaths: true,
+      });
       const meta = JSON.parse(
         await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
       );
@@ -258,13 +306,17 @@ describe("pipeline/snapshot", () => {
 
       it("keeps paths/relativePaths index-aligned across two same-session calls", async () => {
         // Call 1 captures the first colliding input.
-        await createSnapshot("sess-xcall", [collidingA], { projectRoot });
+        await createSnapshot("sess-xcall", [collidingA], {
+          projectRoot,
+          allowExternalPaths: true,
+        });
         // Call 2 (same session) passes the OTHER input that maps to the same
         // mirror. Pre-fix this silently desynced the arrays; post-fix the
         // seeded guard detects it, skips the second capture, and warns.
         const warns: string[] = [];
         const result = await createSnapshot("sess-xcall", [collidingB], {
           projectRoot,
+          allowExternalPaths: true,
           onWarn: (m) => warns.push(m),
         });
 
@@ -309,11 +361,17 @@ describe("pipeline/snapshot", () => {
         // Call 1 captures a real in-project file AND the first external input.
         const realA = join(projectRoot, "real-a.txt");
         await writeFile(realA, "orig A");
-        await createSnapshot("sess-xroll", [realA, collidingA], { projectRoot });
+        await createSnapshot("sess-xroll", [realA, collidingA], {
+          projectRoot,
+          allowExternalPaths: true,
+        });
         // Call 2 passes collidingB, which maps to the SAME mirror as collidingA.
         // The seeded guard must skip it so it never shifts realA's (abs, rel)
         // index pairing — the desync this fix prevents.
-        await createSnapshot("sess-xroll", [collidingB], { projectRoot });
+        await createSnapshot("sess-xroll", [collidingB], {
+          projectRoot,
+          allowExternalPaths: true,
+        });
 
         const meta = JSON.parse(
           await readFile(
@@ -329,7 +387,10 @@ describe("pipeline/snapshot", () => {
         // Round-trip: realA must restore to its captured pre-run bytes, proving
         // its index slot was not corrupted by the skipped collision.
         await writeFile(realA, "mut A");
-        const result = await applyRollback("sess-xroll", { projectRoot });
+        const result = await applyRollback("sess-xroll", {
+          projectRoot,
+          allowExternalPaths: true,
+        });
         expect(result.errors).toEqual([]);
         expect(await readFile(realA, "utf-8")).toBe("orig A");
       });
@@ -395,6 +456,58 @@ describe("pipeline/snapshot", () => {
   });
 
   describe("applyRollback (round-trip)", () => {
+    it("rejects traversal-derived targets in tampered snapshot metadata", async () => {
+      const target = join(projectRoot, "safe.txt");
+      await writeFile(target, "original\n");
+      const captured = await createSnapshot("sess-tampered-traversal", [target], {
+        projectRoot,
+      });
+      await writeFile(target, "mutated\n");
+      const outsideDir = await mkdtemp(join(tmpdir(), "hatch3r-rollback-traversal-"));
+      const outside = join(outsideDir, "outside-sentinel.txt");
+      await writeFile(outside, "outside\n");
+      try {
+        const metaPath = join(captured.snapshotPath, SNAPSHOT_META_FILE);
+        const meta = JSON.parse(await readFile(metaPath, "utf-8"));
+        meta.paths = [outside];
+        meta.relativePaths = ["../outside-sentinel.txt"];
+        await writeFile(metaPath, JSON.stringify(meta));
+
+        const result = await applyRollback("sess-tampered-traversal", { projectRoot });
+        expect(result.filesRestored).toBe(0);
+        expect(result.errors.join(" ")).toMatch(/unsafe snapshot path|Unsafe repository path/);
+        expect(await readFile(outside, "utf-8")).toBe("outside\n");
+        expect(await readFile(target, "utf-8")).toBe("mutated\n");
+      } finally {
+        await rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(platform() !== "win32")("rejects an ancestor symlink introduced after capture and preserves the outside sentinel", async () => {
+      const managedDir = join(projectRoot, ".agents", "skills");
+      const target = join(managedDir, "owned.md");
+      await mkdir(managedDir, { recursive: true });
+      await writeFile(target, "original\n");
+      await createSnapshot("sess-rollback-symlink", [target], { projectRoot });
+      await writeFile(target, "mutated\n");
+
+      const outside = await mkdtemp(join(tmpdir(), "hatch3r-rollback-outside-"));
+      try {
+        await mkdir(join(outside, "skills"), { recursive: true });
+        const sentinel = join(outside, "skills", "owned.md");
+        await writeFile(sentinel, "outside\n");
+        await rm(join(projectRoot, ".agents"), { recursive: true });
+        await symlink(outside, join(projectRoot, ".agents"));
+
+        const result = await applyRollback("sess-rollback-symlink", { projectRoot });
+        expect(result.filesRestored).toBe(0);
+        expect(result.errors.join(" ")).toMatch(/unsafe snapshot path|symlink/);
+        expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+
     it("restores file contents to the captured byte-for-byte state", async () => {
       const fileA = join(projectRoot, "a.txt");
       await writeFile(fileA, "original A");
@@ -736,6 +849,19 @@ describe("pipeline/snapshot", () => {
   });
 
   describe("withSnapshot", () => {
+    it("propagates unsafe repository paths and does not run the mutator", async () => {
+      let mutated = false;
+      await expect(withSnapshot(
+        "sync",
+        ["../outside.txt"],
+        async () => {
+          mutated = true;
+        },
+        { projectRoot },
+      )).rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+      expect(mutated).toBe(false);
+    });
+
     it("captures the supplied paths and returns the session id", async () => {
       const fileA = join(projectRoot, "wire-a.txt");
       await writeFile(fileA, "wire-a-original");

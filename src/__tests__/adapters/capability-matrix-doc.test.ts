@@ -149,17 +149,16 @@ describe("Implementation Matrix doc ↔ ADAPTER_CAPABILITIES agreement (D9-19)",
           ).toBeDefined();
 
           const declared = ADAPTER_CAPABILITIES[tool][capKey] as boolean;
-          const docSaysEmits = symbol === "Y";
+          const docSaysImplemented = symbol === "Y" || symbol === "B";
 
-          // Only "Y" denotes emission from this capability source. Any other
-          // legend symbol ("--", "B", "skip") MUST correspond to a false flag,
-          // and a "Y" MUST correspond to a true flag.
+          // "Y" denotes native/direct emission and "B" denotes an emitted
+          // bridge. Both are implemented adapter capabilities; "--" is not.
           expect(
-            docSaysEmits,
+            docSaysImplemented,
             `doc/code drift for "${tool}.${header}": Implementation Matrix shows ` +
-              `"${symbol}" (emits=${docSaysEmits}) but ADAPTER_CAPABILITIES.${tool}.${String(capKey)}=` +
-              `${declared}. Set the cell to "Y" when the flag is true, or to "--"/"B" (with a ` +
-              `footnote) when it is false; or change the flag in src/adapters/index.ts.`,
+              `"${symbol}" (implemented=${docSaysImplemented}) but ADAPTER_CAPABILITIES.${tool}.${String(capKey)}=` +
+              `${declared}. Set the cell to "Y" or "B" when the flag is true, or to "--" ` +
+              `when it is false; or change the flag in src/adapters/index.ts.`,
           ).toBe(declared);
         });
       }

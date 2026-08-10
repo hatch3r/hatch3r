@@ -134,7 +134,7 @@ describe("init post-init tip", () => {
     expect(manifest.tools).toContain("claude");
   });
 
-  it("interactive mode prints the /hatch3r-create tip exactly once", async () => {
+  it("interactive mode prints the adapter-native hatch3r-create tip exactly once", async () => {
     const inq = vi.mocked(inquirer.prompt);
     // F10.3-2 (D10, P1): the interactive first-run flow is capped at the
     // ≤6-prompt ceiling — platform, identity, preset, maturity, tools, and

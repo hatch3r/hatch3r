@@ -249,15 +249,15 @@ describe("adapterToolTranslator", () => {
 });
 
 describe("ADAPTER_ALLOWLIST_COVERAGE + buildAllowlistCoverageTable (C9-H6)", () => {
-  const EXPECTED_ADAPTERS = ["claude", "copilot", "cursor"];
+  const EXPECTED_ADAPTERS = ["claude", "copilot", "cursor", "codex"];
 
-  it("covers all 3 hatch3r adapters with explicit coverage statement", () => {
-    expect(ADAPTER_ALLOWLIST_COVERAGE.length).toBe(3);
+  it("covers all 4 hatch3r adapters with explicit coverage statement", () => {
+    expect(ADAPTER_ALLOWLIST_COVERAGE.length).toBe(4);
     const adapters = ADAPTER_ALLOWLIST_COVERAGE.map((r) => r.adapter).sort();
     expect(adapters).toEqual([...EXPECTED_ADAPTERS].sort());
   });
 
-  it("reports all 3 adapters with full translator coverage", () => {
+  it("reports the three fine-grained adapters with full translator coverage", () => {
     const full = ADAPTER_ALLOWLIST_COVERAGE.filter((r) => r.coverage === "full");
     expect(full.length).toBe(3);
     for (const r of full) {
@@ -266,17 +266,21 @@ describe("ADAPTER_ALLOWLIST_COVERAGE + buildAllowlistCoverageTable (C9-H6)", () 
     }
   });
 
-  it("reports zero adapters with documented coverage limits (all retained adapters have translators)", () => {
+  it("reports Codex's coarse sandbox mapping as a documented partial translator", () => {
+    const partial = ADAPTER_ALLOWLIST_COVERAGE.filter((r) => r.coverage === "partial");
+    expect(partial).toHaveLength(1);
+    expect(partial[0]?.adapter).toBe("codex");
+    expect(partial[0]?.translator).toBe("resolveCodexAgentSandboxMode");
     const none = ADAPTER_ALLOWLIST_COVERAGE.filter((r) => r.coverage === "none");
     expect(none.length).toBe(0);
   });
 
-  it("buildAllowlistCoverageTable renders a markdown table with 3 data rows", () => {
+  it("buildAllowlistCoverageTable renders a markdown table with 4 data rows", () => {
     const table = buildAllowlistCoverageTable();
     const lines = table.split("\n");
     expect(lines[0]).toBe("| Adapter | Coverage | Translator | Rationale |");
     expect(lines[1]).toBe("|---------|----------|------------|-----------|");
-    expect(lines.length - 2).toBe(3);
+    expect(lines.length - 2).toBe(4);
   });
 
   it("table cites translator export names for full-coverage adapters", () => {
@@ -284,6 +288,7 @@ describe("ADAPTER_ALLOWLIST_COVERAGE + buildAllowlistCoverageTable (C9-H6)", () 
     expect(table).toContain("toClaudeToolsFrontmatter");
     expect(table).toContain("toCopilotToolsFrontmatter");
     expect(table).toContain("toCursorReadonlyFrontmatter");
+    expect(table).toContain("resolveCodexAgentSandboxMode");
   });
 });
 
@@ -379,7 +384,7 @@ describe("buildAskUserPlatformTable + substituteCanonicalPlatformMarker", () => 
 // tool-allowlist TARGET platforms. It is prose, so no compiler/parity gate
 // caught the stale "Windsurf Cascade" row that survived the 1.9.0 three-adapter
 // hard-cut and contradicted the removal notes 70 lines below. This gate reads
-// the header block and binds its platform-bullet count to AdapterName's three
+// the header block and binds its platform-bullet count to AdapterName's current
 // members (via ADAPTER_ALLOWLIST_COVERAGE, itself bound to AdapterName's exact
 // members by the coverage tests above), holding the D2 stale-surface metric at
 // 0 for this header so a removed adapter cannot silently reappear.
@@ -405,13 +410,14 @@ describe("D2-SA2.4-14 module-header target-platform enumeration (stale-surface g
     expect(bullets.length).toBe(ADAPTER_ALLOWLIST_COVERAGE.length);
   });
 
-  it("names each of the three supported target platforms", () => {
+  it("names each supported target platform", () => {
     expect(headerBlock).toContain("Claude Code");
     expect(headerBlock).toContain("GitHub Copilot");
     expect(headerBlock).toContain("Cursor");
+    expect(headerBlock).toContain("Codex");
   });
 
-  it("names none of the 1.9.0-removed adapters (windsurf + the other 11)", () => {
+  it("names none of the adapters that remain removed after Codex restoration", () => {
     const REMOVED_ADAPTERS = [
       "windsurf",
       "cline",
@@ -422,7 +428,6 @@ describe("D2-SA2.4-14 module-header target-platform enumeration (stale-surface g
       "aider",
       "amp",
       "antigravity",
-      "codex",
       "goose",
       "zed",
     ];

@@ -120,6 +120,18 @@ describe("formatCommandHint", () => {
   it("returns a generic phrasing on empty tools array", () => {
     expect(formatCommandHint([], "review")).toBe("the review command");
   });
+
+  it("maps canonical command ids to the emitted Codex command-skill bridge", () => {
+    expect(formatCommandHint(["codex"], "hatch3r-project-spec")).toBe(
+      "$hatch3r-command-project-spec",
+    );
+  });
+
+  it("keeps each adapter's real invocation when slash-command and Codex tools are mixed", () => {
+    expect(formatCommandHint(["claude", "codex"], "hatch3r-spec")).toBe(
+      "Claude Code: /hatch3r-spec | Codex: $hatch3r-command-spec",
+    );
+  });
 });
 
 describe("formatCommandHintByTool", () => {
@@ -139,6 +151,12 @@ describe("formatCommandHintByTool", () => {
   it("handles a single tool", () => {
     expect(formatCommandHintByTool(["claude"], "review")).toEqual({ claude: "/review" });
   });
+
+  it("returns the exact Codex command-skill invocation", () => {
+    expect(formatCommandHintByTool(["codex"], "hatch3r-codebase-map")).toEqual({
+      codex: "$hatch3r-command-codebase-map",
+    });
+  });
 });
 
 describe("TOOL_COMMAND_SYNTAX", () => {
@@ -154,6 +172,7 @@ describe("TOOL_SECRET_NOTES", () => {
     expect(TOOL_SECRET_NOTES.cursor).toBeDefined();
     expect(TOOL_SECRET_NOTES.claude).toBeDefined();
     expect(TOOL_SECRET_NOTES.copilot).toBeDefined();
+    expect(TOOL_SECRET_NOTES.codex).toBeDefined();
   });
 
   it("most notes mention .env.mcp or sourcing", () => {
@@ -177,5 +196,12 @@ describe("TOOL_SECRET_NOTES", () => {
     // Guards against an over-broad fix: unlike cursor, the copilot/VS Code adapter
     // emits a real .env.mcp envFile loader, so 'auto-loads' is accurate there.
     expect(TOOL_SECRET_NOTES.copilot).toMatch(/auto-load/i);
+  });
+
+  it("Codex note requires sourcing .env.mcp before launch without embedding a value", () => {
+    expect(TOOL_SECRET_NOTES.codex).toMatch(
+      /source \.env\.mcp.*platform-appropriate.*before (starting|launch)/i,
+    );
+    expect(TOOL_SECRET_NOTES.codex).not.toMatch(/=[^ }`]+/);
   });
 });

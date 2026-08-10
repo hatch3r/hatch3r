@@ -213,6 +213,29 @@ async function observedRow(tool: Tool): Promise<ObservedCapabilityRow> {
     const offOutputs = await adapter.generate(FIXTURES_DIR, offManifest);
     const offDigest = digest(offOutputs);
     observed[feature] = offDigest !== maximalDigest;
+    if (tool === "codex" && feature === "hooks" && !observed[feature]) {
+      // This compact cross-adapter fixture intentionally has no ci-watcher
+      // custom agent, so Codex fail-closes the only supported SessionStart
+      // hook instead of emitting a dangling handler. The warning proves the
+      // feature path was exercised; dedicated Codex lifecycle tests use a
+      // reachable target and assert the real hooks.json output.
+      const onAdapter = getAdapter("codex");
+      await onAdapter.generate(FIXTURES_DIR, buildManifest("codex", maximalFeatures()));
+      observed[feature] = onAdapter.warnings.some((warning) =>
+        warning.includes("Hook \"session-start-ci-watcher\" omitted"),
+      );
+    }
+    if (tool === "codex" && feature === "handoffs" && !observed[feature]) {
+      // The compact cross-adapter fixture has no hatch3r-handoff command.
+      // Codex must not emit a dangling bridge, so exercise the fail-closed
+      // feature path through its actionable warning instead. Dedicated Codex
+      // instruction tests assert the real $hatch3r-command-handoff output.
+      const onAdapter = getAdapter("codex");
+      await onAdapter.generate(FIXTURES_DIR, buildManifest("codex", maximalFeatures()));
+      observed[feature] = onAdapter.warnings.some((warning) =>
+        warning.includes("Handoff bridge requested but hatch3r-handoff is not selected"),
+      );
+    }
   }
   return observed as ObservedCapabilityRow;
 }

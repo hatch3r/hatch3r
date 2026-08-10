@@ -6,6 +6,9 @@ import {
   TIER3_CLI_TOOLS,
   DEFAULT_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
+  STANDALONE_CLI_TOOLS,
+  TOOLBOX_CLI_TOOLS,
+  cliToolSelectionUsesToolbox,
   type CliToolMeta,
 } from "../../cliTools/registry.js";
 
@@ -37,6 +40,17 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     // Total catalog size 39 — surfaces accidental tool additions without
     // tier classification updates.
     expect(allEntries.length).toBe(39);
+  });
+
+  it("partitions the five standalone skills from the 34-tool toolbox", () => {
+    expect(STANDALONE_CLI_TOOLS).toHaveLength(5);
+    expect(TOOLBOX_CLI_TOOLS).toHaveLength(34);
+    expect(new Set([...STANDALONE_CLI_TOOLS, ...TOOLBOX_CLI_TOOLS])).toEqual(
+      new Set(Object.keys(AVAILABLE_CLI_TOOLS)),
+    );
+    expect(cliToolSelectionUsesToolbox(["jq"])).toBe(false);
+    expect(cliToolSelectionUsesToolbox(["jq", "curl"])).toBe(true);
+    expect(cliToolSelectionUsesToolbox(["never-existed-tool"])).toBe(false);
   });
 
   it("tier arrays partition AVAILABLE_CLI_TOOLS exactly — the section-header counts are un-driftable (D21-SA21.4-05, Cycle 12)", () => {

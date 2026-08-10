@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type Features, type HatchManifest } from "../../types.js";
@@ -119,6 +119,7 @@ vi.mock("../../archive/index.js", async (importOriginal) => {
     archiveToolOutputs: vi.fn(),
     collectToolFiles: vi.fn(),
     removeManagedFilesForPaths: vi.fn(),
+    fileMatchesTool: actual.fileMatchesTool,
     TOOL_PATH_PREFIXES: actual.TOOL_PATH_PREFIXES,
   };
 });
@@ -318,6 +319,7 @@ import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/m
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
+import { applyRollback } from "../../pipeline/snapshot.js";
 import type { WorkspaceManifest } from "../../workspace/types.js";
 
 // ── Local test types ─────────────────────────────────────────
@@ -1213,7 +1215,9 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude");
+      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude", {
+        recordedPaths: [],
+      });
     });
 
     it("should show archive count in summary", async () => {
@@ -1430,6 +1434,39 @@ describe("config command", () => {
       );
       // collectToolFiles (not managedFilesByAdapter) is the snapshot source.
       expect(vi.mocked(collectToolFiles)).toHaveBeenCalledWith(tempDir, "claude");
+    });
+
+    it("rolls back a markerless recorded Codex companion omitted by structural discovery", async () => {
+      const companionRel = ".agents/skills/hatch3r-feature/assets/template.txt";
+      const companionAbs = join(tempDir, companionRel);
+      const original = "markerless managed companion\n";
+      await mkdir(join(tempDir, ".agents/skills/hatch3r-feature/assets"), { recursive: true });
+      await writeFile(companionAbs, original);
+      const manifest = makeManifest({
+        tools: ["cursor", "codex"],
+        managedFilesByAdapter: { codex: [companionRel] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(collectToolFiles).mockResolvedValue([]);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: [companionRel],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "codex", {
+        recordedPaths: [companionRel],
+      });
+      const regenCall = vi.mocked(runRegenerate).mock.calls.at(-1);
+      const sessionId = (regenCall?.[2] as { reuseSessionId?: string } | undefined)?.reuseSessionId;
+      expect(sessionId).toMatch(/^config-/);
+
+      await rm(companionAbs);
+      const rollback = await applyRollback(sessionId!, { projectRoot: tempDir });
+      expect(rollback.errors).toEqual([]);
+      expect(await readFile(companionAbs, "utf-8")).toBe(original);
     });
 
     // D2-SA2.7-01: the consent preview must DISCLOSE non-managed files that will
@@ -2145,8 +2182,12 @@ describe("config command", () => {
       await (await importConfigCommand())();
 
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude");
-      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "copilot");
+      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude", {
+        recordedPaths: [],
+      });
+      expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "copilot", {
+        recordedPaths: [],
+      });
     });
 
     it("should call writeManifest before runRegenerate", async () => {

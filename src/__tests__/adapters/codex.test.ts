@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -12,7 +12,11 @@ import { createManifest } from "../../manifest/hatchJson.js";
 import { WORKTREE_CAPABLE_TOOLS, type ContentSelection } from "../../types.js";
 
 const REGULAR_SKILLS = ["hatch3r-alpha", "hatch3r-beta"] as const;
-const CLI_SKILLS = ["hatch3r-cli-jq", "hatch3r-cli-ripgrep"] as const;
+const CLI_SKILLS = [
+  "hatch3r-cli-jq",
+  "hatch3r-cli-ripgrep",
+  "hatch3r-cli-toolbox",
+] as const;
 
 function selection(skills: string[]): ContentSelection {
   return {
@@ -51,7 +55,7 @@ describe("CodexAdapter", () => {
     await rm(projectRoot, { recursive: true, force: true });
   });
 
-  it("registers a fresh codex adapter with a truthful skills-only capability row", () => {
+  it("registers a fresh codex adapter with its production capability row", () => {
     const first = getAdapter("codex");
     const second = getAdapter("codex");
 
@@ -59,19 +63,19 @@ describe("CodexAdapter", () => {
     expect(first).not.toBe(second);
     expect(first.name).toBe("codex");
     expect(ADAPTER_CAPABILITIES.codex).toEqual({
-      agents: false,
+      agents: true,
       skills: true,
-      rules: false,
-      hooks: false,
-      mcp: false,
-      commands: false,
+      rules: true,
+      hooks: true,
+      mcp: true,
+      commands: true,
       prompts: false,
       githubAgents: false,
-      handoffs: false,
+      handoffs: true,
       worktree: WORKTREE_CAPABLE_TOOLS.has("codex"),
       customization: true,
-      modelOverride: false,
-      effortOverride: false,
+      modelOverride: true,
+      effortOverride: true,
       nativeQuestionTool: false,
       cliTools: true,
     });
@@ -143,6 +147,78 @@ describe("CodexAdapter", () => {
     expect(paths).toContain(".agents/skills/hatch3r-beta/SKILL.md");
     expect(paths).toContain(".agents/skills/hatch3r-cli-jq/SKILL.md");
     expect(paths).not.toContain(".agents/skills/hatch3r-cli-ripgrep/SKILL.md");
+    expect(paths).not.toContain(".agents/skills/hatch3r-cli-toolbox/SKILL.md");
+  });
+
+  it("emits the toolbox when an enabled selection contains a non-standalone tool", async () => {
+    const outputs = await new CodexAdapter().generate(
+      projectRoot,
+      createManifest({
+        tools: ["codex"],
+        cliTools: { enabled: true, selected: ["curl"] },
+      }),
+      projectRoot,
+    );
+
+    expect(outputs.map((item) => item.path)).toContain(
+      ".agents/skills/hatch3r-cli-toolbox/SKILL.md",
+    );
+  });
+
+  it("does not emit the toolbox when CLI tools are disabled", async () => {
+    const outputs = await new CodexAdapter().generate(
+      projectRoot,
+      createManifest({
+        tools: ["codex"],
+        cliTools: { enabled: false, selected: ["curl"] },
+      }),
+      projectRoot,
+    );
+
+    expect(outputs.map((item) => item.path)).not.toContain(
+      ".agents/skills/hatch3r-cli-toolbox/SKILL.md",
+    );
+  });
+
+  it("wires the handoff feature to the managed command-skill bridge", async () => {
+    const commandsDir = join(projectRoot, "commands");
+    await mkdir(commandsDir, { recursive: true });
+    await writeFile(
+      join(commandsDir, "hatch3r-handoff.md"),
+      [
+        "---",
+        "id: hatch3r-handoff",
+        "type: command",
+        "description: Manage cross-session Hatcher handoffs.",
+        "---",
+        "# Handoff",
+        "",
+        "Prepare, resume, list, complete, or prune handoff state.",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const content = selection([]);
+    content.items.commands = ["hatch3r-handoff"];
+
+    const enabled = await new CodexAdapter().generate(
+      projectRoot,
+      createManifest({ tools: ["codex"], content, features: { handoffs: true } }),
+      projectRoot,
+    );
+    const enabledRoot = enabled.find((output) => output.path === "AGENTS.md");
+    expect(enabledRoot?.content).toContain("`$hatch3r-command-handoff`");
+    expect(enabled.some((output) =>
+      output.path === ".agents/skills/hatch3r-command-handoff/SKILL.md"
+    )).toBe(true);
+
+    const disabled = await new CodexAdapter().generate(
+      projectRoot,
+      createManifest({ tools: ["codex"], content, features: { handoffs: false } }),
+      projectRoot,
+    );
+    expect(disabled.find((output) => output.path === "AGENTS.md")?.content)
+      .not.toContain("`$hatch3r-command-handoff`");
   });
 
   it("applies skill customization to metadata, body, and enablement", async () => {
@@ -177,5 +253,27 @@ describe("CodexAdapter", () => {
     expect(outputs[0]!.content).toContain(
       "Use the project-specific alpha procedure.",
     );
+  });
+
+  it("updates recorded markerless companions but rejects an unrecorded co-tenant collision", async () => {
+    const sourceScript = join(projectRoot, "skills", "hatch3r-alpha", "scripts", "helper.sh");
+    await mkdir(join(sourceScript, ".."), { recursive: true });
+    await writeFile(sourceScript, "echo canonical\n", "utf-8");
+    const selected = selection(["hatch3r-alpha"]);
+    const firstManifest = createManifest({ tools: ["codex"], content: selected });
+    const first = await new CodexAdapter().generate(projectRoot, firstManifest, projectRoot);
+    const companion = first.find((output) => output.path.endsWith("/scripts/helper.sh"))!;
+    await mkdir(join(projectRoot, companion.path, ".."), { recursive: true });
+    await writeFile(join(projectRoot, companion.path), companion.content, "utf-8");
+
+    firstManifest.managedFilesByAdapter = { codex: [companion.path] };
+    const update = await new CodexAdapter().generate(projectRoot, firstManifest, projectRoot);
+    expect(update.find((output) => output.path === companion.path)?.validatedFullDocument).toBe(true);
+
+    firstManifest.managedFilesByAdapter = { codex: [] };
+    await expect(new CodexAdapter().generate(projectRoot, firstManifest, projectRoot)).rejects.toThrow(
+      /already exists but is not recorded or marked as Hatcher-owned/,
+    );
+    expect(await readFile(join(projectRoot, companion.path), "utf-8")).toBe(companion.content);
   });
 });

@@ -170,11 +170,46 @@ My custom additions that should be preserved`;
       const collected = await collectToolFiles(tempDir, "codex");
       expect(collected).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
 
-      const result = await archiveToolOutputs(tempDir, "codex");
+      const result = await archiveToolOutputs(tempDir, "codex", {
+        recordedPaths: [".agents/skills/hatch3r-plan/SKILL.md"],
+      });
       expect(result.archivedFiles).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
       await expect(access(generated)).rejects.toThrow();
       await expect(access(userHatch3r)).resolves.toBeUndefined();
       await expect(access(thirdParty)).resolves.toBeUndefined();
+    });
+
+    it.each([
+      "../outside/SKILL.md",
+      "/tmp/hatch3r-outside",
+      "C:\\tmp\\hatch3r-outside",
+      "\\\\server\\share\\hatch3r-outside",
+    ])("rejects unsafe recorded path %j before archive mutation", async (recordedPath) => {
+      const sentinel = join(tempDir, "sentinel.txt");
+      await writeFile(sentinel, "preserve\n");
+
+      await expect(archiveToolOutputs(tempDir, "codex", { recordedPaths: [recordedPath] }))
+        .rejects.toThrow("Unsafe repository path");
+      expect(await readFile(sentinel, "utf-8")).toBe("preserve\n");
+      await expect(access(join(tempDir, ARCHIVE_DIR))).rejects.toThrow();
+    });
+
+    it.runIf(platform() !== "win32")("refuses an ancestor symlink to an outside Codex skill", async () => {
+      const outside = await mkdtemp(join(tmpdir(), "hatch3r-archive-outside-"));
+      try {
+        const outsideSkill = join(outside, "skills", "hatch3r-plan", "SKILL.md");
+        await mkdir(join(outside, "skills", "hatch3r-plan"), { recursive: true });
+        await writeFile(outsideSkill, wrapManaged("outside sentinel"));
+        await symlink(outside, join(tempDir, ".agents"));
+
+        const result = await archiveToolOutputs(tempDir, "codex", {
+          recordedPaths: [".agents/skills/hatch3r-plan/SKILL.md"],
+        });
+        expect(result.archivedFiles).toEqual([]);
+        expect(await readFile(outsideSkill, "utf-8")).toBe(wrapManaged("outside sentinel"));
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
 
     it("matches only hatch3r-namespaced Codex skill output paths", () => {
@@ -618,7 +653,9 @@ describe("TOOL_PATH_PREFIXES output coverage (D10-11)", () => {
         tools: [tool],
         mcpServers: ["github"],
       });
-      const outputs = await adapter.generate(repoRoot, manifest);
+      const projectRoot = await mkdtemp(join(tmpdir(), `hatch3r-prefix-${tool}-`));
+      const outputs = await adapter.generate(repoRoot, manifest, projectRoot)
+        .finally(async () => rm(projectRoot, { recursive: true, force: true }));
       expect(outputs.length).toBeGreaterThan(0);
 
       const uncovered = outputs
@@ -689,7 +726,9 @@ describe("TOOL_PATH_PREFIXES top-level-root coverage (D10-33)", () => {
   for (const { tool, adapter } of adapters) {
     it(`every ${tool} top-level output root has a TOOL_PATH_PREFIXES.${tool} entry`, async () => {
       const manifest = createManifest({ tools: [tool], mcpServers: ["github"] });
-      const outputs = await adapter.generate(repoRoot, manifest);
+      const projectRoot = await mkdtemp(join(tmpdir(), `hatch3r-root-${tool}-`));
+      const outputs = await adapter.generate(repoRoot, manifest, projectRoot)
+        .finally(async () => rm(projectRoot, { recursive: true, force: true }));
       expect(outputs.length).toBeGreaterThan(0);
 
       const roots = [...new Set(outputs.map((o) => topLevelRoot(o.path)))];

@@ -7,9 +7,9 @@ import { formatOrphanCleanupDiagnostic } from "../../merge/orphanCleanup.js";
 // ───────────────────────────────────────────────────────────────────────────
 // Error/edge branch coverage for src/merge/orphanCleanup.ts that the main
 // suite does not reach:
-//   - fileExists() non-ENOENT throw → read-failed entry (lines 254-262)
+//   - safe snapshot non-ENOENT throw → read-failed entry
 //   - unlink ENOENT race → missing; unlink non-ENOENT → unlink-failed (289-294)
-//   - fileIsUserWrapped readFile rejects with a non-Error → String() branch
+//   - safe snapshot rejects with a non-Error → String() branch
 //   - isPathInKnownAdapterRoot exact-file prefix match (line 147) and the
 //     rel === "" guard (line 139)
 //   - formatOrphanCleanupDiagnostic e.error ?? e.reason fallback (line 343)
@@ -37,20 +37,19 @@ describe("sweepOrphansForAdapter — fs error branches (mocked node:fs/promises)
   afterEach(async () => {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
     vi.doUnmock("node:fs/promises");
+    vi.doUnmock("../../merge/repositoryPathSafety.js");
     vi.resetModules();
   });
 
-  it("marks a candidate read-failed when access() throws a NON-ENOENT error (EACCES)", async () => {
-    // fileExists() swallows ENOENT but rethrows other errnos; sweepOrphansForAdapter
-    // catches that rethrow and records a `read-failed` entry with the message.
+  it("marks a candidate read-failed when safe inspection throws a NON-ENOENT error (EACCES)", async () => {
     const relPath = ".cursor/rules/hatch3r-perm.mdc";
     await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        access: vi.fn().mockRejectedValue(
+        readRepositoryFileSnapshot: vi.fn().mockRejectedValue(
           Object.assign(new Error("permission denied"), { code: "EACCES" }),
         ),
       };
@@ -65,6 +64,38 @@ describe("sweepOrphansForAdapter — fs error branches (mocked node:fs/promises)
     expect(entries[0].error).toContain("permission denied");
   });
 
+  it("keeps a second safety snapshot failure in the read-failed phase", async () => {
+    const relPath = ".cursor/rules/hatch3r-recheck.mdc";
+    await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
+    await writeFile(join(tempDir, relPath), "<!-- HATCH3R:BEGIN -->\nx\n<!-- HATCH3R:END -->\n");
+
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
+      let reads = 0;
+      return {
+        ...actual,
+        readRepositoryFileSnapshot: vi.fn(async (...args: Parameters<typeof actual.readRepositoryFileSnapshot>) => {
+          reads += 1;
+          if (reads === 2) {
+            throw Object.assign(new Error("recheck denied"), { code: "EACCES" });
+          }
+          return actual.readRepositoryFileSnapshot(...args);
+        }),
+      };
+    });
+
+    const { sweepOrphansForAdapter } = await import("../../merge/orphanCleanup.js");
+    const entries = await sweepOrphansForAdapter("cursor", tempDir, [relPath], []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      removed: false,
+      reason: "read-failed",
+      error: "recheck denied",
+    });
+    expect(await fileExistsOnDisk(join(tempDir, relPath))).toBe(true);
+  });
+
   it("treats an ENOENT race on unlink as 'missing' (file vanished between exists-check and unlink)", async () => {
     // File exists at the access() check, but unlink() races and reports ENOENT.
     // The unlink catch maps ENOENT → missing (not unlink-failed).
@@ -72,11 +103,11 @@ describe("sweepOrphansForAdapter — fs error branches (mocked node:fs/promises)
     await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
     await writeFile(join(tempDir, relPath), "<!-- HATCH3R:BEGIN -->\nx\n<!-- HATCH3R:END -->\n");
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        unlink: vi.fn().mockRejectedValue(
+        removeRepositoryFileIfUnchanged: vi.fn().mockRejectedValue(
           Object.assign(new Error("gone"), { code: "ENOENT" }),
         ),
       };
@@ -95,11 +126,11 @@ describe("sweepOrphansForAdapter — fs error branches (mocked node:fs/promises)
     await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
     await writeFile(join(tempDir, relPath), "<!-- HATCH3R:BEGIN -->\nx\n<!-- HATCH3R:END -->\n");
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        unlink: vi.fn().mockRejectedValue(
+        removeRepositoryFileIfUnchanged: vi.fn().mockRejectedValue(
           Object.assign(new Error("EACCES: permission denied, unlink"), { code: "EACCES" }),
         ),
       };
@@ -116,21 +147,19 @@ describe("sweepOrphansForAdapter — fs error branches (mocked node:fs/promises)
     expect(await fileExistsOnDisk(join(tempDir, relPath))).toBe(true);
   });
 
-  it("records 'read-failed' when fileIsUserWrapped's readFile rejects with a NON-Error value (String() branch)", async () => {
-    // fileIsUserWrapped does `err instanceof Error ? err.message : String(err)`.
-    // Rejecting readFile with a plain object (not an Error) exercises the
+  it("records 'read-failed' when safe inspection rejects with a NON-Error value (String() branch)", async () => {
+    // Rejecting the shared safety read with a plain object (not an Error) exercises the
     // String() fall-through; the result surfaces as a read-failed entry whose
     // `error` is the stringified value.
     const relPath = ".cursor/rules/hatch3r-weird.mdc";
     await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
     await writeFile(join(tempDir, relPath), "content");
 
-    vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>();
+    vi.doMock("../../merge/repositoryPathSafety.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../merge/repositoryPathSafety.js")>();
       return {
         ...actual,
-        // access stays real so the exists-check passes; only readFile is poisoned.
-        readFile: vi.fn().mockRejectedValue({ toString: () => "non-error-read-failure" }),
+        readRepositoryFileSnapshot: vi.fn().mockRejectedValue({ toString: () => "non-error-read-failure" }),
       };
     });
 

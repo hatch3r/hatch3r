@@ -47,13 +47,18 @@ function countLineAnchored(content: string, token: string): number {
 
 describe("agentsMd output class (D9-SA9.5-05)", () => {
   describe("off by default — provably off", () => {
-    it.each<Tool>(["claude", "cursor", "copilot", "codex"])(
+    it.each<Tool>(["claude", "cursor", "copilot"])(
       "%s adapter emits no AGENTS.md when the manifest has no agentsMd key",
       async (tool) => {
         const outputs = await adapterFor(tool).generate(FIXTURES_DIR, makeManifest([tool]));
         expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       },
     );
+
+    it("Codex emits its native AGENTS.md projection independently of the optional shared bridge", async () => {
+      const outputs = await new CodexAdapter().generate(FIXTURES_DIR, makeManifest(["codex"]));
+      expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
+    });
 
     it("emits no AGENTS.md when enabled is false", async () => {
       const manifest = makeManifest(["claude"], { enabled: false });
@@ -78,11 +83,11 @@ describe("agentsMd output class (D9-SA9.5-05)", () => {
   });
 
   describe("owner election — single writer across a multi-tool sync", () => {
-    it("elects claude first, then cursor, copilot, and codex", () => {
-      expect(AGENTS_MD_OWNER_PRIORITY).toEqual(["claude", "cursor", "copilot", "codex"]);
-      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor", "claude"], { enabled: true }))).toBe("claude");
-      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor"], { enabled: true }))).toBe("cursor");
-      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot"], { enabled: true }))).toBe("copilot");
+    it("elects codex first so its native AGENTS.md projection remains the sole writer", () => {
+      expect(AGENTS_MD_OWNER_PRIORITY).toEqual(["codex", "claude", "cursor", "copilot"]);
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor", "claude"], { enabled: true }))).toBe("codex");
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor"], { enabled: true }))).toBe("codex");
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot"], { enabled: true }))).toBe("codex");
       expect(resolveAgentsMdOwner(makeManifest(["codex"], { enabled: true }))).toBe("codex");
     });
 
@@ -94,10 +99,10 @@ describe("agentsMd output class (D9-SA9.5-05)", () => {
         new CopilotAdapter().generate(FIXTURES_DIR, manifest),
         new CodexAdapter().generate(FIXTURES_DIR, manifest),
       ]);
-      expect(claudeOut.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
+      expect(claudeOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       expect(cursorOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       expect(copilotOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
-      expect(codexOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
+      expect(codexOut.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
     });
 
     it("a non-claude owner emits when claude is not selected", async () => {

@@ -3,7 +3,11 @@ import { readFile, readdir, access } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.js";
+import {
+  AVAILABLE_CLI_TOOLS,
+  STANDALONE_CLI_TOOLS,
+  type CliToolMeta,
+} from "../../cliTools/registry.js";
 
 /**
  * v1.9.0 toolbox consolidation: per-tool CLI skill structural snapshot +
@@ -21,7 +25,7 @@ const SKILLS_DIR = join(ROOT, "skills");
 const PER_TOOL_PREFIX = "hatch3r-cli-";
 const TOOLBOX_DIR = "hatch3r-cli-toolbox";
 
-const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
+const STANDALONE_TOOLS = new Set<string>(STANDALONE_CLI_TOOLS);
 
 function splitFrontmatter(content: string): {
   frontmatter: Record<string, unknown>;

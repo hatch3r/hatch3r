@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createProgram } from "../../cli/program.js";
+import { IMPORT_FORMATS } from "../../importers/index.js";
 
 // D1-SA1.8-06 (Cycle 12 Wave 4, D1, P3): commander 15.0.0 (installed exact; see
 // package.json) shipped a breaking change to paired --no-* options — "default
@@ -27,6 +28,13 @@ function initOpts(...flags: string[]): Record<string, unknown> {
 }
 
 describe("commander 15 paired --no-* default contract (D1-SA1.8-06)", () => {
+  it("lists every implemented import format in init help", () => {
+    const init = createProgram().commands.find((command) => command.name() === "init");
+    const option = init?.options.find((candidate) => candidate.long === "--import");
+    expect(option).toBeDefined();
+    for (const format of IMPORT_FORMATS) expect(option!.description).toContain(format);
+  });
+
   it("leaves worktree AND mcp undefined when neither flag is passed", () => {
     const opts = initOpts("--yes");
     expect(opts.worktree).toBeUndefined();
@@ -41,5 +49,9 @@ describe("commander 15 paired --no-* default contract (D1-SA1.8-06)", () => {
   it("--mcp sets mcp true; --no-mcp sets it false", () => {
     expect(initOpts("--yes", "--mcp").mcp).toBe(true);
     expect(initOpts("--yes", "--no-mcp").mcp).toBe(false);
+  });
+
+  it("--no-cli-tools uses Commander's negated positive-key representation", () => {
+    expect(initOpts("--yes", "--no-cli-tools").cliTools).toBe(false);
   });
 });

@@ -641,7 +641,7 @@ describe("pipeline/snapshot — error paths and defensive branches", () => {
         (e: unknown) => e,
       );
       expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toMatch(/refusing to snapshot path with traversal/);
+      expect((err as Error).message).toMatch(/dot and parent-directory segments are not allowed/);
       expect((err as { errorCode?: string }).errorCode).toBe("VALIDATION_ERROR");
     });
   });

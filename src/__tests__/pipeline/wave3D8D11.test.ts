@@ -3,7 +3,7 @@
  *
  * D8 findings:
  * - 8.6: fdatasync on read-write handle + EACCES actionable errors
- * - 8.10: TOCTOU race fix in archive size check (fd-based stat)
+ * - 8.10: TOCTOU-safe archive verification (repository-bound snapshots)
  * - 8.19: Silent error swallowing in validate.ts surfaced as warnings
  *
  * D11 findings:
@@ -126,20 +126,33 @@ describe("D8-8.6: EACCES actionable error messages", () => {
   });
 });
 
-// ── D8-8.10: TOCTOU race fix in archive ───────────────────────────
+// ── D8-8.10: TOCTOU-safe archive verification ───────────────────────
 
-describe("D8-8.10: fd-based archive copy verification", () => {
-  it("archive module uses open+fh.stat for copy verification", async () => {
-    // Verify the archive module imports open from node:fs/promises
+describe("D8-8.10: repository-bound archive copy verification", () => {
+  it("binds copied bytes to file identities and verifies size plus SHA-256 before removal", async () => {
     const archiveSource = await readFile(
       join(process.cwd(), "src/archive/index.ts"),
       "utf-8",
     );
-    expect(archiveSource).toContain("await open(absPath");
-    expect(archiveSource).toContain("await open(archiveDest");
-    expect(archiveSource).toContain("srcFh.stat()");
-    expect(archiveSource).toContain("destFh.stat()");
-    // Verify it no longer uses stat() directly for archive verification
+    const pathSafetySource = await readFile(
+      join(process.cwd(), "src/merge/repositoryPathSafety.ts"),
+      "utf-8",
+    );
+
+    expect(archiveSource).toContain("const source = await readRepositoryFileSnapshot(rootDir, relPath)");
+    expect(archiveSource).toContain("const archived = await readRepositoryFileSnapshot(rootDir, archiveRel)");
+    expect(archiveSource).toContain("archived.identity.size !== source.identity.size");
+    expect(archiveSource).toContain("archived.identity.sha256 === source.identity.sha256");
+    const archiveCopyIndex = archiveSource.indexOf("await writeVerifiedArchiveCopy(");
+    expect(archiveCopyIndex).toBeGreaterThanOrEqual(0);
+    expect(archiveSource.indexOf("await replaceRepositoryFileIfUnchanged(")).toBeGreaterThan(archiveCopyIndex);
+    expect(archiveSource.indexOf("await removeRepositoryFileIfUnchanged(")).toBeGreaterThan(archiveCopyIndex);
+
+    expect(pathSafetySource).toContain('const handle = await open(inspected.absolutePath, "r")');
+    expect(pathSafetySource).toContain("const stat = await handle.stat({ bigint: true })");
+    expect(pathSafetySource).toContain("const content = await handle.readFile()");
+    expect(pathSafetySource).toContain('createHash("sha256").update(content).digest("hex")');
+    expect(pathSafetySource).toContain("current.dev !== stat.dev || current.ino !== stat.ino");
     expect(archiveSource).not.toMatch(/const srcStat = await stat\(absPath\)/);
   });
 });
