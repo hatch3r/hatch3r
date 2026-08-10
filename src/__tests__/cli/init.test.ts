@@ -740,11 +740,7 @@ describe("init command", () => {
     expect(manifest.tools).toContain("claude");
     expect(manifest.tools).toContain("copilot");
     expect(manifest.tools.length).toBe(3);
-  }, 60_000); // Generates output for 3 adapters; on slower Windows runners
-                // this can exceed the default 30s testTimeout in vitest.config.ts
-                // even though it completes in ~2-5s on Mac/Linux. Confirmed
-                // flakiness, not a regression — the surrounding init tests
-                // also slow ~2-3x on the same runs.
+  });
 
   it("should reject when any tool in --tools is invalid", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
