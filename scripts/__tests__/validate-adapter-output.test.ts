@@ -72,11 +72,11 @@ describe("validate-adapter-output — integration (real adapters over a syntheti
 
     const result = await runValidator({ root: rootDir });
 
-    expect(result.errorCount).toBe(0);
+    expect(result.errorCount, JSON.stringify(result.findings, null, 2)).toBe(0);
     expect(result.findings).toHaveLength(0);
-    // 2 rules × 3 adapters.
+    // 2 rules × 4 adapters.
     expect(result.checkedRules).toBe(2);
-    expect(result.checkedTools).toBe(3);
+    expect(result.checkedTools).toBe(4);
   });
 
   it("scopes the check to the injected adapter set when `tools` is narrowed", async () => {
@@ -120,6 +120,18 @@ describe("validate-adapter-output — channel extractors", () => {
     const content = `---\npaths: ["src/lib/*.ts", "*.md"]\n---\n\nbody`;
     const set = RULE_CHANNELS.claude.extract(content);
     expect(set && [...set].sort()).toEqual(["*.md", "src/lib/*.ts"]);
+  });
+
+  it("codex extracts the explicit AGENTS.md conditional-rule bridge row", () => {
+    const outputs: AdapterOutput[] = [{
+      path: "AGENTS.md",
+      content: "- `src/lib/*.ts, *.md` → `.hatch3r/codex-support/rules/hatch3r-cond-rule.md` (critical).",
+      action: "create",
+    }];
+    expect([...emittedGlobsFor(outputs, RULE_CHANNELS.codex, "hatch3r-cond-rule")].sort()).toEqual([
+      "*.md",
+      "src/lib/*.ts",
+    ]);
   });
 
   it("extractors return null when there is no frontmatter at all", () => {
@@ -220,7 +232,7 @@ describe("validate-adapter-output — output shape", () => {
     expect(line).toBe("[ERROR P3-ADAPTER-GLOB-DRIFT] cursor/hatch3r-security-patterns: boom");
   });
 
-  it("checks the 3 supported adapters by default", () => {
-    expect([...ADAPTER_TOOLS].sort()).toEqual(["claude", "copilot", "cursor"]);
+  it("checks all 4 supported adapters by default", () => {
+    expect([...ADAPTER_TOOLS].sort()).toEqual(["claude", "codex", "copilot", "cursor"]);
   });
 });

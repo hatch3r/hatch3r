@@ -13,13 +13,9 @@
  * token `"conditional"` as its glob, or dropped `paths:` entirely) shipped green
  * — the `.md`/`.mdc` parity gate is satisfied by content the adapters never read.
  *
- * This gate closes the loop on the OTHER side of the transform: it generates
- * each of the 3 supported adapters (cursor, copilot, claude) over the FULL
- * canonical rule corpus and asserts, per canonical rule, that the glob set the
- * adapter emitted equals the set derived from the rule's own `.md` frontmatter
- * via {@link resolveRuleGlobs} (which mirrors `validate-rule-parity.ts`'s
- * `csvToSet`). A `scope: conditional` rule whose `.md` declares
- * `globs: "src/lib/*.ts,*.md"` MUST surface exactly that pattern set in:
+ * The gate generates all 4 adapters over the canonical rules and compares each
+ * emitted glob set with {@link resolveRuleGlobs}. A conditional rule declaring
+ * `globs: "src/lib/*.ts,*.md"` must surface that exact pattern set in:
  *   - cursor:  `globs: ["src/lib/*.ts", "*.md"]`   (.cursor/rules/NN-<id>.mdc)
  *   - copilot: `applyTo: "src/lib/*.ts, *.md"`     (.github/instructions/NN-<id>.instructions.md)
  *   - claude:  `paths:` block sequence, one `  - "<glob>"` line per pattern
@@ -27,22 +23,21 @@
  *              channel from the flow array `paths: ["src/lib/*.ts", "*.md"]` to
  *              the block form the Claude Code memory docs document verbatim
  *              (code.claude.com/docs/en/memory); the parser accepts both shapes.
+ *   - codex:   the explicit conditional-rule routing row in root `AGENTS.md`;
+ *              this is a Hatcher bridge, not a native glob-rule claim.
  * An unconditional rule (`scope: always`, or conditional with no patterns) MUST
  * emit no glob shape — and on copilot it MUST be inlined into
  * `.github/copilot-instructions.md` (no per-file instruction output), because a
  * scoped instruction file with an empty `applyTo` would never match any file.
  *
- * Reuses the production emission helpers (`getAdapter().generate()`,
- * `resolveRuleGlobs`, `csvToGlobList`, `toPrefixedId`) rather than
- * re-implementing the transform, so the gate cannot drift away from the code it
- * guards. Exits 0 on full parity, 1 on any per-rule glob mismatch with a
- * per-finding diff (adapter, rule id, expected set, emitted set).
+ * Production emission helpers are reused so the gate cannot drift from the
+ * transform it guards. A mismatch exits 1 with adapter, rule id, and glob diff.
  *
  * Usage: `npm run validate:adapter-parity`
  *        `tsx scripts/validate-adapter-output.ts`
  *        `tsx scripts/validate-adapter-output.ts --json`
  */
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getAdapter } from "../src/adapters/index.js";
@@ -53,13 +48,14 @@ import {
 import { resolveBundledContentRoot } from "../src/content/contentRoot.js";
 import { createManifest } from "../src/manifest/hatchJson.js";
 import { toPrefixedId, type AdapterOutput, type CanonicalFile, type Tool } from "../src/types.js";
+import { printRunResult, wantsJsonOutput } from "./validate-adapter-output-format.js";
+
+export { formatFinding } from "./validate-adapter-output-format.js";
 
 const __filename = fileURLToPath(import.meta.url);
-
 // ── Types ─────────────────────────────────────────────────────────
 
 type Severity = "error" | "warning";
-
 export interface Finding {
   level: Severity;
   code: string;
@@ -83,9 +79,9 @@ export interface RunResult {
   checkedTools: number;
 }
 
-// The three adapters with rule emission. The skills-only Codex adapter has no
-// rule channel and is intentionally outside this rule-parity validator.
-export const ADAPTER_TOOLS = ["claude", "copilot", "cursor"] as const satisfies readonly Tool[];
+// Every adapter with a lifecycle-managed rule surface. Codex uses an explicit
+// AGENTS.md routing bridge because it has no native repository glob-rule file.
+export const ADAPTER_TOOLS = ["claude", "copilot", "cursor", "codex"] as const satisfies readonly Tool[];
 type RuleAdapter = (typeof ADAPTER_TOOLS)[number];
 
 // Per-adapter rule-channel descriptor: the output directory prefix every
@@ -100,6 +96,8 @@ export interface RuleChannel {
   fileSuffix: string;
   /** Extract the emitted glob set from one output's frontmatter, or null. */
   extract(content: string): Set<string> | null;
+  /** Aggregate-channel extractor (Codex AGENTS.md); takes precedence when set. */
+  extractForRule?(outputs: readonly AdapterOutput[], prefixedId: string): Set<string>;
 }
 
 export const RULE_CHANNELS: Record<RuleAdapter, RuleChannel> = {
@@ -117,6 +115,21 @@ export const RULE_CHANNELS: Record<RuleAdapter, RuleChannel> = {
     dirPrefix: ".claude/rules/",
     fileSuffix: ".md",
     extract: (content) => extractPathsSequence(content),
+  },
+  codex: {
+    dirPrefix: "AGENTS.md",
+    fileSuffix: "",
+    extract: () => null,
+    extractForRule: (outputs, prefixedId) => {
+      const root = outputs.find((output) => output.path === "AGENTS.md");
+      if (!root) return new Set<string>();
+      const sourceIds = [prefixedId, prefixedId.replace(/^hatch3r-/, "")];
+      const row = root.content.split(/\r?\n/).find((line) =>
+        sourceIds.some((id) => line.includes(`/rules/${id}.md\``)),
+      );
+      const match = row?.match(/^- `([^`]+)` → /);
+      return new Set((match?.[1] ?? "").split(",").map((glob) => glob.trim()).filter(Boolean));
+    },
   },
 };
 
@@ -177,6 +190,27 @@ function extractCsvString(content: string, key: string): Set<string> | null {
   return set;
 }
 
+function extractFlowSequence(inline: string): Set<string> {
+  const set = new Set<string>();
+  const inner = inline.replace(/^\[/, "").replace(/\]$/, "");
+  for (const part of inner.split(",")) {
+    const glob = part.trim().replace(/^["']|["']$/g, "");
+    if (glob) set.add(glob);
+  }
+  return set;
+}
+
+function extractBlockSequence(lines: readonly string[], start: number): Set<string> {
+  const set = new Set<string>();
+  for (let index = start; index < lines.length; index++) {
+    const item = (lines[index] ?? "").match(/^\s+-\s+(.*)$/);
+    if (!item) break;
+    const glob = (item[1] ?? "").trim().replace(/^["']|["']$/g, "");
+    if (glob) set.add(glob);
+  }
+  return set;
+}
+
 /**
  * Extract the claude channel's `paths:` glob set, accepting BOTH the current
  * documented block-sequence form and the legacy flow-array form. Returns null
@@ -208,25 +242,9 @@ function extractPathsSequence(content: string): Set<string> | null {
     const head = (lines[i] ?? "").match(/^paths:\s*(.*)$/);
     if (!head) continue;
     const inline = (head[1] ?? "").trim();
-    const set = new Set<string>();
-    if (inline.startsWith("[")) {
-      // Legacy flow-array form: `paths: ["a", "b"]` (or `paths: []`).
-      const inner = inline.replace(/^\[/, "").replace(/\]$/, "");
-      for (const part of inner.split(",")) {
-        const g = part.trim().replace(/^["']|["']$/g, "");
-        if (g) set.add(g);
-      }
-    } else {
-      // Block-sequence form: consume `  - "<glob>"` item lines until the first
-      // non-item line (the closing `---` was already stripped by the fence).
-      for (let j = i + 1; j < lines.length; j++) {
-        const item = (lines[j] ?? "").match(/^\s+-\s+(.*)$/);
-        if (!item) break;
-        const g = (item[1] ?? "").trim().replace(/^["']|["']$/g, "");
-        if (g) set.add(g);
-      }
-    }
-    return set;
+    return inline.startsWith("[")
+      ? extractFlowSequence(inline)
+      : extractBlockSequence(lines, i + 1);
   }
   return null;
 }
@@ -252,6 +270,7 @@ export function emittedGlobsFor(
   channel: RuleChannel,
   prefixedId: string,
 ): Set<string> {
+  if (channel.extractForRule) return channel.extractForRule(outputs, prefixedId);
   for (const out of outputs) {
     if (!out.path.startsWith(channel.dirPrefix)) continue;
     if (!out.path.endsWith(channel.fileSuffix)) continue;
@@ -279,50 +298,75 @@ function sortedList(s: Set<string>): string {
 
 // ── Core ──────────────────────────────────────────────────────────
 
+function ruleManifest(tool: RuleAdapter, rules: readonly CanonicalFile[]) {
+  return createManifest({
+    tools: [tool],
+    mcpServers: [],
+    content: {
+      preset: "custom",
+      projectType: "brownfield",
+      teamSize: "team",
+      items: {
+        agents: [], skills: [], rules: rules.map((rule) => rule.id),
+        commands: [], prompts: [], hooks: [], githubAgents: [],
+      },
+    },
+  });
+}
+
+function ruleGlobFinding(
+  tool: RuleAdapter,
+  rule: CanonicalFile,
+  outputs: AdapterOutput[],
+): Finding | undefined {
+  const expected = new Set(resolveRuleGlobs(rule));
+  const outputKey = tool === "codex"
+    ? basename(rule.sourcePath).replace(/\.md$/, "")
+    : toPrefixedId(rule.id);
+  const channel = RULE_CHANNELS[tool];
+  const emitted = emittedGlobsFor(outputs, channel, outputKey);
+  if (setsEqual(expected, emitted)) return undefined;
+  return {
+    level: "error",
+    code: "P3-ADAPTER-GLOB-DRIFT",
+    tool,
+    ruleId: rule.id,
+    message: `emitted glob set != .md-derived set. ` +
+      `expected ${sortedList(expected)}, emitted ${sortedList(emitted)} ` +
+      `(channel ${channel.dirPrefix})`,
+  };
+}
+
+async function validateToolRules(
+  root: string,
+  tool: RuleAdapter,
+  rules: readonly CanonicalFile[],
+): Promise<Finding[]> {
+  const outputs = await getAdapter(tool).generate(root, ruleManifest(tool, rules), root);
+  return rules.flatMap((rule) => {
+    const finding = ruleGlobFinding(tool, rule, outputs);
+    return finding ? [finding] : [];
+  });
+}
+
+function severityCounts(findings: readonly Finding[]): Pick<RunResult, "errorCount" | "warningCount"> {
+  return {
+    errorCount: findings.filter((finding) => finding.level === "error").length,
+    warningCount: findings.filter((finding) => finding.level === "warning").length,
+  };
+}
+
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const root = opts.root ?? resolveBundledContentRoot();
   const tools = opts.tools ?? ADAPTER_TOOLS;
-  const findings: Finding[] = [];
-
-  // Single canonical read; the expected glob set per rule is derived from the
-  // rule's own `.md` frontmatter via the SAME resolver the adapters use.
   const rules: CanonicalFile[] = await readCanonicalFiles(root, "rules");
-
+  const findings: Finding[] = [];
   for (const tool of tools) {
-    const manifest = createManifest({ tools: [tool], mcpServers: [] });
-    const outputs = await getAdapter(tool).generate(root, manifest);
-    const channel = RULE_CHANNELS[tool];
-
-    for (const rule of rules) {
-      const expected = new Set(resolveRuleGlobs(rule));
-      const prefixedId = toPrefixedId(rule.id);
-      const emitted = emittedGlobsFor(outputs, channel, prefixedId);
-
-      if (!setsEqual(expected, emitted)) {
-        findings.push({
-          level: "error",
-          code: "P3-ADAPTER-GLOB-DRIFT",
-          tool,
-          ruleId: rule.id,
-          message:
-            `emitted glob set != .md-derived set. ` +
-            `expected ${sortedList(expected)}, emitted ${sortedList(emitted)} ` +
-            `(channel ${channel.dirPrefix})`,
-        });
-      }
-    }
-  }
-
-  let errorCount = 0;
-  let warningCount = 0;
-  for (const f of findings) {
-    if (f.level === "error") errorCount++;
-    else warningCount++;
+    findings.push(...await validateToolRules(root, tool, rules));
   }
   return {
     findings,
-    errorCount,
-    warningCount,
+    ...severityCounts(findings),
     checkedRules: rules.length,
     checkedTools: tools.length,
   };
@@ -330,34 +374,9 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
 
 // ── Output ────────────────────────────────────────────────────────
 
-export function formatFinding(f: Finding): string {
-  const tag = f.level === "error" ? "ERROR" : "WARN ";
-  return `[${tag} ${f.code}] ${f.tool}/${f.ruleId}: ${f.message}`;
-}
-
-interface CliFlags {
-  json: boolean;
-}
-
-function parseArgs(argv: readonly string[]): CliFlags {
-  return { json: argv.includes("--json") };
-}
-
 async function main(): Promise<void> {
-  const flags = parseArgs(process.argv.slice(2));
   const result = await runValidator();
-  if (flags.json) {
-    console.log(JSON.stringify(result, null, 2));
-  } else {
-    for (const f of result.findings) {
-      const line = formatFinding(f);
-      if (f.level === "error") console.error(line);
-      else console.warn(line);
-    }
-    console.log(
-      `validate-adapter-output: ${result.checkedRules} rule(s) × ${result.checkedTools} adapter(s) checked; ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
-    );
-  }
+  printRunResult(result, wantsJsonOutput(process.argv.slice(2)));
   if (result.errorCount > 0) process.exit(1);
 }
 
