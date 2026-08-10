@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access, stat, symlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve, win32 } from "node:path";
 import { platform, tmpdir } from "node:os";
 import {
   applyRollback,
@@ -75,6 +75,24 @@ describe("pipeline/snapshot", () => {
       const external = join(projectRoot, "..", "external.txt");
       await expect(createSnapshot("sess-external-default", [external], { projectRoot }))
         .rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+    });
+
+    it.runIf(platform() === "win32")("rejects network and device roots before filesystem canonicalization", async () => {
+      const unsafePaths = [
+        "\\\\server\\share\\outside.txt",
+        "//server/share/outside.txt",
+        "\\/server/share/outside.txt",
+        "/\\server\\share\\outside.txt",
+        "\\\\?\\UNC\\server\\share\\outside.txt",
+        "//?/UNC/server/share/outside.txt",
+        "\\\\.\\C:\\outside.txt",
+      ];
+
+      for (const [index, unsafePath] of unsafePaths.entries()) {
+        await expect(createSnapshot(`sess-rooted-default-${index}`, [unsafePath], { projectRoot }))
+          .rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+        expect(await fileExists(join(projectRoot, ".hatch3r"))).toBe(false);
+      }
     });
 
     it.runIf(platform() !== "win32")("rejects a symlinked source ancestor without reading its outside sentinel", async () => {
@@ -292,19 +310,46 @@ describe("pipeline/snapshot", () => {
     // D8-9 (Cycle 11 Wave 3): a cross-call mirror collision must not desync the
     // `paths` / `relativePaths` index pairing. Two distinct absolute paths that
     // collapse to the same `_external/` mirror — the cross-drive Windows
-    // scenario, reproduced platform-independently here by a backslash that POSIX
-    // treats as a literal filename char but `mirrorRelativePath` normalises to
-    // `/` — were previously deduped by two INDEPENDENT Sets (one on `paths`, one
+    // scenario, reproduced with a POSIX literal backslash or a Windows
+    // local-drive/UNC root pair that `mirrorRelativePath` maps to one key — were
+    // previously deduped by two INDEPENDENT Sets (one on `paths`, one
     // on `relativePaths`). When the two inputs arrived in SEPARATE same-session
     // `createSnapshot` calls the per-call `seen` guard could not see the prior
     // call, so the manifest ended up with `paths.length === 2` but
     // `relativePaths.length === 1`, corrupting `applyRollback`'s index pairing.
     describe("cross-call mirror collision index alignment (D8-9)", () => {
-      // Two distinct stored absolute paths whose `_external/` mirrors collide.
-      const collidingA = "/data/x/file.txt";
-      const collidingB = "/data\\x/file.txt"; // distinct abs, same mirror after \\ -> /
+      function collisionFixture(): {
+        collidingA: string;
+        collidingB: string;
+        mirrorParts: string[];
+      } {
+        const marker = basename(projectRoot);
+        const mirrorParts = ["hatch3r-snapshot-collision", marker, "data", "x", "file.txt"];
+        const [collidingA, collidingB] = platform() === "win32"
+          ? [
+              win32.join(win32.parse(projectRoot).root, ...mirrorParts),
+              win32.join(`\\\\hatch3r-snapshot-collision\\${marker}`, "data", "x", "file.txt"),
+            ]
+          : [
+              `/${mirrorParts.join("/")}`,
+              `/${mirrorParts.slice(0, -3).join("/")}/data\\x/file.txt`,
+            ];
+        return { collidingA, collidingB, mirrorParts };
+      }
 
       it("keeps paths/relativePaths index-aligned across two same-session calls", async () => {
+        const { collidingA, collidingB, mirrorParts } = collisionFixture();
+
+        // The fixture inputs must remain distinct after host-native absolute
+        // resolution. On Windows, path.win32 additionally proves that the
+        // local-drive and UNC roots are both absolute and genuinely different.
+        expect(resolve(collidingA)).not.toBe(resolve(collidingB));
+        if (platform() === "win32") {
+          expect(win32.isAbsolute(collidingA)).toBe(true);
+          expect(win32.isAbsolute(collidingB)).toBe(true);
+          expect(win32.parse(collidingA).root).not.toBe(win32.parse(collidingB).root);
+        }
+
         // Call 1 captures the first colliding input.
         await createSnapshot("sess-xcall", [collidingA], {
           projectRoot,
@@ -327,8 +372,8 @@ describe("pipeline/snapshot", () => {
         expect(meta.paths.length).toBe(meta.relativePaths.length);
         // Built with `join` so the expected separator matches the host (the
         // source composes the mirror via `join("_external", safe)`).
-        expect(meta.relativePaths).toEqual([join("_external", "data", "x", "file.txt")]);
-        expect(meta.paths).toEqual([collidingA]);
+        expect(meta.relativePaths).toEqual([join("_external", ...mirrorParts)]);
+        expect(meta.paths).toEqual([resolve(collidingA)]);
         // The cross-call collision is surfaced, not swallowed.
         expect(warns).toHaveLength(1);
         expect(warns[0]).toContain("mirror collision");
@@ -358,6 +403,7 @@ describe("pipeline/snapshot", () => {
       });
 
       it("applyRollback pairs a real file correctly when a later call collides", async () => {
+        const { collidingA, collidingB } = collisionFixture();
         // Call 1 captures a real in-project file AND the first external input.
         const realA = join(projectRoot, "real-a.txt");
         await writeFile(realA, "orig A");

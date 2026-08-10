@@ -343,6 +343,23 @@ async function resolveSnapshotInput(
   const requestedRoot = resolve(projectRoot);
   const canonicalRoot = await realpath(projectRoot);
   const coordinates = initialSnapshotCoordinates(requestedRoot, canonicalRoot, inputPath);
+  // Windows normalizes native, forward-slash, mixed-separator, and device
+  // namespace roots to a double-separator absolute coordinate. Classify that
+  // normalized value so an unreachable share/device cannot reach `realpath`
+  // before the repository containment policy gets a chance to fail closed.
+  const networkOrDeviceOutside = isAbsolute(coordinates.absolutePath) &&
+    coordinates.absolutePath.startsWith(`${sep}${sep}`) &&
+    isOutsideSnapshotRoot(coordinates.relativePath);
+  if (networkOrDeviceOutside) {
+    if (allowExternalPaths && isAbsolute(inputPath)) {
+      return externalSnapshotInput(canonicalRoot, coordinates.absolutePath);
+    }
+    throw new UnsafeRepositoryPathError(
+      inputPath,
+      "outside-root",
+      "repository lifecycle snapshots may only contain paths below the project root",
+    );
+  }
   const canonical = await reconcileCanonicalSnapshotPath(canonicalRoot, coordinates);
   if (canonical.outside) {
     if (allowExternalPaths && isAbsolute(inputPath)) {
