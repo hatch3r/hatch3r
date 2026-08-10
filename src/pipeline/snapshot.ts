@@ -32,10 +32,16 @@
  * local-only, no exfiltration).
  */
 
-import { join, dirname, relative, resolve, isAbsolute, sep } from "node:path";
-import { access, mkdir, readFile, readdir, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { basename, join, dirname, relative, resolve, isAbsolute, sep } from "node:path";
+import { access, mkdir, readFile, readdir, realpath, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import {
+  ensureSafeRepositoryDirectory,
+  inspectRepositoryPath,
+  normalizeRepositoryRelativePath,
+  UnsafeRepositoryPathError,
+} from "../merge/repositoryPathSafety.js";
 import { DEFAULT_LEARNING_FILE_COUNT } from "../content/learningsValidation.js";
 import { HATCH3R_DIR, HatchError } from "../types.js";
 
@@ -146,6 +152,12 @@ export interface CreateSnapshotOptions {
    * the diagnostic lands in the same channel as other orchestrator output.
    */
   onWarn?: (message: string) => void;
+  /**
+   * Explicitly permit absolute source paths outside `projectRoot`. Repository
+   * lifecycle callers must never enable this; it exists only for standalone
+   * API consumers that intentionally snapshot and restore an external file.
+   */
+  allowExternalPaths?: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────
@@ -206,9 +218,9 @@ export function sessionDir(sessionId: string, projectRoot: string = process.cwd(
 
 /**
  * Convert an absolute source path into the mirror-relative location it
- * occupies inside the snapshot. Paths outside `projectRoot` are placed
- * under `_external/` so a rollback never silently writes into an
- * unrelated tree.
+ * occupies inside the snapshot. Explicitly opted-in standalone API paths
+ * outside `projectRoot` are placed under `_external/`; repository lifecycle
+ * callers reject those paths before this helper is reached.
  *
  * **Path traversal guard (P6):** any `..` components in the relative
  * path are rejected. The mirror is computed from `relative(projectRoot,
@@ -247,6 +259,146 @@ function mirrorRelativePath(projectRoot: string, absPath: string): string {
     );
   }
   return rel;
+}
+
+interface ResolvedSnapshotInput {
+  absolutePath: string;
+  relativePath: string;
+  external: boolean;
+}
+
+async function resolveThroughExistingAncestor(path: string): Promise<string> {
+  const missing: string[] = [];
+  let cursor = path;
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(cursor);
+      return resolve(canonicalAncestor, ...missing.reverse());
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      const parent = dirname(cursor);
+      if (parent === cursor) throw err;
+      missing.push(basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
+function isOutsideSnapshotRoot(relativePath: string): boolean {
+  return relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath);
+}
+
+function initialSnapshotCoordinates(
+  requestedRoot: string,
+  canonicalRoot: string,
+  inputPath: string,
+): { absolutePath: string; relativePath: string } {
+  if (isAbsolute(inputPath)) {
+    const absolutePath = resolve(inputPath);
+    return { absolutePath, relativePath: relative(requestedRoot, absolutePath) };
+  }
+  const relativePath = normalizeRepositoryRelativePath(inputPath);
+  return {
+    absolutePath: resolve(canonicalRoot, ...relativePath.split("/")),
+    relativePath,
+  };
+}
+
+async function reconcileCanonicalSnapshotPath(
+  canonicalRoot: string,
+  coordinates: { absolutePath: string; relativePath: string },
+): Promise<{ relativePath: string; outside: boolean }> {
+  if (!isOutsideSnapshotRoot(coordinates.relativePath) || coordinates.relativePath === "") {
+    return { relativePath: coordinates.relativePath, outside: isOutsideSnapshotRoot(coordinates.relativePath) };
+  }
+  const canonicalCandidate = await resolveThroughExistingAncestor(coordinates.absolutePath);
+  const canonicalRelative = relative(canonicalRoot, canonicalCandidate);
+  return {
+    relativePath: isOutsideSnapshotRoot(canonicalRelative)
+      ? coordinates.relativePath
+      : canonicalRelative,
+    outside: isOutsideSnapshotRoot(canonicalRelative),
+  };
+}
+
+function externalSnapshotInput(
+  canonicalRoot: string,
+  absolutePath: string,
+): ResolvedSnapshotInput {
+  return {
+    absolutePath,
+    relativePath: mirrorRelativePath(canonicalRoot, absolutePath),
+    external: true,
+  };
+}
+
+async function resolveSnapshotInput(
+  projectRoot: string,
+  inputPath: string,
+  allowExternalPaths: boolean,
+): Promise<ResolvedSnapshotInput> {
+  const requestedRoot = resolve(projectRoot);
+  const canonicalRoot = await realpath(projectRoot);
+  const coordinates = initialSnapshotCoordinates(requestedRoot, canonicalRoot, inputPath);
+  const canonical = await reconcileCanonicalSnapshotPath(canonicalRoot, coordinates);
+  if (canonical.outside) {
+    if (allowExternalPaths && isAbsolute(inputPath)) {
+      return externalSnapshotInput(canonicalRoot, coordinates.absolutePath);
+    }
+    throw new UnsafeRepositoryPathError(
+      inputPath,
+      "outside-root",
+      "repository lifecycle snapshots may only contain paths below the project root",
+    );
+  }
+
+  const normalizedRelative = normalizeRepositoryRelativePath(canonical.relativePath);
+  await inspectRepositoryPath(canonicalRoot, normalizedRelative, {
+    allowMissing: true,
+  });
+  return {
+    absolutePath: coordinates.absolutePath,
+    relativePath: normalizedRelative,
+    external: false,
+  };
+}
+
+async function validateSnapshotMetaEntries(
+  meta: SnapshotMeta,
+  projectRoot: string,
+  allowExternalPaths: boolean,
+): Promise<ResolvedSnapshotInput[]> {
+  const canonicalRoot = await realpath(projectRoot);
+  const recordedRoot = await realpath(meta.projectRoot).catch(() => resolve(meta.projectRoot));
+  if (!allowExternalPaths && recordedRoot !== canonicalRoot) {
+    throw new UnsafeRepositoryPathError(
+      meta.projectRoot,
+      "outside-root",
+      "the snapshot was recorded for a different project root",
+    );
+  }
+
+  const entries: ResolvedSnapshotInput[] = [];
+  for (let index = 0; index < meta.paths.length; index++) {
+    const entry = await resolveSnapshotInput(
+      projectRoot,
+      meta.paths[index],
+      allowExternalPaths,
+    );
+    const recordedRelative = normalizeRepositoryRelativePath(meta.relativePaths[index]);
+    if (recordedRelative !== entry.relativePath.replace(/\\/g, "/")) {
+      throw new UnsafeRepositoryPathError(
+        meta.paths[index],
+        "changed",
+        `snapshot path metadata does not match relativePaths[${index}]`,
+      );
+    }
+    entries.push(entry);
+  }
+  return entries;
 }
 
 /**
@@ -423,6 +575,224 @@ async function pruneSnapshots(
 
 // ── Public API ───────────────────────────────────────────────────
 
+type SnapshotWarningEmitter = (message: string) => void;
+
+interface SnapshotCaptureContext {
+  projectRoot: string;
+  dir: string;
+  filesDir: string;
+  resolvedInputs: ResolvedSnapshotInput[];
+}
+
+interface SnapshotCaptureState {
+  acceptedAbs: string[];
+  acceptedRel: string[];
+  seen: Map<string, string>;
+  seededRels: Set<string>;
+}
+
+function assertValidSnapshotSessionId(sessionId: string): void {
+  const invalid =
+    !sessionId ||
+    sessionId === "." ||
+    sessionId === ".." ||
+    sessionId.includes("/") ||
+    sessionId.includes("\\") ||
+    /[\u0000-\u001f\u007f]/.test(sessionId);
+  if (!invalid) return;
+  throw new HatchError(
+    `invalid sessionId ${JSON.stringify(sessionId)}: must be non-empty and contain no path separators`,
+    1,
+    "VALIDATION_ERROR",
+    "Pass a non-empty alphanumeric session id (e.g. 'sync-2026-05-26-12-00').",
+  );
+}
+
+function createSnapshotWarningEmitter(
+  warnings: string[],
+  onWarn?: (message: string) => void,
+): SnapshotWarningEmitter {
+  return (message): void => {
+    warnings.push(message);
+    if (onWarn) onWarn(message);
+    else console.warn(message);
+  };
+}
+
+async function initializeSnapshotCapture(
+  sessionId: string,
+  paths: string[],
+  options: CreateSnapshotOptions,
+): Promise<SnapshotCaptureContext> {
+  const requestedProjectRoot = options.projectRoot ?? process.cwd();
+  await realpath(requestedProjectRoot);
+  const projectRoot = resolve(requestedProjectRoot);
+  const resolvedInputs = await Promise.all(
+    paths.map((path) =>
+      resolveSnapshotInput(requestedProjectRoot, path, options.allowExternalPaths === true),
+    ),
+  );
+  const dir = sessionDir(sessionId, projectRoot);
+  const filesDir = join(dir, SNAPSHOT_FILES_DIR);
+  await ensureSafeRepositoryDirectory(
+    projectRoot,
+    `${HATCH3R_DIR}/${SNAPSHOTS_DIR}/${sessionId}/${SNAPSHOT_FILES_DIR}`,
+  );
+  await inspectRepositoryPath(
+    projectRoot,
+    `${HATCH3R_DIR}/${SNAPSHOTS_DIR}/${sessionId}/${SNAPSHOT_META_FILE}`,
+    { allowMissing: true },
+  );
+  return { projectRoot, dir, filesDir, resolvedInputs };
+}
+
+async function readExistingSnapshotMeta(
+  context: SnapshotCaptureContext,
+  allowExternalPaths: boolean,
+): Promise<SnapshotMeta | null> {
+  const metaPath = join(context.dir, SNAPSHOT_META_FILE);
+  try {
+    const parsed: unknown = JSON.parse(await readFile(metaPath, "utf-8"));
+    if (!isSnapshotMeta(parsed)) return null;
+    await validateSnapshotMetaEntries(parsed, context.projectRoot, allowExternalPaths);
+    return parsed;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new HatchError(
+      `existing snapshot meta at ${metaPath} is unreadable: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        `Remove the directory or pick a fresh sessionId.`,
+      1,
+      "FS_ERROR",
+      `Run \`rm -rf ${context.dir}\` and retry with the same session id, or choose a fresh session id.`,
+    );
+  }
+}
+
+function initializeSnapshotCaptureState(existing: SnapshotMeta | null): SnapshotCaptureState {
+  const state: SnapshotCaptureState = {
+    acceptedAbs: [],
+    acceptedRel: [],
+    seen: new Map<string, string>(),
+    seededRels: new Set<string>(),
+  };
+  if (!existing) return state;
+  for (let index = 0; index < existing.relativePaths.length; index++) {
+    const rel = existing.relativePaths[index];
+    if (state.seen.has(rel)) continue;
+    state.seen.set(rel, existing.paths[index] ?? rel);
+    state.seededRels.add(rel);
+  }
+  return state;
+}
+
+function snapshotCollisionWarning(
+  sessionId: string,
+  absolutePath: string,
+  relativePath: string,
+  priorPath: string,
+): string {
+  return (
+    `Snapshot mirror collision: ${absolutePath} maps to the same snapshot path as ${priorPath} ` +
+    `(both -> ${join(SNAPSHOT_FILES_DIR, relativePath)}). Skipping the second capture; ` +
+    `\`hatch3r rollback --session=${sessionId}\` will restore ${priorPath}, not ${absolutePath}. ` +
+    `Rename one input to capture both.`
+  );
+}
+
+async function writeSnapshotTombstone(projectRoot: string, destPath: string): Promise<void> {
+  await inspectRepositoryPath(projectRoot, relative(projectRoot, destPath + ".tombstone"), {
+    allowMissing: true,
+  });
+  await writeFile(destPath + ".tombstone", "");
+}
+
+async function captureSnapshotInput(
+  context: SnapshotCaptureContext,
+  sessionId: string,
+  input: ResolvedSnapshotInput,
+): Promise<void> {
+  const destPath = join(context.filesDir, input.relativePath);
+  const destinationParent = dirname(
+    `${HATCH3R_DIR}/${SNAPSHOTS_DIR}/${sessionId}/${SNAPSHOT_FILES_DIR}/${input.relativePath}`,
+  ).replace(/\\/g, "/");
+  await ensureSafeRepositoryDirectory(context.projectRoot, destinationParent);
+  await inspectRepositoryPath(context.projectRoot, relative(context.projectRoot, destPath), {
+    allowMissing: true,
+  });
+  try {
+    if (!input.external) await inspectRepositoryPath(context.projectRoot, input.relativePath);
+    const sourceStat = await stat(input.absolutePath);
+    if (sourceStat.isDirectory()) return writeSnapshotTombstone(context.projectRoot, destPath);
+    await writeFile(destPath, await readFile(input.absolutePath));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    await writeSnapshotTombstone(context.projectRoot, destPath);
+  }
+}
+
+async function captureSnapshotInputs(
+  context: SnapshotCaptureContext,
+  sessionId: string,
+  state: SnapshotCaptureState,
+  emitWarning: SnapshotWarningEmitter,
+): Promise<void> {
+  for (const input of context.resolvedInputs) {
+    const prior = state.seen.get(input.relativePath);
+    if (prior === input.absolutePath && state.seededRels.has(input.relativePath)) continue;
+    if (prior !== undefined) {
+      emitWarning(snapshotCollisionWarning(sessionId, input.absolutePath, input.relativePath, prior));
+      continue;
+    }
+    state.seen.set(input.relativePath, input.absolutePath);
+    state.acceptedAbs.push(input.absolutePath);
+    state.acceptedRel.push(input.relativePath);
+    await captureSnapshotInput(context, sessionId, input);
+  }
+}
+
+function mergeSnapshotEntries(
+  existing: SnapshotMeta | null,
+  state: SnapshotCaptureState,
+): { paths: string[]; relativePaths: string[] } {
+  const paths: string[] = [];
+  const relativePaths: string[] = [];
+  const seen = new Set<string>();
+  const append = (absolutePath: string, relativePath: string): void => {
+    if (seen.has(relativePath)) return;
+    seen.add(relativePath);
+    paths.push(absolutePath);
+    relativePaths.push(relativePath);
+  };
+  existing?.relativePaths.forEach((rel, index) => append(existing.paths[index] ?? rel, rel));
+  state.acceptedRel.forEach((rel, index) => append(state.acceptedAbs[index], rel));
+  return { paths, relativePaths };
+}
+
+async function writeSnapshotMetadata(
+  context: SnapshotCaptureContext,
+  sessionId: string,
+  entries: { paths: string[]; relativePaths: string[] },
+): Promise<void> {
+  const meta: SnapshotMeta = {
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+    sessionId,
+    timestamp: new Date().toISOString(),
+    paths: entries.paths,
+    relativePaths: entries.relativePaths,
+    projectRoot: context.projectRoot,
+  };
+  await inspectRepositoryPath(
+    context.projectRoot,
+    `${HATCH3R_DIR}/${SNAPSHOTS_DIR}/${sessionId}/${SNAPSHOT_META_FILE}`,
+    { allowMissing: true },
+  );
+  await atomicWriteFile(
+    join(context.dir, SNAPSHOT_META_FILE),
+    JSON.stringify(meta, null, 2) + "\n",
+  );
+}
+
 /**
  * Capture the current contents of every file in `paths` into a new
  * snapshot under `.hatch3r/snapshots/<sessionId>/`. Files that do not
@@ -436,194 +806,32 @@ async function pruneSnapshots(
  * incrementally.
  *
  * Returns the absolute snapshot path and the count of files captured.
+ * By default every input must be a symlink-free path below `projectRoot`.
+ * Standalone API callers may deliberately opt in to external absolute paths
+ * with `allowExternalPaths`; CLI lifecycle callers do not expose that option.
  */
 export async function createSnapshot(
   sessionId: string,
   paths: string[],
   options: CreateSnapshotOptions = {},
 ): Promise<CreateSnapshotResult> {
-  if (!sessionId || sessionId.includes("/") || sessionId.includes("\\")) {
-    throw new HatchError(
-      `invalid sessionId ${JSON.stringify(sessionId)}: must be non-empty and contain no path separators`,
-      1,
-      "VALIDATION_ERROR",
-      "Pass a non-empty alphanumeric session id (e.g. 'sync-2026-05-26-12-00').",
-    );
-  }
-  const projectRoot = options.projectRoot ?? process.cwd();
+  assertValidSnapshotSessionId(sessionId);
+  const context = await initializeSnapshotCapture(sessionId, paths, options);
   const warnings: string[] = [];
-  const emitWarning = (message: string): void => {
-    warnings.push(message);
-    if (options.onWarn) options.onWarn(message);
-    else console.warn(message);
-  };
-  const dir = sessionDir(sessionId, projectRoot);
-  const filesDir = join(dir, SNAPSHOT_FILES_DIR);
-  await mkdir(filesDir, { recursive: true });
+  const emitWarning = createSnapshotWarningEmitter(warnings, options.onWarn);
 
-  // Load existing meta so repeated calls accumulate paths.
-  let existing: SnapshotMeta | null = null;
-  try {
-    const metaRaw = await readFile(join(dir, SNAPSHOT_META_FILE), "utf-8");
-    // DD-C: validated parse (was a schemaVersion-only check on a trusting
-    // cast). A wrong-shape meta leaves `existing` null — the accumulate path
-    // starts a fresh meta rather than extending a corrupt one, matching the
-    // prior schema-mismatch disposition.
-    const parsed: unknown = JSON.parse(metaRaw);
-    if (isSnapshotMeta(parsed)) existing = parsed;
-  } catch (err) {
-    // Missing meta.json is the cold-start case; malformed meta is an
-    // anomaly worth surfacing so an operator can decide to delete the
-    // session directory rather than silently extend a corrupt session.
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw new HatchError(
-        `existing snapshot meta at ${join(dir, SNAPSHOT_META_FILE)} is unreadable: ` +
-          `${err instanceof Error ? err.message : String(err)}. ` +
-          `Remove the directory or pick a fresh sessionId.`,
-        1,
-        "FS_ERROR",
-        `Run \`rm -rf ${dir}\` and retry with the same session id, or choose a fresh session id.`,
-      );
-    }
-  }
+  const existing = await readExistingSnapshotMeta(
+    context,
+    options.allowExternalPaths === true,
+  );
+  const state = initializeSnapshotCaptureState(existing);
 
-  const absPaths = paths.map((p) => (isAbsolute(p) ? p : resolve(projectRoot, p)));
-  // Only paths whose mirror was actually captured this call are recorded in
-  // the manifest. A second input that collapses to a mirror already written
-  // this call (F1.5-H2 cross-drive collision) is skipped — recording it
-  // would advertise a path whose mirror bytes belong to a different input.
-  const acceptedAbs: string[] = [];
-  const acceptedRel: string[] = [];
-  const seen = new Map<string, string>(); // mirror rel -> first abs that claimed it
-  // Seed the dedup guard from the EXISTING manifest so a same-session
-  // incremental call that collides with a mirror captured by a *prior* call is
-  // detected too (D8-9). Without this seed the per-call guard only catches
-  // collisions within a single call: two cross-drive inputs split across two
-  // createSnapshot calls would each pass their own fresh guard, append a second
-  // `abs` to `paths` while the union dedup collapses the duplicate `rel`,
-  // desyncing the `paths`/`relativePaths` index pairing that applyRollback
-  // relies on (`meta.paths[i]` <-> `meta.relativePaths[i]`). `seededRels`
-  // remembers which mirrors came from a prior call so a benign idempotent
-  // re-pass of the *same* path is skipped silently, while a genuine cross-call
-  // cross-drive collision (different abs, same mirror) still warns.
-  const seededRels = new Set<string>();
-  if (existing) {
-    for (let i = 0; i < existing.relativePaths.length; i++) {
-      const priorRel = existing.relativePaths[i];
-      if (!seen.has(priorRel)) {
-        // Map back to the abs the prior call recorded for this mirror so the
-        // collision warning names the original input, not just the mirror.
-        seen.set(priorRel, existing.paths[i] ?? priorRel);
-        seededRels.add(priorRel);
-      }
-    }
-  }
-  for (const abs of absPaths) {
-    const rel = mirrorRelativePath(projectRoot, abs);
-    const prior = seen.get(rel);
-    if (prior !== undefined) {
-      if (prior === abs && seededRels.has(rel)) {
-        // Idempotent re-snapshot: a prior same-session call already captured
-        // this exact path under this mirror. The mirror bytes and the
-        // (abs, rel) manifest pair are already present, so skip silently — this
-        // is the documented "extend a session incrementally" contract, not a
-        // collision. (A within-call exact duplicate still warns below, matching
-        // the F1.5-H2 cross-drive reproduction the dedup guard was authored for.)
-        continue;
-      }
-      // Mirror collision: a different input already wrote these bytes. Skip
-      // the second write so the first capture is preserved, and surface a
-      // warning so the operator can rename one input.
-      emitWarning(
-        `Snapshot mirror collision: ${abs} maps to the same snapshot path as ${prior} ` +
-          `(both -> ${join(SNAPSHOT_FILES_DIR, rel)}). Skipping the second capture; ` +
-          `\`hatch3r rollback --session=${sessionId}\` will restore ${prior}, not ${abs}. ` +
-          `Rename one input to capture both.`,
-      );
-      continue;
-    }
-    seen.set(rel, abs);
-    acceptedAbs.push(abs);
-    acceptedRel.push(rel);
-    const destPath = join(filesDir, rel);
-    await mkdir(dirname(destPath), { recursive: true });
-    try {
-      const srcStat = await stat(abs);
-      if (srcStat.isDirectory()) {
-        // Directories are not snapshotted byte-for-byte; record a
-        // tombstone so the rollback can remove any file the
-        // orchestrator subsequently places at the directory path. This
-        // also handles the "snapshot projectRoot itself" edge case
-        // without descending into the entire tree.
-        await writeFile(destPath + ".tombstone", "");
-        continue;
-      }
-      const content = await readFile(abs);
-      await writeFile(destPath, content);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        // Tombstone for "this path did not exist before the run" so
-        // rollback can delete a file the orchestrator subsequently
-        // created. Empty file + .tombstone sentinel keeps the mirror
-        // layout consistent without inventing a separate metadata
-        // section.
-        await writeFile(destPath + ".tombstone", "");
-      } else {
-        throw err;
-      }
-    }
-  }
+  await captureSnapshotInputs(context, sessionId, state, emitWarning);
 
-  // Union with prior paths so a repeated call accumulates rather than
-  // replaces. De-duplicate by relative path (the mirror identity applyRollback
-  // pairs on) and build `paths`/`relativePaths` as ONE paired walk so the two
-  // arrays can never drift out of index alignment (D8-9). The previous code ran
-  // two independent `Set` dedups — `Set(existing.paths + acceptedAbs)` and
-  // `Set(existing.relativePaths + acceptedRel)` — which produce different
-  // lengths whenever two distinct abs share a mirror rel, silently corrupting
-  // the index pairing. Keying the dedup on `rel` keeps the pair atomic: each
-  // mirror contributes exactly one (abs, rel) row, in first-seen order.
-  const unionAbs: string[] = [];
-  const unionRel: string[] = [];
-  const unionSeen = new Set<string>();
-  const pushPair = (abs: string, rel: string): void => {
-    if (unionSeen.has(rel)) return;
-    unionSeen.add(rel);
-    unionAbs.push(abs);
-    unionRel.push(rel);
-  };
-  if (existing) {
-    for (let i = 0; i < existing.relativePaths.length; i++) {
-      const rel = existing.relativePaths[i];
-      // Pair with the abs the prior manifest recorded at the same index; fall
-      // back to the rel itself if a legacy manifest is shorter on `paths` (the
-      // same `?? rel` defensive default applyRollback uses).
-      pushPair(existing.paths[i] ?? rel, rel);
-    }
-  }
-  for (let i = 0; i < acceptedRel.length; i++) {
-    pushPair(acceptedAbs[i], acceptedRel[i]);
-  }
-
-  const meta: SnapshotMeta = {
-    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-    sessionId,
-    timestamp: new Date().toISOString(),
-    paths: unionAbs,
-    relativePaths: unionRel,
-    projectRoot,
-  };
-  await atomicWriteFile(join(dir, SNAPSHOT_META_FILE), JSON.stringify(meta, null, 2) + "\n");
-
-  // Enforce the retention caps after the capture lands so the store cannot
-  // grow without bound across sessions (D6-SA6.4-F5). Prune diagnostics route
-  // through the same warning channel as collision diagnostics; a prune failure
-  // never downgrades the capture's success.
-  await pruneSnapshots(projectRoot, emitWarning);
-
-  return { snapshotPath: dir, count: unionAbs.length, warnings };
+  const entries = mergeSnapshotEntries(existing, state);
+  await writeSnapshotMetadata(context, sessionId, entries);
+  await pruneSnapshots(context.projectRoot, emitWarning);
+  return { snapshotPath: context.dir, count: entries.paths.length, warnings };
 }
 
 /**
@@ -742,9 +950,9 @@ export interface WithSnapshotOptions {
  *      "revert with: …" line when the safety net is unavailable. This
  *      matches the F1.1-C1 init wiring contract — an unwritable
  *      `.hatch3r/snapshots/` must not block a fresh install. Errors
- *      whose cause is a malformed session id (path separator etc.) still
- *      propagate because they indicate a programming bug, not an
- *      environmental failure.
+ *      carrying a validation error still propagate because unsafe paths and
+ *      malformed session ids are programming/configuration faults, not an
+ *      environmental loss of snapshot availability.
  *
  * Returns `{ sessionId, snapshotPath, count }` so callers can include the
  * session id in their success box for `hatch3r rollback --session=<id>`.
@@ -784,16 +992,13 @@ export async function withSnapshot<T>(
     count = captured.count;
     warnings = captured.warnings;
   } catch (err) {
-    // Programming-bug class (invalid session id) propagates per the doc
-    // contract — a malformed session id indicates the caller composed the
-    // command name incorrectly. Environmental failures (ENOENT on a stub
-    // project root, EACCES on a read-only filesystem) downgrade to a
-    // warning so the mutation can still proceed and the operator sees
-    // the loss of the safety net.
+    // Validation faults propagate: lifecycle callers must never continue a
+    // mutation after supplying an unsafe repository path or malformed session
+    // id. Environmental failures (EACCES on a read-only filesystem, etc.)
+    // still downgrade to a warning so the operator sees the safety-net loss.
     if (
       err instanceof HatchError &&
-      err.errorCode === "VALIDATION_ERROR" &&
-      /invalid sessionId/.test(err.message)
+      err.errorCode === "VALIDATION_ERROR"
     ) {
       throw err;
     }
@@ -817,12 +1022,366 @@ interface PreparedEntry {
   target: string;
   /** Absolute mirror path inside the snapshot. */
   source: string;
+  /** Explicit standalone API entry outside projectRoot. Never true for CLI lifecycle snapshots. */
+  external: boolean;
   /** True when the entry is a tombstone (file absent pre-run; restore = delete). */
   isTombstone: boolean;
   /** Snapshot bytes pre-loaded for a regular entry (undefined for tombstones). */
   sourceContent?: Buffer;
   /** Prepare-phase error (mirror unreadable, destination not writable, etc.). */
   error?: string;
+}
+
+interface RollbackOptions {
+  dryRun?: boolean;
+  projectRoot?: string;
+  allowExternalPaths?: boolean;
+}
+
+interface RollbackContext {
+  projectRoot: string;
+  dir: string;
+  meta: SnapshotMeta;
+  resolvedEntries: ResolvedSnapshotInput[];
+}
+
+type RollbackFailure = { ok: false; result: RollbackResult };
+type RollbackContextResult = { ok: true; value: RollbackContext } | RollbackFailure;
+
+interface MutatedSnapshot {
+  bytes: Buffer | null;
+  unreadable?: boolean;
+}
+
+interface RollbackCommitState {
+  restored: number;
+  applied: number[];
+  errors: string[];
+  dispositions: RollbackFileDisposition[];
+  failed: boolean;
+}
+
+function rollbackError(message: string): RollbackFailure {
+  return { ok: false, result: { filesRestored: 0, errors: [message] } };
+}
+
+async function resolveRollbackProjectRoot(
+  sessionId: string,
+  requestedRoot: string,
+): Promise<string> {
+  const projectRoot = resolve(requestedRoot);
+  await realpath(projectRoot);
+  const metaRelativePath = `${HATCH3R_DIR}/${SNAPSHOTS_DIR}/${sessionId}/${SNAPSHOT_META_FILE}`;
+  normalizeRepositoryRelativePath(metaRelativePath);
+  await inspectRepositoryPath(projectRoot, metaRelativePath);
+  return projectRoot;
+}
+
+async function readRollbackMeta(
+  sessionId: string,
+  metaPath: string,
+): Promise<SnapshotMeta | RollbackFailure> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(metaPath, "utf-8"));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return rollbackError(`session ${sessionId} not found or unreadable: ${message}`);
+  }
+  const schemaVersion =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>).schemaVersion
+      : undefined;
+  if (schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
+    return rollbackError(
+      `session ${sessionId} uses snapshot schema ${String(schemaVersion)} ` +
+        `(expected ${SNAPSHOT_SCHEMA_VERSION}). Restore with a matching hatch3r version.`,
+    );
+  }
+  if (isSnapshotMeta(parsed)) return parsed;
+  return rollbackError(
+    `session ${sessionId} has a malformed meta.json (missing or mismatched ` +
+      `sessionId/timestamp/projectRoot/paths/relativePaths). Delete the session directory or ` +
+      `restore meta.json from backup before rolling back.`,
+  );
+}
+
+function isRollbackContextFailure(
+  value: SnapshotMeta | RollbackFailure,
+): value is RollbackFailure {
+  return !isSnapshotMeta(value);
+}
+
+async function loadRollbackContext(
+  sessionId: string,
+  opts: RollbackOptions,
+): Promise<RollbackContextResult> {
+  let projectRoot: string;
+  try {
+    projectRoot = await resolveRollbackProjectRoot(
+      sessionId,
+      opts.projectRoot ?? process.cwd(),
+    );
+  // eslint-disable-next-line silent-failure/no-silent-catch -- returned errors[] is applyRollback's public diagnostic channel.
+  } catch (err) {
+    return rollbackError(
+      `session ${sessionId} not found, unreadable, or unsafe: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const dir = sessionDir(sessionId, projectRoot);
+  const meta = await readRollbackMeta(sessionId, join(dir, SNAPSHOT_META_FILE));
+  if (isRollbackContextFailure(meta)) return meta;
+  try {
+    const resolvedEntries = await validateSnapshotMetaEntries(
+      meta,
+      projectRoot,
+      opts.allowExternalPaths === true,
+    );
+    return { ok: true, value: { projectRoot, dir, meta, resolvedEntries } };
+  // eslint-disable-next-line silent-failure/no-silent-catch -- returned errors[] is applyRollback's public diagnostic channel.
+  } catch (err) {
+    return rollbackError(
+      `session ${sessionId} contains an unsafe snapshot path: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+async function inspectRollbackTombstone(
+  projectRoot: string,
+  tombstone: string,
+): Promise<{ found: boolean; error?: string }> {
+  try {
+    await stat(tombstone);
+    await inspectRepositoryPath(projectRoot, relative(projectRoot, tombstone));
+    return { found: true };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { found: false };
+    return { found: false, error: `stat ${tombstone}: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+async function prepareTombstoneEntry(
+  projectRoot: string,
+  entry: PreparedEntry,
+): Promise<PreparedEntry> {
+  try {
+    if (!entry.external) {
+      await inspectRepositoryPath(projectRoot, entry.rel, { allowMissing: true });
+    }
+    await access(dirname(entry.target), fsConstants.W_OK);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      entry.error = `parent not writable for ${entry.target}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  return entry;
+}
+
+async function prepareRegularEntry(
+  projectRoot: string,
+  entry: PreparedEntry,
+): Promise<PreparedEntry> {
+  try {
+    await inspectRepositoryPath(projectRoot, relative(projectRoot, entry.source));
+    entry.sourceContent = await readFile(entry.source);
+  } catch (err) {
+    entry.error = `read snapshot ${entry.source}: ${err instanceof Error ? err.message : String(err)}`;
+    return entry;
+  }
+  try {
+    if (entry.external) await mkdir(dirname(entry.target), { recursive: true });
+    else {
+      const parentRel = dirname(entry.rel).replace(/\\/g, "/");
+      if (parentRel !== ".") await ensureSafeRepositoryDirectory(projectRoot, parentRel);
+      await inspectRepositoryPath(projectRoot, entry.rel, { allowMissing: true });
+    }
+    await access(dirname(entry.target), fsConstants.W_OK);
+  } catch (err) {
+    entry.error = `destination not writable for ${entry.target}: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return entry;
+}
+
+async function prepareRollbackEntry(
+  context: RollbackContext,
+  index: number,
+): Promise<PreparedEntry> {
+  const resolved = context.resolvedEntries[index];
+  const source = join(context.dir, SNAPSHOT_FILES_DIR, resolved.relativePath);
+  const tombstone = await inspectRollbackTombstone(context.projectRoot, source + ".tombstone");
+  const entry: PreparedEntry = {
+    rel: resolved.relativePath,
+    target: resolved.absolutePath,
+    source,
+    external: resolved.external,
+    isTombstone: tombstone.found,
+    ...(tombstone.error ? { error: tombstone.error } : {}),
+  };
+  if (entry.error) return entry;
+  return entry.isTombstone
+    ? prepareTombstoneEntry(context.projectRoot, entry)
+    : prepareRegularEntry(context.projectRoot, entry);
+}
+
+async function prepareRollbackEntries(context: RollbackContext): Promise<PreparedEntry[]> {
+  const prepared: PreparedEntry[] = [];
+  for (let index = 0; index < context.meta.relativePaths.length; index++) {
+    prepared.push(await prepareRollbackEntry(context, index));
+  }
+  return prepared;
+}
+
+function preparedRollbackResult(
+  prepared: PreparedEntry[],
+  dryRun: boolean,
+): RollbackResult | null {
+  const failed = prepared.filter((entry) => entry.error);
+  if (!dryRun && failed.length === 0) return null;
+  const dispositions: RollbackFileDisposition[] = prepared.map((entry) => ({
+    target: entry.target,
+    state: dryRun && !entry.error ? "original-restored" : "mutated-still",
+    ...(entry.error ? { error: entry.error } : {}),
+  }));
+  if (dryRun) {
+    return {
+      filesRestored: prepared.length - failed.length,
+      errors: failed.map((entry) => entry.error as string),
+      dispositions,
+    };
+  }
+  return {
+    filesRestored: 0,
+    errors: [
+      `Rollback aborted: prepare phase reported ${failed.length} unrecoverable error(s); ` +
+        `no files were modified (disk left in pre-rollback state).`,
+      ...failed.map((entry) => entry.error as string),
+    ],
+    dispositions,
+  };
+}
+
+async function captureMutatedSnapshots(
+  projectRoot: string,
+  prepared: PreparedEntry[],
+): Promise<Map<string, MutatedSnapshot>> {
+  const snapshots = new Map<string, MutatedSnapshot>();
+  for (const entry of prepared) {
+    try {
+      if (!entry.external) {
+        await inspectRepositoryPath(projectRoot, entry.rel, { allowMissing: true });
+      }
+      snapshots.set(entry.target, { bytes: await readFile(entry.target) });
+    } catch (err) {
+      snapshots.set(
+        entry.target,
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+          ? { bytes: null }
+          : { bytes: null, unreadable: true },
+      );
+    }
+  }
+  return snapshots;
+}
+
+async function removeRollbackTarget(target: string): Promise<void> {
+  try {
+    await unlink(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
+
+async function applyPreparedEntry(projectRoot: string, entry: PreparedEntry): Promise<void> {
+  if (!entry.external) {
+    await inspectRepositoryPath(projectRoot, entry.rel, { allowMissing: true });
+  }
+  if (entry.isTombstone) await removeRollbackTarget(entry.target);
+  else await atomicWriteFile(entry.target, entry.sourceContent as Buffer);
+}
+
+async function commitPreparedEntries(
+  projectRoot: string,
+  prepared: PreparedEntry[],
+): Promise<RollbackCommitState> {
+  const state: RollbackCommitState = {
+    restored: 0,
+    applied: [],
+    errors: [],
+    dispositions: prepared.map((entry) => ({ target: entry.target, state: "mutated-still" })),
+    failed: false,
+  };
+  for (let index = 0; index < prepared.length; index++) {
+    try {
+      await applyPreparedEntry(projectRoot, prepared[index]);
+      state.dispositions[index].state = "original-restored";
+      state.applied.push(index);
+      state.restored++;
+    } catch (err) {
+      state.failed = true;
+      state.errors.push(`restore ${prepared[index].target}: ${err instanceof Error ? err.message : String(err)}`);
+      break;
+    }
+  }
+  return state;
+}
+
+async function restoreMutatedSnapshot(
+  projectRoot: string,
+  entry: PreparedEntry,
+  snapshot: MutatedSnapshot,
+): Promise<void> {
+  if (!entry.external) {
+    await inspectRepositoryPath(projectRoot, entry.rel, { allowMissing: true });
+  }
+  if (snapshot.bytes === null) await removeRollbackTarget(entry.target);
+  else await atomicWriteFile(entry.target, snapshot.bytes);
+}
+
+async function rollForwardEntry(
+  projectRoot: string,
+  entry: PreparedEntry,
+  snapshot: MutatedSnapshot | undefined,
+  disposition: RollbackFileDisposition,
+  errors: string[],
+): Promise<boolean> {
+  if (!snapshot || snapshot.unreadable) {
+    disposition.state = "unknown";
+    disposition.error = `pre-rollback bytes unreadable; cannot roll forward ${entry.target}`;
+    return false;
+  }
+  try {
+    await restoreMutatedSnapshot(projectRoot, entry, snapshot);
+    disposition.state = "rolled-forward";
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    disposition.state = "unknown";
+    disposition.error = `roll-forward failed for ${entry.target}: ${message}`;
+    errors.push(`roll-forward ${entry.target}: ${message}`);
+    return false;
+  }
+}
+
+async function rollForwardAppliedEntries(
+  projectRoot: string,
+  prepared: PreparedEntry[],
+  snapshots: Map<string, MutatedSnapshot>,
+  state: RollbackCommitState,
+): Promise<void> {
+  if (!state.failed) return;
+  for (const index of state.applied) {
+    const entry = prepared[index];
+    const rolledForward = await rollForwardEntry(
+      projectRoot,
+      entry,
+      snapshots.get(entry.target),
+      state.dispositions[index],
+      state.errors,
+    );
+    if (rolledForward) state.restored--;
+  }
 }
 
 /**
@@ -853,248 +1412,43 @@ interface PreparedEntry {
  *
  * Each individual restore uses `atomicWriteFile` (tmp+rename). The returned
  * `dispositions[]` records the final state of every entry.
+ * Repository rollback is the default and rejects external or symlinked
+ * targets. Standalone callers restoring an intentionally external snapshot
+ * must explicitly pass `allowExternalPaths: true`.
  */
 export async function applyRollback(
   sessionId: string,
-  opts: { dryRun?: boolean; projectRoot?: string } = {},
+  opts: RollbackOptions = {},
 ): Promise<RollbackResult> {
-  const projectRoot = opts.projectRoot ?? process.cwd();
-  const dir = sessionDir(sessionId, projectRoot);
-  const metaPath = join(dir, SNAPSHOT_META_FILE);
-
-  let parsedMeta: unknown;
-  try {
-    const raw = await readFile(metaPath, "utf-8");
-    parsedMeta = JSON.parse(raw);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { filesRestored: 0, errors: [`session ${sessionId} not found or unreadable: ${msg}`] };
-  }
-  // Preserved pre-DD message for the version-skew case specifically.
-  const schemaVersion =
-    typeof parsedMeta === "object" && parsedMeta !== null
-      ? (parsedMeta as Record<string, unknown>).schemaVersion
-      : undefined;
-  if (schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
-    return {
-      filesRestored: 0,
-      errors: [
-        `session ${sessionId} uses snapshot schema ${String(schemaVersion)} ` +
-          `(expected ${SNAPSHOT_SCHEMA_VERSION}). Restore with a matching hatch3r version.`,
-      ],
-    };
-  }
-  // DD-C: full shape validation before the restore loop indexes
-  // meta.paths/meta.relativePaths (was a trusting `as SnapshotMeta` cast —
-  // a hand-edited meta with a missing/mismatched array made the prepare
-  // phase walk undefined entries).
-  if (!isSnapshotMeta(parsedMeta)) {
-    return {
-      filesRestored: 0,
-      errors: [
-        `session ${sessionId} has a malformed meta.json (missing or mismatched ` +
-          `sessionId/timestamp/projectRoot/paths/relativePaths). Delete the session directory or ` +
-          `restore meta.json from backup before rolling back.`,
-      ],
-    };
-  }
-  const meta: SnapshotMeta = parsedMeta;
-
-  const filesDir = join(dir, SNAPSHOT_FILES_DIR);
+  const loaded = await loadRollbackContext(sessionId, opts);
+  if (!loaded.ok) return loaded.result;
+  const context = loaded.value;
 
   // ── Prepare phase ──────────────────────────────────────────────
   // Resolve every entry and verify it can be restored before touching disk.
-  const prepared: PreparedEntry[] = [];
-  for (let i = 0; i < meta.relativePaths.length; i++) {
-    const rel = meta.relativePaths[i];
-    const target = meta.paths[i] ?? resolve(projectRoot, rel);
-    const source = join(filesDir, rel);
-    const tombstone = source + ".tombstone";
+  const prepared = await prepareRollbackEntries(context);
 
-    let isTombstone = false;
-    try {
-      await stat(tombstone);
-      isTombstone = true;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") {
-        prepared.push({
-          rel,
-          target,
-          source,
-          isTombstone: false,
-          error: `stat ${tombstone}: ${err instanceof Error ? err.message : String(err)}`,
-        });
-        continue;
-      }
-    }
-
-    if (isTombstone) {
-      // Rollback = delete the target if it exists. Verify the parent dir is
-      // writable so we surface EACCES before commit. A missing parent is
-      // benign (target already absent / consistent with pre-state).
-      const entry: PreparedEntry = { rel, target, source, isTombstone: true };
-      try {
-        await access(dirname(target), fsConstants.W_OK);
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT") {
-          entry.error = `parent not writable for ${target}: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      }
-      prepared.push(entry);
-      continue;
-    }
-
-    // Regular entry: mirror must be readable and the destination parent
-    // writable (or creatable). Pre-load bytes so commit has one source.
-    const entry: PreparedEntry = { rel, target, source, isTombstone: false };
-    try {
-      entry.sourceContent = await readFile(source);
-    } catch (err) {
-      entry.error = `read snapshot ${source}: ${err instanceof Error ? err.message : String(err)}`;
-      prepared.push(entry);
-      continue;
-    }
-    try {
-      await mkdir(dirname(target), { recursive: true });
-      await access(dirname(target), fsConstants.W_OK);
-    } catch (err) {
-      entry.error = `destination not writable for ${target}: ${err instanceof Error ? err.message : String(err)}`;
-    }
-    prepared.push(entry);
-  }
-
-  const prepareErrors = prepared.filter((e) => e.error);
-
-  // Dry-run: report what would restore cleanly + every prepare error. No writes.
-  if (opts.dryRun) {
-    const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
-      target: e.target,
-      state: e.error ? "mutated-still" : "original-restored",
-      ...(e.error ? { error: e.error } : {}),
-    }));
-    return {
-      filesRestored: prepared.length - prepareErrors.length,
-      errors: prepareErrors.map((e) => e.error as string),
-      dispositions,
-    };
-  }
-
-  // Live mode: abort entirely if prepare found any unrecoverable entry. Disk
-  // is untouched, so every entry is still in its mutated state.
-  if (prepareErrors.length > 0) {
-    const errors = [
-      `Rollback aborted: prepare phase reported ${prepareErrors.length} unrecoverable error(s); ` +
-        `no files were modified (disk left in pre-rollback state).`,
-      ...prepareErrors.map((e) => e.error as string),
-    ];
-    const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
-      target: e.target,
-      state: "mutated-still",
-      ...(e.error ? { error: e.error } : {}),
-    }));
-    return { filesRestored: 0, errors, dispositions };
-  }
+  const prepareResult = preparedRollbackResult(prepared, opts.dryRun === true);
+  if (prepareResult) return prepareResult;
 
   // ── Commit phase ───────────────────────────────────────────────
   // Capture pre-rollback bytes of every target so a mid-commit failure can
   // roll the already-applied entries forward to this captured state.
-  interface MutatedSnap {
-    /** Pre-rollback bytes, or null when the target was absent pre-rollback. */
-    bytes: Buffer | null;
-    /** True when we could not read the pre-rollback state (roll-forward = unknown). */
-    unreadable?: boolean;
-  }
-  const mutatedSnaps = new Map<string, MutatedSnap>();
-  for (const e of prepared) {
-    try {
-      const bytes = await readFile(e.target);
-      mutatedSnaps.set(e.target, { bytes });
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        mutatedSnaps.set(e.target, { bytes: null });
-      } else {
-        // Cannot read pre-rollback state — roll-forward of this target would
-        // be unknown. Record so a later roll-forward marks it accurately.
-        mutatedSnaps.set(e.target, { bytes: null, unreadable: true });
-      }
-    }
-  }
-
-  const errors: string[] = [];
-  const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
-    target: e.target,
-    state: "mutated-still",
-  }));
-  const applied: number[] = []; // indices restored so far (for roll-forward)
-  let restored = 0;
-  let commitFailedAt = -1;
-
-  for (let i = 0; i < prepared.length; i++) {
-    const e = prepared[i];
-    try {
-      if (e.isTombstone) {
-        try {
-          await unlink(e.target);
-        } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code;
-          if (code !== "ENOENT") throw err;
-          // Already absent — consistent with the snapshot's pre-state.
-        }
-      } else {
-        // D8-3 (Cycle 11 Wave 2, CQ4): write the captured Buffer verbatim.
-        // The prior `.toString("utf-8")` round-tripped non-UTF-8 user bytes
-        // through U+FFFD, corrupting any binary or non-UTF-8 file on restore;
-        // atomicWriteFile now accepts a Buffer and preserves bytes exactly.
-        await atomicWriteFile(e.target, e.sourceContent as Buffer);
-      }
-      dispositions[i].state = "original-restored";
-      applied.push(i);
-      restored++;
-    } catch (err) {
-      commitFailedAt = i;
-      errors.push(`restore ${e.target}: ${err instanceof Error ? err.message : String(err)}`);
-      break;
-    }
-  }
+  const mutatedSnapshots = await captureMutatedSnapshots(context.projectRoot, prepared);
+  const commitState = await commitPreparedEntries(context.projectRoot, prepared);
 
   // ── Roll-forward ───────────────────────────────────────────────
   // A commit-phase write failed: undo the already-applied entries so the disk
   // returns to its pre-rollback (mutated) state — all-or-nothing.
-  if (commitFailedAt >= 0) {
-    for (const idx of applied) {
-      const e = prepared[idx];
-      const snap = mutatedSnaps.get(e.target);
-      if (!snap || snap.unreadable) {
-        dispositions[idx].state = "unknown";
-        dispositions[idx].error = `pre-rollback bytes unreadable; cannot roll forward ${e.target}`;
-        continue;
-      }
-      try {
-        if (snap.bytes === null) {
-          // Target was absent pre-rollback — re-delete to undo the restore.
-          await unlink(e.target).catch((err) => {
-            const code = (err as NodeJS.ErrnoException).code;
-            if (code !== "ENOENT") throw err;
-          });
-        } else {
-          // D8-3 (Cycle 11 Wave 2, CQ4): roll the pre-rollback bytes forward
-          // verbatim. As with the commit-phase restore above, a UTF-8
-          // re-encode here would corrupt non-UTF-8 content; pass the Buffer.
-          await atomicWriteFile(e.target, snap.bytes);
-        }
-        dispositions[idx].state = "rolled-forward";
-        restored--;
-      } catch (err) {
-        dispositions[idx].state = "unknown";
-        const msg = err instanceof Error ? err.message : String(err);
-        dispositions[idx].error = `roll-forward failed for ${e.target}: ${msg}`;
-        errors.push(`roll-forward ${e.target}: ${msg}`);
-      }
-    }
-  }
-
-  return { filesRestored: restored, errors, dispositions };
+  await rollForwardAppliedEntries(
+    context.projectRoot,
+    prepared,
+    mutatedSnapshots,
+    commitState,
+  );
+  return {
+    filesRestored: commitState.restored,
+    errors: commitState.errors,
+    dispositions: commitState.dispositions,
+  };
 }

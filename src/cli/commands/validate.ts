@@ -2465,7 +2465,8 @@ async function validateAgentBodyCapabilityCoverage(
  *
  * Scope: only `skills/<id>/SKILL.md` files whose frontmatter carries a
  * `cli_tool.bin`. Reference/selection skills that wrap no executable (e.g.
- * `hatch3r-cli-toolbox`, which indexes 29 tools but invokes none itself) have
+ * `hatch3r-cli-toolbox`, which indexes registry-derived tools but invokes none
+ * itself) have
  * no `cli_tool.bin` and are exempt — they expose no execute capability to
  * pre-approve.
  *

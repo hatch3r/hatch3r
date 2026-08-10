@@ -38,6 +38,7 @@ import {
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { normalizeRepositoryRelativePath } from "../merge/repositoryPathValidation.js";
 import { normalizeModelClass } from "../models/tiers.js";
 import { KNOWN_FACETS, KNOWN_ROLES, type FacetId, type RoleId } from "../content/tags.js";
 
@@ -293,8 +294,11 @@ export function createManifest(options: {
   }
   const autoEnable = options.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   const shouldEnable = options.worktreeEnabled ?? autoEnable;
-  if (shouldEnable) {
-    manifest.worktree = { enabled: true };
+  if (shouldEnable || options.worktreeEnabled === false) {
+    // Persist an explicit opt-out. Omitting it makes the update migration treat
+    // a freshly initialized project as a legacy manifest and silently
+    // re-enable worktree isolation for every worktree-capable adapter.
+    manifest.worktree = { enabled: shouldEnable };
   }
   return manifest;
 }
@@ -449,7 +453,24 @@ export function collectManifestErrors(data: unknown): string[] {
   if (obj.mcp === null || typeof obj.mcp !== "object" || Array.isArray(obj.mcp)) {
     errors.push("`mcp` is missing or not an object");
   }
-  if (!Array.isArray(obj.managedFiles)) errors.push("`managedFiles` is missing or not an array");
+  if (!Array.isArray(obj.managedFiles)) {
+    errors.push("`managedFiles` is missing or not an array");
+  } else {
+    if (!(obj.managedFiles as unknown[]).every((path) => typeof path === "string")) {
+      errors.push("`managedFiles` contains non-string entries");
+    }
+    for (const [index, path] of (obj.managedFiles as unknown[]).entries()) {
+      if (typeof path !== "string") continue;
+      try {
+        normalizeRepositoryRelativePath(path);
+      } catch (err) {
+        errors.push(
+          `\`managedFiles[${index}]\` is not a safe repository-relative path: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
 
   // F3.3-C1: Validate `mcp.servers` sub-schema — required, must be string[].
   if (obj.mcp && typeof obj.mcp === "object" && !Array.isArray(obj.mcp)) {
@@ -656,8 +677,21 @@ export function collectManifestErrors(data: unknown): string[] {
           errors.push("`managedFilesByAdapter` has a non-string key");
         } else if (!Array.isArray(v)) {
           errors.push(`\`managedFilesByAdapter.${k}\` is not an array`);
-        } else if (!(v as unknown[]).every((p) => typeof p === "string")) {
-          errors.push(`\`managedFilesByAdapter.${k}\` contains non-string entries`);
+        } else {
+          if (!(v as unknown[]).every((path) => typeof path === "string")) {
+            errors.push(`\`managedFilesByAdapter.${k}\` contains non-string entries`);
+          }
+          for (const [index, path] of (v as unknown[]).entries()) {
+            if (typeof path !== "string") continue;
+            try {
+              normalizeRepositoryRelativePath(path);
+            } catch (err) {
+              errors.push(
+                `\`managedFilesByAdapter.${k}[${index}]\` is not a safe repository-relative path: ` +
+                  `${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
         }
       }
     }

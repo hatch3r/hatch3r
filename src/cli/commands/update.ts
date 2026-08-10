@@ -9,6 +9,10 @@ import { writeProvenance, type PerAdapterOutputs, type ProvenanceCommand } from 
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import {
+  normalizeRepositoryRelativePath,
+  UnsafeRepositoryPathError,
+} from "../../merge/repositoryPathValidation.js";
 import { withSnapshot, createSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
@@ -336,11 +340,13 @@ export async function runRegenerate(
     regenSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
   }
   for (const rel of manifest.managedFiles) {
-    regenSnapshotPaths.push(join(rootDir, rel));
+    regenSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
   }
   if (manifest.managedFilesByAdapter) {
     for (const paths of Object.values(manifest.managedFilesByAdapter)) {
-      for (const rel of paths) regenSnapshotPaths.push(join(rootDir, rel));
+      for (const rel of paths) {
+        regenSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
+      }
     }
   }
   // D1-4 (Cycle 11 Wave 2, D1, P1/CQ4): pre-enumerate the output paths the
@@ -363,8 +369,11 @@ export async function runRegenerate(
   for (const tool of manifest.tools) {
     try {
       const wouldBePaths = await getAdapter(tool).getOutputPaths(snapshotContentRoot, manifest);
-      for (const rel of wouldBePaths) regenSnapshotPaths.push(join(rootDir, rel));
+      for (const rel of wouldBePaths) {
+        regenSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
+      }
     } catch (err) {
+      if (err instanceof UnsafeRepositoryPathError) throw err;
       verbose(`${snapshotCommandName}: snapshot path pre-enumeration for ${tool} skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -694,7 +703,10 @@ export async function runRegenerate(
                 appendIfNoBlock: true,
                 force: options.force,
               })
-            : await safeWriteFile(fullPath, out.content, { force: options.force });
+            : await safeWriteFile(fullPath, out.content, {
+                force: options.force || out.validatedFullDocument,
+                backup: out.validatedFullDocument ? false : undefined,
+              });
           // Surface per-write warnings (marker recovery, managed-block
           // auto-repair, forced overwrite) exactly like sync does — dropping
           // them violates the Silent Failure Contract (CONSTITUTION §2 P5).

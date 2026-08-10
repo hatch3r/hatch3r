@@ -33,6 +33,7 @@ import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
 import { parseFormatOption } from "./shared/output.js";
 import { disableCrossProcessLocking } from "../merge/safeWrite.js";
+import { IMPORT_FORMATS } from "../importers/index.js";
 
 // D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
 // one-liner. The legacy text described a removed SHA-256 crypto-integrity
@@ -180,7 +181,10 @@ export function createProgram(): Command {
     .option("--quick", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--default", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--preset <preset>", "Content preset: minimal, standard, full, web-app, api-service, cli-tool, monorepo, legacy, security — or a comma-list to compose (e.g. 'api-service,security'). Default: standard")
-    .option("--import <target>", "Import an existing tool's config into hatch3r (cursor, copilot, windsurf, cursorrules, or auto — converts each into .hatch3r/overrides/rules/ as .md + .mdc with cross-format conflict detection)")
+    .option(
+      "--import <target>",
+      `Import an existing tool's config into hatch3r (${IMPORT_FORMATS.join(", ")}, or auto — converts each into .hatch3r/overrides/rules/ as .md + .mdc with cross-format conflict detection)`,
+    )
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")

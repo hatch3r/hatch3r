@@ -103,6 +103,13 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
   ],
   codex: [
     { pattern: ".agents/skills/hatch3r-*/", strategy: "copy", reason: "Codex hatch3r skills" },
+    { pattern: ".codex/agents/hatch3r-*.toml", strategy: "copy", reason: "Codex hatch3r subagents" },
+    { pattern: ".codex/config.toml", strategy: "copy", reason: "Codex project config (managed MCP and inline hooks)" },
+    { pattern: ".codex/hooks.json", strategy: "copy", reason: "Codex project hooks" },
+    { pattern: ".codex/hatch3r/hooks/hatch3r-*.mjs", strategy: "copy", reason: "Codex hatch3r hook support" },
+    { pattern: ".hatch3r/codex-support/", strategy: "copy", reason: "Codex projected rule, agent, and command references" },
+    { pattern: "AGENTS.md", strategy: "copy", reason: "Codex repository instructions" },
+    { pattern: "AGENTS.override.md", strategy: "copy", reason: "Codex active repository instruction override" },
   ],
 };
 

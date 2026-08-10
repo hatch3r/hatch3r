@@ -74,3 +74,22 @@ social_preview.png
 skills-lock.json
 
 .evolve-workspace.*
+.hatch3r/snapshots/
+.hatch3r/handoffs/
+.hatch3r/provenance.json
+.hatch3r/provenance.json.bak*
+.init-workspace/
+.sync-workspace/
+.update-workspace/
+.config-workspace/
+.verify-fix-workspace/
+.pr-resolve-workspace/
+.hatch3r/telemetry/
+.hatch3r/efficiency-events.jsonl
+.hatch3r/.failure-log.jsonl
+.hatch3r/.breaker-state.jsonl
+.hatch3r/.lock
+.hatch3r/calibration-state.json
+.hatch3r/calibration-log.jsonl
+.hatch3r/archive/
+.hatch3r/worktree-receipt.json

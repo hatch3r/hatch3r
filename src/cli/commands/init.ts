@@ -152,13 +152,23 @@ function defaultMcpServers(platform: Platform): string[] {
 // D10-SA10.5-H1 (D10, P1): MCP-secret-loading classes used to tailor the
 // post-init `.env.mcp` guidance in the success box. The semantics are the
 // authoritative ones documented on `TOOL_SECRET_NOTES` (src/cli/shared/
-// constants.ts): `claude` reads `.env.mcp` via shell sourcing; `cursor` and
-// `copilot` auto-load it from the project root on a terminal launch (macOS
-// Dock/Finder launches need `launchctl setenv`). Kept as explicit Sets — not
-// a substring scan of the note text — so a note-copy wording change does not
-// silently re-classify a tool.
-const MCP_SHELL_SOURCE_TOOLS = new Set<Tool>(["claude"]);
-const MCP_AUTO_LOAD_TOOLS = new Set<Tool>(["cursor", "copilot"]);
+// constants.ts): `claude`, `cursor`, and `codex` require `.env.mcp` to be
+// sourced into the launching process; Copilot's emitted STDIO config has a
+// real envFile loader. Kept as explicit Sets — not a substring scan of note
+// text — so wording changes do not silently re-classify a tool.
+const MCP_SHELL_SOURCE_TOOLS = new Set<Tool>(["claude", "cursor", "codex"]);
+const MCP_AUTO_LOAD_TOOLS = new Set<Tool>(["copilot"]);
+
+function skillInvocationGuidance(tools: Tool[]): string {
+  const hasCodex = tools.includes("codex");
+  if (hasCodex && tools.length === 1) {
+    return "Some workflows ship as skills (not /commands) — in Codex, invoke them with the documented `$skill-name` syntax.";
+  }
+  if (hasCodex) {
+    return "Some workflows ship as skills (not /commands) — Claude Code: skill picker or `Skill: name`; Cursor/Copilot: their skill surfaces; Codex: `$skill-name`.";
+  }
+  return "Some workflows ship as skills (not /commands) — use the selected tool's skill surface (Claude Code also accepts a `Skill:` prefix).";
+}
 
 // D14-SA14.2-H1 (D14, P4/P1): soft cap on package count for opt-in per-package
 // emission. Above this, `outputs × packages` file writes (e.g. 50 packages × 3
@@ -412,9 +422,9 @@ How to apply: treat any of these as bypass mode and halt + re-ground —
 (1) the orchestrator reply does NOT start with the
 \`[hatch3r-pipeline: phase N | last: ... | next: ...]\` header on a tracked
 Tier 2+ task; (2) a code-writing tool was called before the user confirmed
-the Pre-Implementation Summary on a Tier 3 task; (3) an \`Edit\` / \`Write\`
-fired from the orchestrator turn rather than from inside a
-\`hatch3r-implementer\` Task sub-agent. Source: issue
+the Pre-Implementation Summary on a Tier 3 task; (3) a file mutation was
+performed from the orchestrator turn rather than through a dedicated
+\`hatch3r-implementer\` subagent. Source: issue
 https://github.com/hatch3r-dev/hatch3r/issues/73; rules
 \`rules/hatch3r-agent-orchestration.md\` (Per-Turn Pipeline-State Header,
 Mandatory Delegation Directive) and \`rules/hatch3r-deep-context.md\`
@@ -1319,6 +1329,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       const writeResult = await safeWriteFile(join(rootDir, out.path), out.content, {
         managedContent: out.managedContent,
         appendIfNoBlock: true,
+        force: out.validatedFullDocument,
+        backup: out.validatedFullDocument ? false : undefined,
       });
       // S2b (release/2.6.0): init previously discarded the MergeResult, so
       // per-write warnings (marker recovery on a re-init over an existing
@@ -1389,6 +1401,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
               const perPkgResult = await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
                 managedContent: p.output.managedContent,
                 appendIfNoBlock: true,
+                force: p.output.validatedFullDocument,
+                backup: p.output.validatedFullDocument ? false : undefined,
               });
               // S2b (release/2.6.0): surface per-package MergeResult warnings
               // exactly like the root-output loop above — previously dropped.
@@ -1875,7 +1889,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // now surfaced as a cyan secondary heading with its own arrow marker, and
   // names the no-board promise inline so the user does not have to drill into
   // `feature-plan` docs to learn the lite path skips Steps 5-7 of this guide.
-  const repoIsGreenfield = isGreenfield(repoInfo);
+  // Codex command CTAs must name a command skill that this exact selection
+  // emitted. Its command bridge has no repository slash-command fallback, so
+  // use the resolved content profile when Codex is selected. Retain the
+  // existing repository-analysis wording for slash-command-only adapters.
+  const repoIsGreenfield = tools.includes("codex")
+    ? contentSelection.projectType === "greenfield"
+    : isGreenfield(repoInfo);
   summaryLines.push("");
   // D10-SA10.3-F-10: when some (but not all — all-failed throws above) adapters
   // failed, the install is partial. Prepend a verification CTA above the agent
@@ -1893,7 +1913,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     // surprised by the prompt and arrives with the scope decision ready.
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically; you'll be asked to describe your product idea and MVP scope), then ${chalk.bold(formatCommandHint(tools, "hatch3r-roadmap"))}`);
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))}`);
   } else {
     // D10-SA10.3-05 (D10, P1): the brownfield branch fires whenever ANY language
     // indicator is present — a bare `tsconfig.json` from `npm create vite` /
@@ -1905,16 +1925,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     // (which also feeds the post-init JSON payload and content selection).
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing code — or define a new product if this is a fresh scaffold (routes greenfield/brownfield automatically)`);
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))}`);
   }
   // D10-25 (D10, P1): the CTAs above print `/`-prefixed invocations, but not
-  // every named workflow is a slash command. Some (e.g. the board-init step the
-  // roadmap flow enters at Step 5) ship as SKILLS, which each tool invokes
-  // differently — Claude Code via the skill picker or a `Skill:` prefix, Cursor
-  // / Copilot via their own skill surfaces — not via a `/command`. Name that
-  // divergence once so a user who types `/board-init` and gets nothing knows to
-  // reach for the skill picker instead.
-  summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Some workflows ship as skills (not /commands) — invoke them via your tool's skill picker or a 'Skill:' prefix.")}`);
+  // every named workflow is a slash command. Some (e.g. board-init) ship as
+  // skills. Name each selected tool's real activation surface; Codex requires
+  // the documented `$skill-name` syntax and does not accept a generic `Skill:`
+  // prefix.
+  summaryLines.push(`${chalk.dim("·")} ${chalk.dim(skillInvocationGuidance(tools))}`);
   // D10-SA10.3-F-10: on the clean path, offer the verification command as a
   // dimmed alternate so users who want to confirm the install have a named
   // command without cluttering the primary CTA. Skipped when failures already
@@ -1951,11 +1969,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     // selected tools instead of unconditionally printing the shell-source
     // command. Tools split into two MCP-secret-loading classes (semantics
     // documented on `TOOL_SECRET_NOTES`):
-    //   - shell-source (claude): needs `set -a && source .env.mcp && set +a`
-    //     in the launching shell before start.
-    //   - auto-load (cursor, copilot): read `.env.mcp` from the project root on
-    //     a terminal launch; a macOS Dock/Finder/Spotlight launch does NOT
-    //     inherit shell env, so those need `launchctl setenv` per var.
+    //   - shell-source (claude, cursor, codex): needs
+    //     `set -a && source .env.mcp && set +a` in the launching shell.
+    //   - auto-load (copilot): reads `.env.mcp` for STDIO servers; a macOS
+    //     Dock/Finder/Spotlight launch still needs `launchctl setenv` per var.
     // Showing the source command for an auto-load-only tool selection was the
     // wrong remedy (and, for a Dock launch, actively misleading); showing the
     // per-tool note on `--yes` closes the gap where the headless path emitted
@@ -2023,7 +2040,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   if (!isQuiet()) {
-    info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
+    info(`Tip: Run ${formatCommandHint(tools, "hatch3r-create")} anytime to author your own agents, skills, rules, commands, or hooks.`);
   }
 
   // D10-M9 (Cycle 10): emit total time-to-first-value after the success box
@@ -2443,6 +2460,13 @@ export async function initCommand(
     reExecArgv?: readonly string[];
   } = {},
 ): Promise<void> {
+  // Commander stores the negated `--no-cli-tools` option on the positive
+  // `cliTools` key as boolean false. Normalize that parse-level shape to the
+  // programmatic field this command uses before resolving any defaults.
+  if ((opts as { cliTools?: string | false }).cliTools === false) {
+    opts.noCliTools = true;
+    delete opts.cliTools;
+  }
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
   // - `--json` / `--format json` imply `--quiet` (the structured emission
   //   replaces all chrome).
