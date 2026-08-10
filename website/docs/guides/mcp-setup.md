@@ -63,6 +63,7 @@ When MCP is enabled, all adapters that support it emit tool-specific configurati
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions |
 | Copilot / VS Code | `.vscode/mcp.json` | JSON, `envFile` + `${input}` | STDIO env via `envFile` (`.env.mcp`); HTTP header secrets via `${input:NAME}` prompts |
+| Codex | `.codex/config.toml` | TOML managed region | STDIO and Streamable HTTP; secrets become `env_vars`, `bearer_token_env_var`, or `env_http_headers` references |
 
 ## Connecting MCP Servers
 
@@ -79,6 +80,10 @@ If using the Cursor plugin, the plugin provides `mcp.json` at the project root. 
 ### Claude Code
 
 Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in `.env.mcp`, source it, and restart Claude Code after enabling MCP.
+
+### Codex
+
+Config is merged into `.codex/config.toml`. Fill in `.env.mcp`, export those variables before launching Codex, and trust the project before expecting project-scoped config to load. Hatcher preserves user TOML outside its managed region and refuses user-owned MCP table-name collisions. Secret-sensitive keys require exact environment-variable indirection; credential-bearing URLs, private-key material, and literal credentials are rejected. Literal STDIO environment values and HTTP headers are limited to validated non-secret protocol fields such as `MODE`, `PORT`, `Accept`, and `X-MCP-Toolsets`. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 ### Other Hosts
 
@@ -235,7 +240,7 @@ During `hatch3r init` or `hatch3r sync`, the resolved MCP config at `.hatch3r/mc
 
 1. **Resolved source** -- `.hatch3r/mcp/mcp.json` contains the `mcpServers` object with only the servers you selected during init
 2. **Adapter transformation** -- each adapter reads the canonical config and writes it to the tool-specific path and format
-3. **Secret injection** -- environment variable placeholders (`${env:VAR}`) are preserved in all generated configs. The actual values are read from `.env.mcp` at runtime
+3. **Secret indirection** -- adapters translate placeholders into their supported environment-reference syntax. Literal secret values are never emitted into Codex TOML
 
 The adapter capability matrix determines which adapters emit MCP config:
 
@@ -244,8 +249,9 @@ The adapter capability matrix determines which adapters emit MCP config:
 | Cursor | Yes | `.cursor/mcp.json` | Direct JSON copy |
 | Claude Code | Yes | `.mcp.json` | Direct JSON copy |
 | Copilot / VS Code | Yes | `.vscode/mcp.json` | STDIO env via `envFile`; HTTP header secrets via `${input:NAME}` |
+| Codex | Yes | `.codex/config.toml` | STDIO `env_vars`; HTTP `bearer_token_env_var` / `env_http_headers`; Streamable HTTP only (SSE rejected) |
 
-All 3 supported adapters emit MCP config. When you run `hatch3r sync` or `hatch3r config`, every adapter MCP config is regenerated from the resolved source, producing identical server sets across tools.
+All four supported adapters emit MCP config. When you run `hatch3r sync` or `hatch3r config`, each adapter projects the same selected server set into its platform format; unsupported transport details fail closed instead of being guessed.
 
 ## Adding Custom MCP Servers
 

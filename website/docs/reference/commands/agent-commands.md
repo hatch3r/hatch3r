@@ -5,7 +5,9 @@ title: Agent Commands
 
 # Agent Commands
 
-Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
+Commands invoked inside your coding tool. A command is an **orchestrator**: it delegates bounded work through the platform's subagent mechanism. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
+
+Invocation is adapter-specific. Claude Code and Cursor expose slash-command forms such as `/hatch3r-feature-plan`. Codex has no repository-defined slash-command surface, so Hatcher projects each command as a skill named `hatch3r-command-{id}`; invoke it as `$hatch3r-command-feature-plan`. Arguments, prerequisites, and sequencing remain in the projected skill body.
 
 There are 33 agent commands.
 
@@ -145,7 +147,7 @@ Guided development lifecycle with 4 phases: Analyze, Plan, Implement, and Review
 
 ### handoff
 
-Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Claude Code, Cursor, Copilot) can resume the work cleanly later -- same tool or different tool, same developer or different developer.
+Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md`. In Codex this is a Hatcher bridge, not a native handoff primitive: invoke `$hatch3r-command-handoff prepare`, `resume [id]`, `list [--archived]`, `complete <id>`, or `prune [--dry-run]`.
 
 ```
 /hatch3r-handoff prepare           # capture current session state into a new handoff
@@ -154,6 +156,8 @@ Capture mid-work session state into a tool-agnostic handoff artifact under `.hat
 /hatch3r-handoff complete <id>     # transition handoff to "completed" and archive atomically
 /hatch3r-handoff prune [--dry-run] # auto-archive expired actives; delete archives older than 90 days
 ```
+
+The slash forms above apply to adapters with repository command surfaces. Use the `$hatch3r-command-handoff` form in Codex.
 
 `prepare` delegates to `hatch3r-handoff-preparer` to capture state via the 10-criterion readiness gate (`rules/hatch3r-handoff-readiness.md`) -- body ≤ 50 KB, all 8 required sections present (Problem, Decisions, Work Done, Work Remaining, Blockers, Next Steps, Build & Test Status, File Manifest), `git_ref` matches HEAD, integrity hash computed, injection-pattern scan clean. `resume` validates schema + integrity + `git_ref` drift + expiry before surfacing content under user-tier instruction-hierarchy markers. The frontmatter shape maps 1:1 to the 2026 cross-framework consensus payload (OpenAI Agents SDK, Microsoft Agent Framework, softaworks/agent-toolkit) so non-hatch3r tools can consume hatch3r handoffs via the bi-directional `payloadAdapter` (`src/content/handoffs/payloadAdapter.ts`).
 

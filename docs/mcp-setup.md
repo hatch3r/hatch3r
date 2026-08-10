@@ -21,6 +21,7 @@ When MCP is enabled, all adapters that support it emit tool-specific configurati
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions (see [Claude Code Permissions](#claude-code-permissions)) |
 | Copilot / VS Code | `.vscode/mcp.json` | JSON, `envFile` + `${input}` | STDIO env via `envFile` (`.env.mcp`); HTTP header secrets via `${input:NAME}` prompts |
+| Codex | `.codex/config.toml` | TOML managed region | STDIO and Streamable HTTP; secrets use environment-variable references |
 
 ## Connecting MCP Servers
 
@@ -42,7 +43,11 @@ Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in 
 
 Config goes to `.vscode/mcp.json`. STDIO server env auto-loads from `.env.mcp` via each entry's `envFile` field (VS Code does not shell-expand an `env` object). HTTP-transport servers (e.g. the remote GitHub server) carry their secret in a header, which VS Code does not read from `.env.mcp` — those are prompted via `${input:NAME}` variables on first use.
 
-All three supported adapters (Claude Code, Cursor, Copilot) emit MCP configuration natively. See [adapter-capability-matrix.md](adapter-capability-matrix.md) for the full per-tool capability breakdown.
+### Codex
+
+Config is merged into `.codex/config.toml`. Export `.env.mcp` variables before launching Codex and trust the project so project-scoped config loads. Hatcher maps STDIO secrets to `env_vars` and HTTP secrets to `bearer_token_env_var` or `env_http_headers`; secret-sensitive keys require exact environment-variable indirection, and credential-bearing URLs, private-key material, and literal credentials are rejected. Literal STDIO environment values and HTTP headers are limited to a small set of validated non-secret protocol fields such as `MODE`, `PORT`, `Accept`, and `X-MCP-Toolsets`. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+All four supported adapters emit MCP configuration natively. See [adapter-capability-matrix.md](adapter-capability-matrix.md) for the full per-tool capability breakdown.
 
 ## Claude Code Permissions
 

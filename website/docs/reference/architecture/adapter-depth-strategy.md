@@ -4,22 +4,22 @@ title: Adapter Depth Strategy
 
 # Adapter Depth Strategy
 
-hatch3r supports 3 AI coding tools, each with different platform capabilities, market adoption, and integration depth. This document defines a three-tier investment model that allocates engineering effort proportionally to each adapter's impact and platform maturity. As of 1.9.0 the adapter set was hard-cut to the 3 Tier-1 adapters; Tier 2 and Tier 3 currently hold no adapters and define the depth bar a future adapter must clear (see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the 12 adapters removed in the cut).
+hatch3r supports four AI coding tools with different platform contracts. This document defines a three-tier investment model for test and maintenance depth. A tier never implies a platform capability that its vendor does not provide: adapters use native surfaces, documented bridges, or explicit unsupported states.
 
 ## Tier Model
 
 ### Tier 1 -- Deep
 
-Full feature parity with the canonical content model. These adapters receive first-class support because the underlying platforms have the richest integration surfaces and the largest user bases. **All 3 currently supported adapters are Tier 1.**
+Every relevant canonical content class and platform-native surface is evaluated, lifecycle-tested, and documented. Semantic parity is implemented only where the platform provides a suitable surface. **All four currently supported adapters are Tier 1.**
 
-**Adapters:** Claude Code, Cursor, Copilot
+**Adapters:** Claude Code, Cursor, Copilot, Codex
 
 **Scope:**
-- All content types: agents, rules, skills, commands, hooks
+- Every content type classified as native, bridged, or unsupported
 - MCP server configuration and tool routing
 - Managed blocks with safe partial updates
 - Both output strategies (native per-file config, bridge files)
-- Platform-specific optimizations (Claude `CLAUDE.md` conventions, Cursor `.mdc` frontmatter, Copilot YAML frontmatter)
+- Platform-specific output (Claude `CLAUDE.md`, Cursor `.mdc`, Copilot YAML frontmatter, Codex `.agents/skills`, `AGENTS.md`, and `.codex/`)
 - GitHub Agents support (Copilot)
 
 ### Tier 2 -- Standard
@@ -61,19 +61,20 @@ Minimal viable adapter producing enough configuration for the tool to operate wi
 
 Depth investment follows a simple principle: allocate engineering effort where the combination of market share and platform capability produces the highest return.
 
-- **Tier 1 platforms** have both large user bases and rich integration APIs. A bug or missing feature here affects the most users and leaves the most capability on the table. These adapters are tested against every content model change. All 3 supported adapters sit here.
+- **Tier 1 platforms** receive tests against every content model and lifecycle change. All four supported adapters sit here; Codex's command, handoff, and glob-rule bridges remain explicit limitations, not native-parity claims.
 - **Tier 2** is the bar for a platform with either strong adoption or strong capability, but not both at the level of Tier 1. A future Tier-2 adapter would receive the features that deliver the most value with the least platform-specific engineering.
 - **Tier 3** is the bar for a platform that is early in its lifecycle, has a minimal configuration surface, or serves a niche audience. A future Tier-3 adapter would get a basic config so hatch3r works, while keeping maintenance cost low until promotion criteria are met.
 
 ## Adapter Capability Matrix
 
-The 3 supported adapters (all Tier 1):
+The four supported adapters (all Tier 1):
 
 | Adapter | Tier | Agents | Rules | Commands | Skills | Hooks | MCP | Managed Blocks | Output Strategy |
 |---------|------|--------|-------|----------|--------|-------|-----|----------------|-----------------|
 | Cursor | 1 | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Native (`.mdc`) |
 | Claude Code | 1 | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Bridge (`CLAUDE.md`) + Native |
 | Copilot | 1 | Yes | Yes | Yes | Yes | -- | Yes | Yes | Native (YAML frontmatter) |
+| Codex | 1 | Yes | Bridge | Bridge | Yes | Yes | Yes | Yes | Native project surfaces + explicit bridges |
 
 ## Tier Promotion Criteria
 

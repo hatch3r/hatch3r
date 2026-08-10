@@ -7,30 +7,30 @@ title: About hatch3r
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI (and Cursor plugin) that installs a tool-agnostic agentic coding setup into any repository. It maintains a single canonical source of agent configuration — agents, skills, rules, commands, hooks, and MCP integrations — and generates native configuration for 3 AI coding platforms: Claude Code, Cursor, and GitHub Copilot. You define your setup once; hatch3r adapts it to whichever supported tool you use.
+hatch3r is an open-source CLI (and Cursor plugin) that installs a tool-agnostic agentic coding setup into any repository. It maintains a single canonical source of agent configuration — agents, skills, rules, commands, hooks, and MCP integrations — and generates native or explicitly bridged configuration for four AI coding platforms: Claude Code, Cursor, GitHub Copilot, and Codex.
 
-One command (`npx hatch3r init`) gives you the full set, optimized for your coding tool of choice. Selective init installs only what your project type and team size need.
+One command (`npx hatch3r init`) gives you the selected subset supported by your coding tool. Selective init installs only what your project type and team size need.
 
 ## What hatch3r is
 
-- **A generation pipeline.** hatch3r owns the entire path from one canonical content source to tool-native output: `.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, and `.github/instructions/` + `.github/prompts/` + `.github/agents/` for GitHub Copilot. It also emits board commands, MCP server config, and event-driven hooks.
-- **Tool-agnostic by design.** A single source of truth with adapters for the 3 supported platforms. The canonical content ships inside the bundled npm package; adapters read from there directly.
+- **A generation pipeline.** hatch3r owns the path from one canonical content source to native output or a documented bridge: Cursor `.mdc` rules, Claude Code `CLAUDE.md`, Copilot `.github/` files, and Codex `AGENTS.md`, `.agents/skills/`, and `.codex/` files. Per-adapter capability gates control commands, MCP, and hooks.
+- **Tool-agnostic by design.** A single source of truth with adapters for the four supported platforms. The canonical content ships inside the bundled npm package; adapters read from there directly.
 - **Audited per release.** Canonical content is reviewed each release across 24 governance domains before it ships.
 - **Customizable without forking.** Managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`) preserve your edits across updates, per-agent model selection is configurable, and `.hatch3r/overrides/` is an escape hatch for user-authored canonical content.
 
 ## What hatch3r is not
 
-- **Not a single instruction file.** [AGENTS.md](https://agents.md) is the greatest-common-denominator markdown standard for agent instructions, consumed by 20+ tools. hatch3r is complementary, not a competitor: AGENTS.md describes one file's content; hatch3r generates structured, platform-specific output across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for the 3 supported platforms. Use AGENTS.md alone when one flat file suffices; use hatch3r when you need the full content-plus-tooling stack.
+- **Not a single instruction file.** [AGENTS.md](https://agents.md) is the greatest-common-denominator markdown standard for agent instructions, consumed by 20+ tools. hatch3r is complementary, not a competitor: AGENTS.md describes one file's content; hatch3r generates platform-native output and explicit bridges across five artifact classes for four supported platforms. Use AGENTS.md alone when one flat file suffices; use hatch3r when managed lifecycle and reusable content matter.
 - **Not a rule-distribution tool.** hatch3r is complementary to tools like Ruler that distribute a single instruction file. hatch3r owns the full generation pipeline rather than syncing one file.
 - **Not a runtime sandbox.** hatch3r generates configuration; it does not isolate or sandbox the AI coding tool that consumes it. Tools run with your shell credentials. See the [trust model reference](./reference/trust-model) for what the framework does and does not guarantee.
-- **Not multi-tool sprawl.** As of 1.9.0, hatch3r supports exactly 3 adapters (Claude Code, Cursor, GitHub Copilot). Twelve earlier adapters were removed in a deliberate scope cut to keep the supported surface current and maintainable.
+- **Not multi-tool sprawl.** hatch3r supports exactly four adapters (Claude Code, Cursor, GitHub Copilot, Codex); removed adapters stay removed unless they return with current, tested platform contracts.
 
 ## Who it is for
 
 hatch3r is for developers and teams who use AI coding tools and want a maintained, structured agentic setup instead of hand-rolling per-tool configuration. It fits:
 
 - **Solo developers** who want a working setup in one command (`npx hatch3r init --default`).
-- **Teams** standardizing agent behavior across Claude Code, Cursor, and Copilot from one source.
+- **Teams** standardizing agent behavior across Claude Code, Cursor, Copilot, and Codex from one source.
 - **Greenfield and brownfield projects** alike — init detects your repo context (greenfield/brownfield, solo/team) and platform (GitHub, Azure DevOps, GitLab auto-detected from the git remote), and filters content accordingly.
 
 The only prerequisite for first-run success is Node.js 22.13+.
@@ -98,5 +98,5 @@ See [Quality-Vector Specialists](./guides/quality-vector-specialists) for the pe
 
 - [Quick Start](./getting-started/quick-start) — install hatch3r in under a minute.
 - [What You Get](./getting-started/what-you-get) — explore the agents, skills, rules, and commands included.
-- [Supported Tools](./getting-started/supported-tools) — the 3 supported adapters and their outputs.
+- [Supported Tools](./getting-started/supported-tools) — the four supported adapters and their outputs.
 - [Trust Model](./reference/trust-model) — how distributed packs are trusted and verified.

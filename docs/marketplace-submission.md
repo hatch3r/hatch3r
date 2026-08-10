@@ -153,7 +153,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 - License: MIT, DCO sign-off enforced on commits.
 
 ### Cross-platform
-hatch3r generates native configuration for 3 AI coding tools (Claude Code, Cursor, GitHub Copilot) from a single canonical source. Claude Code is one of those targets and ships with Agent Teams compatibility, plugin-style hooks emission (`.claude/hooks/hatch3r-hooks.json`), and `.mcp.json`.
+hatch3r generates native or explicitly bridged configuration for four AI coding tools (Claude Code, Cursor, GitHub Copilot, Codex) from a single canonical source. This marketplace submission concerns the Claude Code target, which ships with Agent Teams compatibility, plugin-style hooks emission (`.claude/hooks/hatch3r-hooks.json`), and `.mcp.json`.
 ```
 
 ## Human Portion Remaining

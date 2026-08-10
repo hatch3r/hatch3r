@@ -100,7 +100,7 @@ Run `npx hatch3r cli-tools install` to print install commands for everything cur
 
 ## Decision tree — which tool for which job?
 
-The `hatch3r-cli-toolbox` skill that ships in every project includes the full decision tree across 24 specialist tools (plus the five always-on standalone skills: `hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`). Summary:
+The `hatch3r-cli-toolbox` skill that ships in every project includes 34 toolbox sections. The 5 standalone per-tool skills are `hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, and `hatch3r-cli-fzf`. Together they cover the full 39-tool catalog. Summary:
 
 - **Text search** → `rg` (fast literal/regex grep). For structural patterns (AST-aware) use `ast-grep` instead. For cross-language declarative rewrites, escalate to `comby`.
 - **Find files** → `fd` (sane defaults, gitignore-aware).
@@ -140,7 +140,7 @@ npx hatch3r cli-tools install   # print install commands for missing tools
 npx hatch3r cli-tools detect    # read-only detection report
 ```
 
-Selection is recorded in `hatch.json` under `cliTools.selected` and survives `npx hatch3r clean → npx hatch3r init` via `PreservedManifestFields`. The consolidated `hatch3r-cli-toolbox` skill plus the five standalone per-tool skills are emitted to the 3 skill-capable adapters during `sync`.
+Selection is recorded in `hatch.json` under `cliTools.selected` and survives `npx hatch3r clean → npx hatch3r init` via `PreservedManifestFields`. The consolidated `hatch3r-cli-toolbox` skill plus the 5 standalone per-tool skills are emitted to all 4 skill-capable adapters—Claude Code, Cursor, GitHub Copilot, and Codex—during `sync`.
 
 ## Upgrading from 1.7.1 or earlier
 

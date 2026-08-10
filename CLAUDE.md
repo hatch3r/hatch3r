@@ -4,7 +4,7 @@
 
 > This file governs framework development. It is NOT generated output — it is the agentic setup for developing hatch3r itself.
 
-hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agnostic agentic coding setups for 4 AI coding tools (Claude Code, Cursor, GitHub Copilot, and skills-only Codex) from a canonical source model (this repo's top-level `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`) and platform adapters. Canonical content is shipped in the bundled npm package; Codex output uses its native `.agents/skills/` repository surface.
+hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agnostic agentic coding setups for 4 AI coding tools (Claude Code, Cursor, GitHub Copilot, and Codex) from a canonical source model (this repo's top-level `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`) and platform adapters. Canonical content is shipped in the bundled npm package; Codex output uses native project skills, subagents, instructions, MCP, and hooks plus explicit command, handoff, and rule bridges.
 
 ---
 

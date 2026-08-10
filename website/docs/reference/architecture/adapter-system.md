@@ -11,17 +11,19 @@ Bundled canonical content (npm package)
     │
     ├──→ Cursor adapter    → .cursor/rules/*.mdc, .cursor/agents/*.md, ...
     ├──→ Copilot adapter   → .github/copilot-instructions.md, .github/agents/*.md, ...
-    └──→ Claude adapter    → CLAUDE.md, .claude/rules/*.md, .mcp.json, ...
+    ├──→ Claude adapter    → CLAUDE.md, .claude/rules/*.md, .mcp.json, ...
+    └──→ Codex adapter     → AGENTS.md, .agents/skills/, .codex/agents/, .codex/config.toml
 ```
 
-As of 1.9.0 the adapter set was hard-cut to these 3 (Claude Code, Cursor, GitHub Copilot). Twelve adapters were removed — see the [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
+The current adapter set is Claude Code, Cursor, GitHub Copilot, and Codex. Codex uses `.agents/skills`, not the obsolete `.codex/skills` layout.
 
 ## Emission Strategies
 
-The 3 adapters use two emission strategies:
+The four adapters use three emission strategies:
 
 - **Native** -- tool has a specific per-file config format (Cursor `.mdc` rule frontmatter and `.cursor/agents/`; Copilot YAML frontmatter under `.github/instructions/`, `.github/agents/`)
-- **Bridge** -- content is folded into a single instruction file the platform reads (Claude Code reads `CLAUDE.md`)
+- **Bridge** -- content is folded into an official instruction/skill surface (for example, Codex glob rules route through `AGENTS.md` and commands become `$hatch3r-command-*` skills)
+- **Unsupported** -- no safe documented equivalent is emitted; Codex native slash commands, native glob-rule files, and an always-available native question tool are examples
 
 See the [Adapter Capability Matrix](../adapter-capability-matrix) for the full per-tool breakdown.
 
@@ -38,7 +40,7 @@ All hatch3r-generated markdown files use managed blocks to enable safe updates:
 ...never overwritten...
 ```
 
-Only content between `<!-- HATCH3R:BEGIN -->` and `<!-- HATCH3R:END -->` is updated by `hatch3r sync` or `hatch3r update`. Content you add outside these markers is preserved. Config files (JSON, TOML, YAML) are fully regenerated.
+Only Hatcher-owned regions and namespaced entries are updated by `hatch3r sync` or `hatch3r update`. Content you add outside managed markers is preserved. Shared Codex TOML and hook JSON are parsed, validated, and merged without claiming unrelated entries. Codex support companions under `.hatch3r/codex-support/` are dependency-closure projections with path and vocabulary translation, not verbatim canonical copies.
 
 For more on how managed blocks interact with customization, see [Customization](../../guides/customization).
 

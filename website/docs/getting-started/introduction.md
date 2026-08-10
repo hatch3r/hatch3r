@@ -8,15 +8,15 @@ slug: introduction
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository — 29 agents, 53 skills, 67 rules, 30 commands, and 7 hooks generated from one canonical source. One command gives you agents, skills, rules, commands, and MCP integrations -- optimized for your coding tool of choice.
+hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository — 30 agents, 55 skills, 74 rules, 33 commands, and 7 hooks generated from one canonical source. One command gives you the supported subset for your chosen adapter.
 
 ## What is hatch3r?
 
-hatch3r maintains a **single canonical source** of agent configuration (bundled inside the npm package) and generates **native configuration** for 3 AI coding platforms (Claude Code, Cursor, GitHub Copilot). You define your agent setup once and hatch3r adapts it to whatever supported tool you use.
+hatch3r maintains a **single canonical source** of agent configuration (bundled inside the npm package) and generates native configuration or documented bridges for four AI coding platforms: Claude Code, Cursor, GitHub Copilot, and Codex.
 
 ```
 <your repo>/
-  .hatch3r/                       <- Sole hatch3r footprint in your repo
+  .hatch3r/                       <- Tool-neutral Hatcher state
     ├── hatch.json                # Manifest (schemaVersion 3)
     ├── overrides/                # User-authored canonical overrides (escape hatch)
     ├── learnings/                # /learn captures
@@ -27,16 +27,19 @@ hatch3r maintains a **single canonical source** of agent configuration (bundled 
   .claude/                        <- Generated (Claude Code adapter)
   CLAUDE.md                       <- Generated (Claude Code bridge)
   .github/copilot-instructions.md <- Generated (Copilot adapter, plus .github/instructions, .github/prompts, .github/agents)
+  AGENTS.md                       <- Generated region (Codex instructions/rule bridge)
+  .agents/skills/                 <- Generated Hatcher skills (Codex; co-tenant directory)
+  .codex/                         <- Generated Codex agents, MCP, and hooks
   .worktreeinclude                <- Generated (worktree isolation)
 ```
 
-Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package — adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. (Removed in 1.9.0; see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md).)
+Canonical content lives inside the bundled npm package. Codex uses `.agents/skills/` as its documented repository-skill surface, but this is a selected projection, not the obsolete full canonical `.agents/` mirror removed in 1.9.0.
 
 ## Key Features
 
 - **One command setup** -- `npx hatch3r init` detects your repo, asks about your project context, lets you choose a content profile, and generates everything
 - **Selective init** -- choose what you need: Minimal (core only), Standard (recommended), Full, or Custom content profiles with greenfield/brownfield and solo/team filtering
-- **Tool-agnostic** -- single source of truth with adapters for 3 platforms (Claude Code, Cursor, GitHub Copilot)
+- **Tool-agnostic** -- single source of truth with adapters for four platforms (Claude Code, Cursor, GitHub Copilot, Codex)
 - **Two-axis pillar framework (2.0.0)** -- 8 governance pillars (P1-P8) plus 10 content-quality pillars (CQ1-CQ10), each owned by a specialist agent with measurable thresholds. See [Quality-Vector Specialists](../guides/quality-vector-specialists).
 - **Board management** -- full GitHub Projects V2 lifecycle from `todo.md` to merged PRs
 - **Sub-agentic delegation** -- implementer agents, dependency-aware orchestration, collision detection

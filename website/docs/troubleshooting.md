@@ -34,10 +34,10 @@ For lighter reconfiguration without re-initializing, use:
 
 ### Invalid tool(s)
 
-Use only valid tools: `claude`, `cursor`, `copilot`. (The adapter set was hard-cut to these 3 in 1.9.0.)
+Use only valid tools: `claude`, `cursor`, `copilot`, or `codex`.
 
 ```bash
-npx hatch3r init --tools claude,cursor
+npx hatch3r init --tools claude,codex
 ```
 
 ### Not in a git repository
@@ -61,7 +61,7 @@ Run `npx hatch3r init` first. If you had a working setup before, check your git 
 2. Open the slash-command picker and type `/hatch3r` to list every installed command (for example `/hatch3r-spec`, `/hatch3r-roadmap`, `/hatch3r-feature-plan`).
 3. Select the command from that list and run it there. The picker is the source of truth for command names, so you do not need to recall the exact spelling.
 
-The reverse holds for `npx hatch3r <command>` (for example `npx hatch3r init`): those run in the shell, not the editor's AI chat.
+Codex has no repository-defined slash-command surface. Invoke the projected skill instead: `/hatch3r-spec` becomes `$hatch3r-command-spec`, and handoff becomes `$hatch3r-command-handoff prepare`. The reverse holds for `npx hatch3r <command>` (for example `npx hatch3r init`): those run in the shell, not the editor's AI chat.
 
 ## Drift and Validation
 
@@ -76,6 +76,7 @@ Run `npx hatch3r validate` to check content structure and frontmatter (bundled c
 | Invalid frontmatter | Ensure both opening and closing `---` delimiters exist |
 | Missing `id` or `type` | Add required fields to YAML frontmatter |
 | Invalid JSON in mcp.json | Fix syntax (trailing commas, unquoted keys) |
+| Invalid `.codex/config.toml` or managed-region collision | Repair the TOML or marker pair; Hatcher aborts before writing any Codex output |
 
 ## MCP and Secrets
 
@@ -90,6 +91,8 @@ Run `npx hatch3r validate` to check content structure and frontmatter (bundled c
    ```
 2. Restart the editor
 3. Verify config path matches your tool (see [MCP Setup](./guides/mcp-setup))
+
+Codex uses `.codex/config.toml`; export the variables before launching Codex and trust the project so project config loads.
 
 ### GitHub MCP returns 401 or 403
 
@@ -147,6 +150,10 @@ Edit `.hatch3r/hatch.json`:
 Claude Code uses `${VAR}` syntax (not `${env:VAR}`) and requires a `type` field on each server entry. Run `npx hatch3r sync` to regenerate `.mcp.json` with the correct format.
 
 ## Generated Files
+
+### Codex hook approval or legacy skills
+
+Codex project hooks require repository trust and approval of each changed command hash in `/hooks`; Hatcher never writes either trust decision. If an old installation left Hatcher skills under `.codex/skills/`, move user-owned skills to `.agents/skills/`, verify any local edits, then remove only the obsolete Hatcher copies. Current releases never emit `.codex/skills/`.
 
 ### Adapter output looks wrong after manual edits
 

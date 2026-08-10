@@ -24,38 +24,40 @@ Interactive setup (~2 minutes) detects your repository from its git remote and w
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom` (a `custom` pick adds one item-picker prompt).
 4. **Project maturity** — `solo` / `team` / `scaleup` / `enterprise` investment dial, seeded at a git-inferred default. Skipped when you pass `--maturity`.
 5. **Communication style** — `plain` (default) or `technical` operator register for generated-agent output. Skipped when you pass `--communication-style` or run headless/`--resume`.
-6. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
+6. **Tools** — multi-select from the four supported adapters (Claude Code, Cursor, Copilot, Codex).
 7. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later.
 
 Default branch, project type (greenfield/brownfield), and team size (solo/team) are **inferred, not prompted** — branch from git, the others from repository signals. If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm. Headless `--yes` skips every prompt and falls back to the CLI-tools smart default.
 
 :::tip CLI tools default-on since 1.7.5
-hatch3r's primary agent-tooling surface is CLI tools (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd as the tier-1 default; 19 more across tier-2 conditional and tier-3 opt-in). MCP is opt-in. See [CLI Tools](../getting-started/cli-tools) for the full catalog, decision tree, and trade-off discussion.
+hatch3r's 39-tool catalog is delivered as 5 standalone per-tool skills plus 34 toolbox sections. Tier 1 enables 11 tools by default; Tier 2 conditionally selects 13; Tier 3 offers 15 opt-in tools. MCP is opt-in. See [CLI Tools](../getting-started/cli-tools) for the catalog, decision tree, and trade-off discussion.
 :::
 
 **Next steps after init:**
 
-| Starting point | Command | What it does |
-|----------------|---------|-------------|
-| Full project (either kind) | `/hatch3r-spec` | Auto-detects greenfield vs brownfield and runs the matching spec flow |
-| Single feature | `/hatch3r-feature-plan` | Plan one feature with parallel researchers — no board needed |
-| Tiny change | `/hatch3r-quick-change` | One-shot flow for a typo, config tweak, or one-file refactor |
+Claude Code, Cursor, and GitHub Copilot use the slash forms below. Codex has no repository-defined slash-command surface, so each example includes its generated `$hatch3r-command-*` skill bridge.
+
+| Starting point | Slash command | Codex | What it does |
+|----------------|---------------|-------|-------------|
+| Full project (either kind) | `/hatch3r-spec` | `$hatch3r-command-spec` | Auto-detects greenfield vs brownfield and runs the matching spec flow |
+| Single feature | `/hatch3r-feature-plan` | `$hatch3r-command-feature-plan` | Plan one feature with parallel researchers — no board needed |
+| Tiny change | `/hatch3r-quick-change` | `$hatch3r-command-quick-change` | One-shot flow for a typo, config tweak, or one-file refactor |
 
 ### Full project (greenfield or brownfield)
 
-1. Run `/hatch3r-spec` -- on a new project it generates specs from your vision; on an existing codebase it reverse-engineers specs from the current code. It picks the branch by detecting project state, so you do not choose greenfield vs brownfield yourself. Produces spec deliverables under `docs/specs/` (it does not emit `docs/adr/` or `todo.md` -- the `/hatch3r-roadmap` step below reads `docs/specs/` and produces the `todo.md`).
-2. Run `/hatch3r-roadmap` to refine the plan into dependency-ordered epics broken into milestones.
+1. Run `/hatch3r-spec` (Codex: `$hatch3r-command-spec`) -- on a new project it generates specs from your vision; on an existing codebase it reverse-engineers specs from the current code. It picks the branch by detecting project state, so you do not choose greenfield vs brownfield yourself. Produces spec deliverables under `docs/specs/` (it does not emit `docs/adr/` or `todo.md` -- the `/hatch3r-roadmap` step below uses `$hatch3r-command-roadmap` in Codex, reads `docs/specs/`, and produces the `todo.md`).
+2. Run `/hatch3r-roadmap` (Codex: `$hatch3r-command-roadmap`) to refine the plan into dependency-ordered epics broken into milestones.
 3. Continue with board fill (step 4 below).
 
-To force one branch, the split commands remain as a legacy path: `/hatch3r-project-spec` (greenfield only) or `/hatch3r-codebase-map` (brownfield only), each followed by `/hatch3r-roadmap`.
+To force one branch, the split commands remain as a legacy path: `/hatch3r-project-spec` (Codex: `$hatch3r-command-project-spec`, greenfield only) or `/hatch3r-codebase-map` (Codex: `$hatch3r-command-codebase-map`, brownfield only), each followed by `/hatch3r-roadmap` (Codex: `$hatch3r-command-roadmap`).
 
 ## 2. Set up the board
 
 :::note Board workflows are team-scoped
-Steps 2-5 (board init / fill / pickup) install only when your repo resolved to **team** size. `hatch3r init` infers team size from git history (more than one distinct commit-author email ⇒ team) and defaults a single-author or fresh repo to **solo**, where the board cluster is not installed and `init` prints a one-line note saying so. Re-run with `--team-size team` (or switch later via `hatch3r config`) to add the board chain. Solo developers can drive single features without a board via `/hatch3r-feature-plan`.
+Steps 2-5 (board init / fill / pickup) install only when your repo resolved to **team** size. `hatch3r init` infers team size from git history (more than one distinct commit-author email ⇒ team) and defaults a single-author or fresh repo to **solo**, where the board cluster is not installed and `init` prints a one-line note saying so. Re-run with `--team-size team` (or switch later via `hatch3r config`) to add the board chain. Solo developers can drive single features without a board via `/hatch3r-feature-plan` (Codex: `$hatch3r-command-feature-plan`).
 :::
 
-Invoke the `hatch3r-board-init` skill from your editor (Claude Code: `Skill: hatch3r-board-init`; Cursor: load it from the skills picker; Copilot: reference it in chat) to create or connect a project board on your detected platform.
+Invoke the `hatch3r-board-init` skill from your editor (Claude Code: `Skill: hatch3r-board-init`; Cursor: load it from the skills picker; Copilot: reference it in chat; Codex: `$hatch3r-board-init`) to create or connect a project board on your detected platform.
 
 Board-init handles:
 - Project creation via GraphQL (GitHub Projects V2), or the Azure DevOps / GitLab equivalent
@@ -75,7 +77,7 @@ Create a `todo.md` file at the project root with your planned work -- epics, fea
 
 ## 4. Fill the board
 
-Run `/hatch3r-board-fill` to parse `todo.md` and turn items into platform issues.
+Run `/hatch3r-board-fill` (Codex: `$hatch3r-command-board-fill`) to parse `todo.md` and turn items into platform issues.
 
 Board-fill:
 - Deduplicates against existing issues
@@ -88,7 +90,7 @@ For backlog hygiene later, invoke the `hatch3r-board-groom` skill — it surface
 
 ## 5. Pick up work
 
-Run `/hatch3r-board-pickup` to auto-select the next `status:ready` issue by dependency order and priority.
+Run `/hatch3r-board-pickup` (Codex: `$hatch3r-command-board-pickup`) to auto-select the next `status:ready` issue by dependency order and priority.
 
 Board-pickup:
 - Performs collision detection against in-progress work and open PRs
@@ -100,13 +102,13 @@ Repeat this step until the board drains. The reviewer + fixer loop is automatic 
 
 ## 6. Review cycle
 
-The reviewer, test-writer, and security-auditor agents review the work inside the pickup pipeline. When you need to address feedback by hand, push fixes and re-request review. For a standalone feature (no board), `/hatch3r-feature-plan` now ends with an execute-now choice (default) that walks the implement → review → test pipeline in the same session against the just-written plan; choose defer and the copy-paste `/hatch3r-workflow --plan-file=<path>` prompt runs it in a fresh session instead.
+The reviewer, test-writer, and security-auditor agents review the work inside the pickup pipeline. When you need to address feedback by hand, push fixes and re-request review. For a standalone feature (no board), `/hatch3r-feature-plan` (Codex: `$hatch3r-command-feature-plan`) now ends with an execute-now choice (default) that walks the implement → review → test pipeline in the same session against the just-written plan; choose defer and the copy-paste `/hatch3r-workflow --plan-file=<path>` prompt (Codex: `$hatch3r-command-workflow --plan-file=<path>`) runs it in a fresh session instead.
 
 ## 7. Release
 
-Invoke the `hatch3r-release` skill, or run the `/hatch3r-release` orchestrator command for delegated execution with the review-loop and final-quality gate.
+Invoke the `hatch3r-release` skill (Codex: `$hatch3r-release`), or run the `/hatch3r-release` orchestrator command (Codex: `$hatch3r-command-release`) for delegated execution with the review-loop and final-quality gate.
 
-`/hatch3r-release` is a **cut-and-verify** workflow that **stops before publish** — it never publishes, merges, tags-and-pushes, or deploys on a bare invocation. It:
+`/hatch3r-release` (Codex: `$hatch3r-command-release`) is a **cut-and-verify** workflow that **stops before publish** — it never publishes, merges, tags-and-pushes, or deploys on a bare invocation. It:
 - Classifies merged PRs to determine the semantic version bump (patch / minor / major)
 - Generates a grouped changelog (Added / Changed / Deprecated / Removed / Fixed / Security)
 - Runs quality gates and emits supply-chain artifacts (CycloneDX SBOM, npm provenance, SLSA, cosign)

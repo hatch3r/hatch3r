@@ -112,5 +112,4 @@ Reference documents under the canonical `agents/shared/` content (bundled npm pa
 | `external-knowledge.md` | Tooling hierarchy for external lookups: specs first, then codebase, Context7 MCP, web research, and the platform CLI (`gh` / `az` / `glab`) for issue and PR operations. |
 | `injection-patterns.md` | Canonical catalog of prompt-injection patterns kept in lockstep with `src/pipeline/promptGuard.ts` and `src/content/learningsValidation.ts`. OWASP ASI01/ASI06/ASI07 coverage. |
 | `user-content-templates.md` | Body and frontmatter skeletons for the 5 user-authored content types (agent, skill, rule, command, hook). Consumed by `hatch3r-creator`. |
-| `user-question-protocol.md` | Protocol for surfacing clarifying questions across the 3 supported platforms (Claude Code, Cursor, Copilot): when to ask, native-tool preference, and plain-text fallback shape. |
-
+| `user-question-protocol.md` | Protocol for surfacing clarifying questions across the four supported platforms: when to ask, native-tool preference where documented, and the required plain-text fallback. |

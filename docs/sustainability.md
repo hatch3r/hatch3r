@@ -47,9 +47,9 @@ These thresholds are enforced by `npm run inventory` (which regenerates `governa
 
 ### 3. Canonical-source separation isolates platform churn
 
-hatch3r maintains a strict split between canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the source of truth) and adapter output (generated per platform under `.cursor/`, `CLAUDE.md`, `.github/`, etc.). All 3 platform adapters consume the same canonical source and produce platform-native output via the contract in `src/adapters/base.ts`.
+hatch3r maintains a strict split between canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the source of truth) and adapter output (generated per platform under `.cursor/`, `CLAUDE.md`, `.github/`, etc.). All 4 platform adapters consume the same canonical source and produce platform-native output via the contract in `src/adapters/base.ts`.
 
-Practical consequence: when Claude Code, Cursor, or the remaining supported platform ships a breaking change, the fix lives in exactly one adapter file under `src/adapters/`. Canonical content is unchanged. Contributors with no exposure to the broader framework can land an adapter fix in a single PR. This is the basis for the "currency" pillar (P3) which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
+Practical consequence: when Claude Code, Cursor, GitHub Copilot, or Codex ships a breaking change, the fix stays scoped to that platform's adapter modules under `src/adapters/` unless the vendor change also alters a shared canonical contract. Adapter implementations may span focused helper files, so a platform fix is modular rather than constrained to one physical file. Contributors can still land the adapter change as one focused PR without rewriting unrelated canonical content. This is the basis for the "currency" pillar (P3), which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
 
 ### 4. Frozen contracts at module boundaries
 
@@ -77,7 +77,7 @@ This is the mechanism by which async, parallel contribution is possible without 
 This section is honest about gaps rather than aspirational:
 
 - **Maintainer-fund dependency.** Audit cycles consume real labor (token budget for the audit's sub-agents, maintainer time to review PR-by-PR). If donation revenue drops to zero and the maintainer's available hours drop to zero simultaneously, cycle cadence slows.
-- **Adapter staleness between cycles.** P3 requires each of the 3 adapters (Claude Code, Cursor, GitHub Copilot) to be re-verified against vendor documentation per cycle. A platform change that lands mid-cycle can drift until the next verification pass.
+- **Adapter staleness between cycles.** P3 requires each of the 4 adapters (Claude Code, Cursor, GitHub Copilot, Codex) to be re-verified against vendor documentation per cycle. A platform change that lands mid-cycle can drift until the next verification pass.
 - **Plugin marketplace policy risk.** If Anthropic or Cursor change their marketplace licensing rules (e.g., requiring a different license, demanding telemetry), hatch3r would need a structural response. Tracked in the D17 Competition audit domain.
 
 These are findable through audit cycles. They are not fatal under the structural-defense model above, but they require honest acknowledgment.
@@ -88,7 +88,7 @@ In rough order of value-per-hour to the project:
 
 1. **Run an audit cycle on your own project's hatch3r install** and open issues against findings that surface. The audit prompt enforces the rigor contract (falsifiability statement, two independent sources, three-step causal chain, bias check, adversarial peer-review counter-argument), so issues opened from audit output land with a documented scope and resolution path.
 2. **Pick up a Wave 2/3/4 finding from the audit finding registry** and submit a PR. Each finding has a documented work unit, acceptance criteria, and a regression gate.
-3. **Verify a single adapter against the current vendor documentation** (one of the 3 in `src/adapters/`). Submit a PR with the web-research citation per P3.
+3. **Verify a single adapter against the current vendor documentation** (one of the 4 in `src/adapters/`). Submit a PR with the web-research citation per P3.
 4. **Sponsor the maintainer via GitHub Sponsors** to fund the labor of running cycles.
 
 There is no "premium tier" of contribution; all four paths land in the same MIT-licensed repository under the same DCO sign-off model.

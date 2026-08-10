@@ -99,7 +99,7 @@ Append one row per launch-go/no-go decision. Date in ISO format. Status snapshot
 
 ## References
 
-- PRD §14 Distribution Channels — ratified 3-lane plan targeting the 3 supported adapters (CONSTITUTION §6 Decision 12): npm/CLI, Cursor plugin marketplace, Claude Code plugin marketplace. The AGENTS.md/AAIF emission lane was retired in 1.9.0 (Decision 12) and is standards-watch only (PRD §5.x) — not a distribution lane.
+- PRD §14 Distribution Channels — ratified 3-lane distribution plan: npm/CLI, Cursor plugin marketplace, Claude Code plugin marketplace. Codex later returned as a fourth CLI adapter with native `AGENTS.md` emission, but it does not add a separate marketplace distribution lane.
 - Supply-chain floor policy — npm provenance + SBOM + SHA-pinned actions + CI matrix Ubuntu/macOS/Windows × Node LTS 22/24.
 - `docs/marketplace-submission.md` — agent-prepared submission package; status drives P5.
 - Audit finding registry (`governance/audit/finding-registry.json`) + the PRD §1 distribution HOLD's named-blocker integrity assertion — jointly feed P1 (current-cycle open-Critical state + named-blocker registry status, not a frozen cohort).

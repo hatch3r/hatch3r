@@ -15,7 +15,7 @@ const stats = [
   {number: counts.adapters, label: 'Adapters'},
 ];
 
-const tools = ['Cursor', 'GitHub Copilot', 'Claude Code'];
+const tools = ['Cursor', 'GitHub Copilot', 'Claude Code', 'Codex'];
 
 const features: {title: string; description: string; icon: string}[] = [
   {
@@ -28,7 +28,7 @@ const features: {title: string; description: string; icon: string}[] = [
     title: 'Tool-Agnostic',
     icon: '<>',
     description:
-      'One canonical source shipped inside the npm package, with adapters that generate native config for Claude Code, Cursor, and GitHub Copilot — the only directory added to your repo is .hatch3r/. Switch tools without rewriting your setup.',
+      'One canonical source shipped inside the npm package, with adapters for Claude Code, Cursor, GitHub Copilot, and Codex. Each adapter writes only its documented native or explicit bridge surfaces and preserves unrelated files.',
   },
   {
     title: 'Board Management',
@@ -71,8 +71,8 @@ function HomepageHeader(): ReactNode {
           hatch3r
         </Heading>
         <p className="hero__subtitle">
-          Battle-tested agentic coding setup framework. One command to hatch
-          your agent stack for every major AI coding tool.
+          Audited agentic coding setup framework. One command to hatch your
+          agent stack for four supported AI coding tools.
         </p>
         <code>npx hatch3r init</code>
         <div className="hero__buttons">
@@ -105,8 +105,8 @@ function ToolsSection(): ReactNode {
       <div className="container" style={{textAlign: 'center'}}>
         <Heading as="h2">Works With Your Tools</Heading>
         <p style={{opacity: 0.6, maxWidth: 480, margin: '0 auto', fontSize: '0.95rem'}}>
-          Generate native configuration for every major AI coding tool from a
-          single canonical source.
+          Generate documented native surfaces and explicit bridges for four AI
+          coding tools from one canonical source.
         </p>
         <div className="tools-grid">
           {tools.map((tool) => (
@@ -153,7 +153,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Hatch better agents"
-      description="Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool."
+      description="Audited agentic coding setup framework for Claude Code, Cursor, GitHub Copilot, and Codex, with documented native surfaces and bridges."
     >
       <HomepageHeader />
       <main>

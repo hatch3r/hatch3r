@@ -5,10 +5,10 @@ title: Supported Tools
 
 # Supported Tools
 
-hatch3r generates native configuration for 3 AI coding platforms from a single bundled canonical source.
+hatch3r generates native configuration and documented bridges for 4 AI coding platforms from a single bundled canonical source.
 
-:::info v1.9.0 scope cut
-As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut. See the [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list and migration notes.
+:::info Current scope
+hatch3r supports Claude Code, Cursor, GitHub Copilot, and Codex. The Codex adapter was restored on current project-native contracts; eleven other adapters removed in v1.9.0 remain unsupported. See the [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for migration notes.
 :::
 
 ## Platform Overview
@@ -18,12 +18,30 @@ As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelv
 | **Claude Code** | Y | Y | Y | Y | Y | Y |
 | **Cursor** | Y | Y | Y | Y | Y | Y |
 | **GitHub Copilot** | Y | Y | Y | Y | Y | -- |
+| **Codex** | B | Y | Y | B | Y | Y |
 
-**Legend:** **Y** = adapter emits files, **B** = bridge (content folded into instruction file), **--** = no platform support
+**Legend:** **Y** = native/direct adapter output, **B** = Hatcher bridge on an official instruction or skill surface, **--** = not implemented or unsupported
 
 ## Output Paths
 
 Each adapter generates files in the format its platform expects:
+
+### Codex
+
+| Capability | Output Path |
+|------------|-------------|
+| Skills | `.agents/skills/hatch3r-{id}/SKILL.md` |
+| Command bridge | `.agents/skills/hatch3r-command-{id}/SKILL.md` |
+| Agents | `.codex/agents/hatch3r-{id}.toml` |
+| Rules/instructions bridge | `AGENTS.md` + `.hatch3r/codex-support/` |
+| MCP | `.codex/config.toml` |
+| Hooks | `.codex/hooks.json` or managed inline config, plus `.codex/hatch3r/hooks/` |
+
+Codex has no repository-defined slash-command, native glob-scoped rule, or native handoff surface, so commands (including `$hatch3r-command-handoff`) and rules are explicit skill/AGENTS.md bridges. `hatch3r-report` is omitted because its Claude transcript/JSONL contract has no Codex equivalent. Project hooks still require the user to trust the repository and approve the hook hash; hatch3r never writes trust state. Sync, update, platform removal, archive, clean, rollback snapshots, and worktrees preserve unrelated files and subtract only Hatcher-owned entries from shared files.
+
+The obsolete `.codex/skills/` layout is never emitted. Move user-owned skills to `.agents/skills/`; Hatcher-managed legacy output may be removed after verifying it is not customized.
+
+Official contracts: [skills](https://learn.chatgpt.com/docs/build-skills), [AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents), [configuration](https://learn.chatgpt.com/docs/config-file/config-reference), [MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), and [hooks](https://learn.chatgpt.com/docs/hooks).
 
 ### Claude Code
 
@@ -67,12 +85,13 @@ MCP server config location varies by tool:
 | Cursor plugin | `mcp.json` (project root) |
 | Claude Code | `.mcp.json` |
 | Copilot / VS Code | `.vscode/mcp.json` |
+| Codex | `.codex/config.toml` |
 
 Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 39-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 34 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
+Since 1.7.5, hatch3r ships a 39-tool CLI surface area as the token-efficient alternative to MCP. Five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 34 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. These skills emit for all four adapters; in Codex, invoke one explicitly with `$hatch3r-cli-ripgrep` or `$hatch3r-cli-toolbox` when automatic skill selection is not desired.
 
 ### Tier-1 (default-on, 11 tools)
 
