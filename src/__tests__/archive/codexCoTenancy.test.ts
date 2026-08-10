@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { archiveToolOutputs, collectToolFiles } from "../../archive/index.js";
-import { codexHookCommand } from "../../adapters/codexHooks.js";
+import { LEGACY_SESSION_START_HOOK_COMMAND } from "../helpers/codexLegacyHookFixture.js";
 
 async function exists(path: string): Promise<boolean> {
   try { await access(path); return true; } catch (err) { void err; return false; }
@@ -104,7 +104,7 @@ describe("Codex archive co-tenancy", () => {
     ].join("\n");
     await writeFile(join(root, ".codex/config.toml"), config);
 
-    const command = codexHookCommand("session-start-learnings");
+    const command = LEGACY_SESSION_START_HOOK_COMMAND;
     const hooks = {
       description: "user",
       hooks: { SessionStart: [

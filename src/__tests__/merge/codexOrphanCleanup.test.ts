@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } fro
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { codexHookCommand } from "../../adapters/codexHooks.js";
+import { LEGACY_SESSION_START_HOOK_COMMAND } from "../helpers/codexLegacyHookFixture.js";
 import { sweepOrphansForAdapter } from "../../merge/orphanCleanup.js";
 
 async function exists(path: string): Promise<boolean> {
@@ -49,7 +49,7 @@ describe("Codex orphan cleanup", () => {
   it("subtracts shared config and hooks while preserving user content", async () => {
     await mkdir(join(root, ".codex"), { recursive: true });
     await writeFile(join(root, ".codex/config.toml"), 'model = "gpt-5"\n\n# HATCH3R:BEGIN\n[mcp_servers."x"]\ncommand = "x"\n# HATCH3R:END\n');
-    const command = codexHookCommand("session-start-learnings");
+    const command = LEGACY_SESSION_START_HOOK_COMMAND;
     await writeFile(join(root, ".codex/hooks.json"), JSON.stringify({ hooks: { SessionStart: [
       { hooks: [{ type: "command", command: "user" }] },
       { hooks: [{ type: "command", command, commandWindows: command, statusMessage: "hatch3r:session-start-learnings" }] },

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HookDefinition } from "../../hooks/types.js";
 import {
   codexHookCommand,
+  codexHookCommandWindows,
   mergeCodexHooksDocument,
   parseCodexHooksJson,
   projectCodexHooks,
@@ -19,6 +20,7 @@ import {
   preflightCodexToml,
   readCodexTomlPreflight,
 } from "../../adapters/codexToml.js";
+import { LEGACY_SESSION_START_HOOK_COMMAND } from "../helpers/codexLegacyHookFixture.js";
 
 const roots: string[] = [];
 function tempRoot(): string {
@@ -78,10 +80,9 @@ describe("Codex hooks projection", () => {
       async: false,
     });
     expect(handler?.commandWindows).toBe(handler?.command);
-    expect(handler?.command).not.toMatch(/\$\(|%[A-Za-z_]+%|`/);
-    expect(handler?.command).not.toContain('\\"');
+    expect(handler?.command).not.toMatch(/["'&|<>^%!$`()\\;*?\[\]{}]/);
     expect(handler?.command).toBe(codexHookCommand(sessionHook.id));
-    expect(handler?.command).toMatch(/^node --input-type=module -e /);
+    expect(handler?.command).toMatch(/^echo [A-Za-z0-9 .,:-]+$/);
     expect(handler?.command).not.toMatch(/(?:\.\.|existsSync|pathToFileURL|import\(|\.codex|hatch3r\/hooks)/);
     expect(projection.outputs[1].managedContent).toContain("hatch3r-learnings-loader custom subagent");
     expect(projection.outputs[0].sourceFiles).toEqual([sessionHook.sourcePath]);
@@ -89,6 +90,16 @@ describe("Codex hooks projection", () => {
     expect(projection.sourceFiles).toEqual([sessionHook.sourcePath]);
     expect(projection.warnings.join("\n")).toContain("pre-commit");
     expect(projection.warnings.join("\n")).toContain("/hooks");
+  });
+
+  it.each([
+    "session-start&whoami",
+    "session-start%PATH%",
+    "session-start$(whoami)",
+    "session-start;whoami",
+  ])("rejects shell syntax in a hook id before constructing command %j", (id) => {
+    expect(() => codexHookCommand(id)).toThrow("Unsafe Codex hook id");
+    expect(() => codexHookCommandWindows(id)).toThrow("Unsafe Codex hook id");
   });
 
   it("routes into established inline hooks and preserves an existing hooks file", async () => {
@@ -145,6 +156,49 @@ describe("Codex hooks projection", () => {
     expect(merged.hooks.SessionStart?.[1].hooks[0]).toEqual(replacement);
   });
 
+  it("upgrades the exact prior Hatcher command template and stays idempotent", async () => {
+    const root = tempRoot();
+    await mkdir(join(root, ".codex"), { recursive: true });
+    await writeFile(join(root, ".codex/hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{
+      type: "command",
+      command: LEGACY_SESSION_START_HOOK_COMMAND,
+      commandWindows: LEGACY_SESSION_START_HOOK_COMMAND,
+      statusMessage: "hatch3r:session-start-learnings",
+    }] }] } }));
+
+    const first = await projectCodexHooks(root, [sessionHook], preflightCodexToml(""));
+    const firstContent = first.outputs.find((output) => output.path === ".codex/hooks.json")!.content;
+    const firstHandler = parseCodexHooksJson(firstContent).hooks.SessionStart?.[0]?.hooks[0];
+    expect(firstHandler).toMatchObject({
+      command: codexHookCommand(sessionHook.id),
+      commandWindows: codexHookCommandWindows(sessionHook.id),
+      statusMessage: "hatch3r:session-start-learnings",
+    });
+    expect(firstContent).not.toContain(LEGACY_SESSION_START_HOOK_COMMAND);
+
+    await writeFile(join(root, ".codex/hooks.json"), firstContent);
+    const second = await projectCodexHooks(root, [sessionHook], preflightCodexToml(""));
+    expect(second.outputs.find((output) => output.path === ".codex/hooks.json")!.content)
+      .toBe(firstContent);
+  });
+
+  it("rejects and preserves a minimally changed prior command as an ownership collision", async () => {
+    const root = tempRoot();
+    await mkdir(join(root, ".codex"), { recursive: true });
+    const hooksPath = join(root, ".codex/hooks.json");
+    const content = JSON.stringify({ hooks: { SessionStart: [{ hooks: [{
+      type: "command",
+      command: `${LEGACY_SESSION_START_HOOK_COMMAND} `,
+      commandWindows: LEGACY_SESSION_START_HOOK_COMMAND,
+      statusMessage: "hatch3r:session-start-learnings",
+    }] }] } });
+    await writeFile(hooksPath, content);
+
+    await expect(projectCodexHooks(root, [sessionHook], preflightCodexToml("")))
+      .rejects.toThrow("ownership collision");
+    expect(await readFile(hooksPath, "utf-8")).toBe(content);
+  });
+
   it("removes only exact hatch3r handlers and preserves user hooks", () => {
     const command = codexHookCommand(sessionHook.id);
     const content = JSON.stringify({ hooks: { SessionStart: [
@@ -157,6 +211,20 @@ describe("Codex hooks projection", () => {
     const cleaned = parseCodexHooksJson(removeCodexOwnedHookEntries(content)!);
     expect(cleaned.hooks.SessionStart).toHaveLength(1);
     expect(cleaned.hooks.SessionStart?.[0].hooks[0]).toMatchObject({ type: "command", command: "user" });
+  });
+
+  it("removes the exact prior Hatcher handler while preserving foreign hooks", () => {
+    const content = JSON.stringify({ hooks: { SessionStart: [
+      { hooks: [{ type: "command", command: "user" }] },
+      { hooks: [{
+        type: "command",
+        command: LEGACY_SESSION_START_HOOK_COMMAND,
+        commandWindows: LEGACY_SESSION_START_HOOK_COMMAND,
+        statusMessage: "hatch3r:session-start-learnings",
+      }] },
+    ] } });
+    const cleaned = parseCodexHooksJson(removeCodexOwnedHookEntries(content)!);
+    expect(cleaned.hooks.SessionStart).toEqual([{ hooks: [{ type: "command", command: "user" }] }]);
   });
 
   it("round-trips documented async and parsed-but-skipped user handlers", () => {
@@ -263,7 +331,12 @@ describe("Codex hooks projection", () => {
     expect(result.status).toBe(0);
     expect(result.signal).toBeNull();
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("hatch3r-learnings-loader custom subagent");
+    expect(result.stdout.trim()).toBe(
+      "hatch3r hook bridge session-start-learnings: delegate this task to the " +
+      "hatch3r-learnings-loader custom subagent. If subagent delegation is unavailable, follow the " +
+      "equivalent repository instructions and report the result in plain text. The hook itself performs " +
+      "no repository mutation.",
+    );
     expect(result.stdout).not.toContain("UNTRUSTED-ANCESTOR-EXECUTED");
     expect(await snapshotTree(root)).toEqual(before);
   });
