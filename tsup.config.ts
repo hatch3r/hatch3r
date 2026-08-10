@@ -19,25 +19,26 @@ export default defineConfig({
   // tarball and shortens the build. Re-introduce only alongside a real
   // library `exports` entry filed as a PRD CL-1.
   clean: true,
-  // Cycle 10 L D4-SA4.1-F4.1.F6 (D4): esbuild-only tree-shaking, explicit.
+  // Cycle 10 L D4-SA4.1-F4.1.F6 (D4): second-pass tree-shaking, explicit.
   // tsup's `treeshake` option adds a second Rollup AST pass on top of the
   // tree-shaking esbuild already performs during bundling. For this single-
-  // entry (`splitting: false`) `bin`-only CLI the Rollup pass is left off:
-  // esbuild's pass is the chosen tree-shaker, traded in favour of build speed.
+  // entry (`splitting: false`) `bin`-only CLI the Rollup pass was initially
+  // left off, trading its byte reduction for faster builds.
   //
-  // Cycle 12 D4-SA4.1-09 (D4): CLOSED — the Cycle-10 "re-run each cycle" note
-  // above is retired for this measured decision. A/B measured 2026-07-12
+  // Cycle 12 D4-SA4.1-09 (D4): the Cycle-10 "re-run each cycle" note was
+  // retired after this measured decision. A/B measured 2026-07-12
   // (tsup 8.5.1, three-way, one source tree): `treeshake: true` = 1,325,930 B
   // vs this `false` baseline = 1,359,021 B — a 33,091 B (2.4%) reduction, at
   // ~9x build time (~480 ms vs ~55 ms for the Rollup pass). Omitting the key
   // is byte-identical to `false` (1,359,021 B), which answers egoist/tsup#1136
   // for this build: `false` and `undefined` both leave the Rollup pass off and
-  // keep esbuild's tree-shaker, so the explicit `false` is documentation, not
-  // a behavior change. Decision: keep `false` — the 2.4% gain is below the 5%
-  // flip threshold and does not justify the ~9x build-time cost. Re-open only
-  // on a bundle-budget breach, not per cycle.
+  // keep esbuild's tree-shaker. The documented re-open trigger fired on
+  // 2026-08-10: the Codex-support bundle reached 1,720,078 B, above the
+  // 1,693,371 B CI budget. Enabling the second pass reduced it to 1,683,560 B
+  // (-36,518 B, -2.1%) while keeping the build under two seconds locally.
+  // Keep it enabled so the runtime bundle remains within the enforced budget.
   // See governance/audit/domains/D04-build-cicd.md SA 4.1 (registry D4-SA4.1-09).
-  treeshake: false,
+  treeshake: true,
   // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
   // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —
   // and `package.json` "files: [\"dist/\"]" published that map to npm on every

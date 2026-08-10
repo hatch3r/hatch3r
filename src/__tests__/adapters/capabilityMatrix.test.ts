@@ -84,6 +84,19 @@ describe("capabilityMatrix", () => {
       expect(row.declared.githubAgents).toBe(true);
     });
 
+    it("returns the implemented Codex project-surface row", () => {
+      const row = enumerateAdapterCapabilities("codex");
+      expect(row.adapter).toBe("codex");
+      expect(row.declared.skills).toBe(true);
+      expect(row.declared.agents).toBe(true);
+      expect(row.declared.rules).toBe(true);
+      expect(row.declared.commands).toBe(true);
+      expect(row.declared.mcp).toBe(true);
+      expect(row.declared.hooks).toBe(true);
+      expect(row.declared.handoffs).toBe(true);
+      expect(row.declared.nativeQuestionTool).toBe(false);
+    });
+
     it("throws on unknown adapter", () => {
       // @ts-expect-error — intentional invalid input to verify guard
       expect(() => enumerateAdapterCapabilities("aider")).toThrow(/unknown adapter/);
@@ -173,6 +186,15 @@ describe("capabilityMatrix", () => {
       expect(sub?.status).toBe("supported");
       // The stale `unsupported` single-hooks row must be gone.
       expect(plat.capabilities.find((c) => c.id === "hooks")).toBeUndefined();
+    });
+
+    it("seed for codex records its repository skill surface", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-capmatrix-"));
+      process.env[ENV_KEY] = join(tempDir, "absent.md");
+      const plat = await enumeratePlatformCapabilities("codex");
+      expect(plat.capabilities).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "skills", status: "supported" })]),
+      );
     });
   });
 
@@ -312,8 +334,11 @@ describe("capabilityMatrix", () => {
   // ── surfaceFindings ───────────────────────────────────────────────────────
 
   describe("surfaceFindings", () => {
-    function buildReport(rows: UtilizationReport["rows"]): UtilizationReport {
-      return { adapter: "claude", rows, utilization_ratio: 0.5 };
+    function buildReport(
+      rows: UtilizationReport["rows"],
+      adapter: UtilizationReport["adapter"] = "claude",
+    ): UtilizationReport {
+      return { adapter, rows, utilization_ratio: 0.5 };
     }
 
     it("emits no findings when every row is utilized or n/a", () => {
@@ -421,6 +446,26 @@ describe("capabilityMatrix", () => {
       }
       expect(finding.impact_horizon).toMatch(/^(short|medium|long)$/);
       expect(finding.progress_toward_pillar).toMatch(/^(governance|content-quality)\.\w+\+\d/);
+    });
+
+    it("cites all four official Codex contract surfaces", () => {
+      const report = buildReport([
+        {
+          capabilityId: "hooks",
+          capabilityName: "Hooks",
+          platformStatus: "supported",
+          declaredKey: "hooks",
+          declaredSupport: false,
+          utilization: "unutilized",
+        },
+      ], "codex");
+
+      expect(surfaceFindings(report)[0].sources).toEqual([
+        expect.objectContaining({ url: "https://learn.chatgpt.com/docs/build-skills" }),
+        expect.objectContaining({ url: "https://learn.chatgpt.com/docs/agent-configuration/agents-md" }),
+        expect.objectContaining({ url: "https://learn.chatgpt.com/docs/agent-configuration/subagents" }),
+        expect.objectContaining({ url: "https://learn.chatgpt.com/docs/config-file/config-reference" }),
+      ]);
     });
 
     it("body explicitly references the adapter source file for actionable triage", () => {

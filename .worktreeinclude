@@ -1,0 +1,40 @@
+# hatch3r worktree include file
+# Defines which gitignored files should be present in worktrees.
+# Lines with '# hatch3r:symlink' are symlinked; others are copied.
+
+<!-- HATCH3R:BEGIN -->
+# environment variables
+.env
+# environment variables (includes .env.mcp)
+.env.*
+# shared hatch3r state (overrides, mcp)
+.hatch3r/  # hatch3r:symlink
+# per-worktree manifest (auto-sync rewrites it; symlink would de-link or clobber the main repo)
+.hatch3r/hatch.json
+# per-worktree provenance baseline (rewritten by sync)
+.hatch3r/provenance.json
+# per-worktree circuit-breaker state (rewritten by sync)
+.hatch3r/.breaker-state.jsonl
+# per-worktree learnings (diverge across branches)
+.hatch3r/learnings/
+# per-worktree handoffs (diverge across branches)
+.hatch3r/handoffs/
+# project specifications for agent context
+docs/specs/
+# Codex hatch3r skills
+.agents/skills/hatch3r-*/
+# Codex hatch3r subagents
+.codex/agents/hatch3r-*.toml
+# Codex project config (managed MCP and inline hooks)
+.codex/config.toml
+# Codex project hooks
+.codex/hooks.json
+# Codex hatch3r hook support
+.codex/hatch3r/hooks/hatch3r-*.mjs
+# Codex projected rule, agent, and command references
+.hatch3r/codex-support/
+# Codex repository instructions
+AGENTS.md
+# shared dependencies (saves disk space)
+node_modules/  # hatch3r:symlink
+<!-- HATCH3R:END -->

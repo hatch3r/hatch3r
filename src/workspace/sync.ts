@@ -737,7 +737,8 @@ async function syncSingleRepo(
         await safeWriteFile(join(repoDir, out.path), out.content, {
           managedContent: out.managedContent,
           appendIfNoBlock: true,
-          force: options.force,
+          force: options.force || out.validatedFullDocument,
+          backup: out.validatedFullDocument ? false : undefined,
         });
         addManagedFile(manifest, out.path);
       }

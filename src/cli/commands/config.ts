@@ -51,7 +51,13 @@ import {
 import { type CliOutputFormat } from "../shared/output.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
-import { archiveToolOutputs, collectToolFiles, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
+import {
+  archiveToolOutputs,
+  collectToolFiles,
+  fileMatchesTool,
+  removeManagedFilesForPaths,
+  type MigrationNotice,
+} from "../../archive/index.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
@@ -1433,7 +1439,7 @@ async function configCommandImpl(
       "At least one tool must be selected.",
       undefined,
       "VALIDATION_ERROR",
-      "Re-run `hatch3r config` and select at least one tool (claude, cursor, or copilot).",
+      "Re-run `hatch3r config` and select at least one tool (claude, cursor, copilot, or codex).",
     );
   }
 
@@ -1794,18 +1800,24 @@ async function configCommandImpl(
 
   if (totalArchiveSteps > 0) {
     // D2-SA2.7-01 (Cycle 12, D2, P6): collect the ACTUAL on-disk file set for
-    // each removed tool up front — the exact set `archiveToolOutputs`
-    // (archive/index.ts) will cp+rm. Both the consent preview and the
-    // pre-deletion rollback snapshot below derive from THIS set, not from the
-    // `managedFilesByAdapter` subset, so user-authored files under a tool's
-    // paths (a hand-written `.cursor/rules/*.mdc`, `.claude/settings.local.json`)
-    // are disclosed before consent AND captured by the `config-<ts>` snapshot
-    // `hatch3r rollback` restores. Previously they were archived into the
-    // gitignored, `hatch3r clean`-deleted `.hatch3r-archive/` with no restorable
-    // snapshot entry, so the advertised undo silently did not cover them.
+    // each removed tool up front. Union discovery with exact manifest
+    // provenance because Codex archive removal admits recorded markerless
+    // companion files that structural discovery cannot prove independently.
+    // Both the consent preview and the pre-deletion rollback snapshot derive
+    // from this union, so every path `archiveToolOutputs` may remove has a
+    // restorable snapshot entry.
     const collectedByTool = new Map<Tool, string[]>();
     for (const tool of diff.removedTools) {
-      collectedByTool.set(tool, await collectToolFiles(rootDir, tool));
+      const discovered = await collectToolFiles(rootDir, tool);
+      const recorded = (manifest.managedFilesByAdapter?.[tool] ?? []).filter((path) =>
+        fileMatchesTool(path.replace(/\\/g, "/"), tool),
+      );
+      const union = new Map<string, string>();
+      for (const path of [...discovered, ...recorded]) {
+        const normalized = path.replace(/\\/g, "/");
+        if (!union.has(normalized)) union.set(normalized, normalized);
+      }
+      collectedByTool.set(tool, [...union.values()]);
     }
     // D10-M14 (Cycle 10): preview the file list `managedFilesByAdapter`
     // records for each tool BEFORE the archive runs. Previously the archive
@@ -1895,10 +1907,11 @@ async function configCommandImpl(
     // Contract) and leaves `removalSnapshotSessionId` null, so the regenerate
     // falls back to its own session and the summary suppresses the
     // (now-unavailable) revert line.
-    // D2-SA2.7-01 (Cycle 12, D2, P6): the path set is `collectedByTool` — the
-    // FULL on-disk set the archive loop removes — NOT `managedFilesByAdapter`.
-    // The prior managed-only source snapshotted a subset of what it deleted, so
-    // rollback could not restore user-authored files under the tool's paths.
+    // D2-SA2.7-01 (Cycle 12, D2, P6): `collectedByTool` is the union of the
+    // structural scan and exact per-adapter provenance. Either source alone is
+    // incomplete: scans include unrecorded files swept by broad tool paths,
+    // while provenance includes Codex markerless companions/assets admitted by
+    // archive removal only through their exact recorded path.
     const removalSnapshotPaths: string[] = [];
     for (const tool of diff.removedTools) {
       for (const rel of collectedByTool.get(tool) ?? []) {
@@ -1920,7 +1933,9 @@ async function configCommandImpl(
       );
       s.start();
 
-      const result = await archiveToolOutputs(rootDir, tool);
+      const result = await archiveToolOutputs(rootDir, tool, {
+        recordedPaths: manifest.managedFilesByAdapter?.[tool] ?? [],
+      });
       removeManagedFilesForPaths(manifest, result.archivedFiles);
       // release/2.8.5 (BUG-3 secondary): drop the archived tool's
       // per-adapter record too — its files just moved to the archive, and a

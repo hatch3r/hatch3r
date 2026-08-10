@@ -61,7 +61,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../src/cliTools/registry.js";
+import {
+  AVAILABLE_CLI_TOOLS,
+  STANDALONE_CLI_TOOLS,
+  type CliToolMeta,
+} from "../src/cliTools/registry.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -75,7 +79,7 @@ const PER_TOOL_PREFIX = "hatch3r-cli-";
  * agent-call frequency). Every other registry entry must be covered by a
  * section in `hatch3r-cli-toolbox/SKILL.md`.
  */
-const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
+const STANDALONE_TOOLS = new Set<string>(STANDALONE_CLI_TOOLS);
 
 interface Failure {
   file: string;

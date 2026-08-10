@@ -55,7 +55,7 @@ The interactive flow asks (default branch, project type, and team size are infer
 4. **Maturity tier** -- solo, team, scaleup, or enterprise (seeded at the git-inferred default); `--maturity <tier>` skips this prompt. The tier is an investment-depth dial, not a content gate -- every tier installs the full corpus (see [Maturity Tiers](../../guides/maturity-tiers))
 5. **Communication style** -- plain (default) or technical operator register for generated-agent output; `--communication-style <style>`, headless flags, or `--resume` skip this prompt (added 2.8.5)
 6. **Custom content items** -- only when Custom is selected at step 3
-7. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
+7. **Tools** -- select from the four supported adapters (Claude Code, Cursor, GitHub Copilot, Codex)
 8. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
 
 The common (non-custom) path is 7 prompts; the custom-content multi-select adds an 8th only when Custom is chosen at step 3 (steps renumber accordingly).

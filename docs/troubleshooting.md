@@ -4,8 +4,6 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Quick links:** [Prerequisites](#prerequisites) | [CLI Commands](#cli-commands) | [Validation](#validation-npx-hatch3r-validate) | [MCP and Secrets](#mcp-and-secrets) | [Board Commands](#board-commands) | [Azure DevOps](#azure-devops-board-commands) | [GitLab](#gitlab-board-commands) | [Claude Code MCP](#claude-code-mcpjson-issues) | [Generated Files](#generated-files-and-adapters) | [Development](#development-contributors) | [Security Model](#security-model)
 
----
-
 ## Prerequisites
 
 ### `npx hatch3r` fails with module or ESM errors
@@ -26,8 +24,6 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 **Cause:** Same as above — Node.js &lt; 22.13.
 
 **Solution:** Confirm Node.js 22+ is active by running `node --version` and reading a value `>= v22.0.0`. If using nvm: `nvm use 22` or `nvm install 22`. Then run `npm run build` again.
-
----
 
 ## CLI Commands
 
@@ -53,7 +49,9 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** As of v1.9.0, hatch3r ships 3 adapters: `claude`, `cursor`, `copilot`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools claude,cursor`. The 12 other adapters previously shipped (`aider`, `amazon-q`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`) were removed in v1.9.0; pick one of the 3 supported targets instead.
+**Solution:** hatch3r ships four adapters: `claude`, `cursor`, `copilot`, and `codex`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools claude,codex`. The other adapters removed in v1.9.0 remain unsupported.
+
+Codex workflows do not use repository slash commands. Invoke a projected command skill in Codex chat, for example `$hatch3r-command-spec` or `$hatch3r-command-handoff prepare`; `npx hatch3r ...` remains the shell CLI.
 
 ### Not in a git repository
 
@@ -86,12 +84,12 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Symptom:** Sync or update fails with "Corrupted managed block: duplicate start marker found" (or "duplicate end marker found").
 
-**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, or `.github/`) was manually edited and now contains `<!-- HATCH3R:BEGIN -->` or `<!-- HATCH3R:END -->` more than once. hatch3r expects exactly one of each marker per file.
+**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, `.github/`, root `AGENTS.md`/`AGENTS.override.md`, or `.codex/config.toml`) was manually edited and now contains a duplicate or orphan `HATCH3R:BEGIN`/`HATCH3R:END` marker. hatch3r aborts the complete Codex projection rather than replace an ambiguous region.
 
 **Solution:**
 1. Find files with duplicate markers (run from project root):
    ```bash
-   grep -rl "HATCH3R:BEGIN" .cursor .claude .github 2>/dev/null | while read f; do
+   grep -rl "HATCH3R:BEGIN" .cursor .claude .github .codex AGENTS.md AGENTS.override.md 2>/dev/null | while read f; do
      [ "$(grep -c "HATCH3R:BEGIN" "$f")" -gt 1 ] && echo "$f"
    done
    ```
@@ -139,6 +137,8 @@ description: My rule
 
 **Solution:** Validate JSON syntax of your resolved MCP config (e.g. with `jq . .hatch3r/mcp/mcp.json` or an online validator). Fix trailing commas, unquoted keys, or malformed strings. Restore from git history if needed: `git checkout HEAD -- .hatch3r/mcp/mcp.json`.
 
+For Codex, malformed `.codex/config.toml`, a duplicate managed region, or a user-owned `[mcp_servers.<name>]` collision aborts before any Codex output is written. Repair the named TOML or choose a distinct server name; content outside the Hatcher region is preserved.
+
 ### Managed file missing from disk
 
 **Solution:** Run `npx hatch3r sync` to regenerate the missing file from the canonical source.
@@ -160,12 +160,12 @@ description: My rule
 **Causes:** Secrets not loaded; wrong config path; editor not restarted after config changes.
 
 **Solution:**
-1. **Load secrets:** For Cursor, Claude Code, and most editors, source `.env.mcp` before launching:
+1. **Load secrets:** For Cursor, Claude Code, and Codex, source `.env.mcp` before launching:
    ```bash
    set -a && source .env.mcp && set +a && cursor .
    ```
 2. **Restart the editor** after running `hatch3r init` or changing MCP config
-3. **Verify config path:** Cursor uses `.cursor/mcp.json`; Claude Code uses `.mcp.json`. See [mcp-setup.md](mcp-setup.md) for per-tool paths
+3. **Verify config path:** Cursor uses `.cursor/mcp.json`; Claude Code uses `.mcp.json`; Codex uses `.codex/config.toml` and loads project config only after project trust. See [mcp-setup.md](mcp-setup.md) for per-tool paths
 
 ### GitHub MCP returns 401 or 403
 
@@ -271,6 +271,8 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 **Symptom:** Files in `.cursor/`, `.github/`, or other generated directories don't match what you expect.
 
 **Solution:** Run `npx hatch3r sync` to regenerate from the canonical source. Content outside `<!-- HATCH3R:BEGIN -->` and `<!-- HATCH3R:END -->` in markdown files is preserved. Non-prefixed files (e.g. `my-project-conventions.mdc`) are never touched.
+
+For Codex hook warnings, trust the repository and approve each changed command hash in `/hooks`; Hatcher never writes trust state. If an obsolete installation left `.codex/skills/`, move user-owned skills to `.agents/skills/`, inspect local edits, and remove only legacy Hatcher copies—current releases never emit that path.
 
 ### Drift between canonical and generated files
 

@@ -1,8 +1,27 @@
-import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { TOOL_PATH_PREFIXES, collectToolFiles, cleanEmptyDirs } from "../archive/index.js";
+import {
+  collectToolFiles,
+  cleanEmptyDirs,
+} from "../archive/index.js";
+import {
+  fileMatchesTool,
+  isCodexSharedPath,
+  planCodexRemoval,
+  type CodexRemovalPlan,
+} from "../merge/codexOwnership.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
+import { acquireWriteLock } from "../merge/safeWrite.js";
+import {
+  assertRepositoryPathIdentity,
+  inspectRepositoryPath,
+  normalizeRepositoryRelativePath,
+  readRepositoryFileSnapshot,
+  readRepositoryPathIdentity,
+  removeRepositoryFileIfUnchanged,
+  replaceRepositoryFileIfUnchanged,
+  UnsafeRepositoryPathError,
+} from "../merge/repositoryPathSafety.js";
 import { readManifest } from "../manifest/hatchJson.js";
 import {
   ARCHIVE_DIR,
@@ -13,16 +32,9 @@ import {
   type Tool,
 } from "../types.js";
 import { detectWorkspaceContext } from "../workspace/detect.js";
-import { verbose } from "../cli/shared/ui.js";
+import { fileExists, rootAgentsMdHasUserContent } from "./support.js";
 
-/**
- * Record a clean-probe failure: emit a verbose() line to stderr (visible only
- * with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract.
- */
-function recordCleanProbeFailure(operation: string, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
-  verbose(`clean: ${operation} — ${message}`);
-}
+export { backupLearnings, restoreLearnings } from "./support.js";
 
 /**
  * Wave 7 clean contract:
@@ -71,75 +83,79 @@ export interface CleanResult {
   errors: string[];
 }
 
-async function fileExists(path: string): Promise<boolean> {
+async function inspectCodexRemoval(
+  rootDir: string,
+  relPath: string,
+  exactRecorded: boolean,
+): Promise<CodexRemovalPlan | { disposition: "symlink" }> {
   try {
-    await access(path);
-    return true;
+    const snapshot = await readRepositoryFileSnapshot(rootDir, relPath);
+    return planCodexRemoval(
+      snapshot.relativePath,
+      snapshot.absolutePath,
+      snapshot.content.toString("utf-8"),
+      exactRecorded,
+    );
   } catch (err) {
-    recordCleanProbeFailure(`fileExists(${path}) — not present`, err);
-    return false;
+    if (err instanceof UnsafeRepositoryPathError && err.reason === "symlink") {
+      return { disposition: "symlink" };
+    }
+    throw err;
   }
+}
+
+function codexKeptMessage(path: string, disposition: "foreign" | "preserve" | "symlink"): string {
+  if (disposition === "preserve") {
+    return `${path} (user content preserved, managed content removed)`;
+  }
+  if (disposition === "symlink") return `${path} (symlink left untouched)`;
+  return `${path} (no provable hatch3r-owned content, left untouched)`;
+}
+
+async function collectInventoryFileSet(
+  rootDir: string,
+  manifest: HatchManifest | null,
+): Promise<Set<string>> {
+  const adapterFileSet = new Set<string>();
+  for (const file of manifest?.managedFiles ?? []) {
+    adapterFileSet.add(normalizeRepositoryRelativePath(file));
+  }
+  for (const paths of Object.values(manifest?.managedFilesByAdapter ?? {})) {
+    for (const path of paths) normalizeRepositoryRelativePath(path);
+  }
+  const toolsToScan: Tool[] = manifest ? manifest.tools : [...TOOLS];
+  for (const tool of toolsToScan) {
+    await addScannedToolFiles(rootDir, tool, adapterFileSet);
+  }
+  return adapterFileSet;
+}
+
+async function addScannedToolFiles(rootDir: string, tool: Tool, files: Set<string>): Promise<void> {
+  for (const path of await collectToolFiles(rootDir, tool)) {
+    if (tool !== "codex" || isCodexSharedPath(path)) {
+      files.add(normalizeRepositoryRelativePath(path));
+    }
+  }
+}
+
+async function existingInventoryFiles(rootDir: string, candidates: Iterable<string>): Promise<string[]> {
+  const adapterFiles: string[] = [];
+  for (const f of candidates) {
+    if (f === "AGENTS.md") continue;
+    if (await fileExists(join(rootDir, f))) adapterFiles.push(f);
+  }
+  for (const f of [...adapterFiles]) {
+    const bakRel = f + ".bak";
+    if (await fileExists(join(rootDir, bakRel))) adapterFiles.push(bakRel);
+  }
+  return adapterFiles;
 }
 
 export async function inventoryArtifacts(rootDir: string): Promise<CleanInventory> {
   const manifest = await readManifest(rootDir);
-
-  // Collect adapter files from manifest tracking + prefix scanning so an
-  // orphaned output (renamed adapter target, removed adapter) is still
-  // surfaced by clean.
-  const adapterFileSet = new Set<string>();
-  if (manifest) {
-    for (const f of manifest.managedFiles) {
-      adapterFileSet.add(f);
-    }
-  }
-  const toolsToScan: Tool[] = manifest ? manifest.tools : [...TOOLS];
-  for (const tool of toolsToScan) {
-    const files = await collectToolFiles(rootDir, tool);
-    for (const f of files) {
-      adapterFileSet.add(f);
-    }
-  }
-
-  // Filter to only files that actually exist, excluding the shared bridge file
-  // (AGENTS.md) which gets managed-block-preservation cleanup in `executeClean`.
-  const adapterFiles: string[] = [];
-  for (const f of adapterFileSet) {
-    if (f === "AGENTS.md") continue;
-    if (await fileExists(join(rootDir, f))) {
-      adapterFiles.push(f);
-    }
-  }
-
-  // Sibling `.bak` files left behind by the safeWriteFile auto-repair path
-  // (managed-block corruption recovery in src/merge/safeWrite.ts).
-  for (const f of [...adapterFiles]) {
-    const bakRel = f + ".bak";
-    if (await fileExists(join(rootDir, bakRel))) {
-      adapterFiles.push(bakRel);
-    }
-  }
-
-  // Root AGENTS.md user-content probe.
-  let agentsMdHasUserContent = false;
-  const agentsMdPath = join(rootDir, "AGENTS.md");
-  if (await fileExists(agentsMdPath)) {
-    try {
-      const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content, agentsMdPath)) {
-        const userContent = extractCustomContent(content, agentsMdPath).trim();
-        agentsMdHasUserContent = userContent.length > 0;
-      }
-    } catch (err) {
-      recordCleanProbeFailure(
-        `inventoryArtifacts: readFile(${agentsMdPath}) — treating as no user content`,
-        err,
-      );
-    }
-  }
-
+  const adapterFileSet = await collectInventoryFileSet(rootDir, manifest);
+  const adapterFiles = await existingInventoryFiles(rootDir, adapterFileSet);
   const wsContext = await detectWorkspaceContext(rootDir);
-
   return {
     adapterFiles,
     manifestPresent: await fileExists(join(rootDir, HATCH3R_DIR, "hatch.json")),
@@ -147,7 +163,7 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     hatch3rDir: await fileExists(join(rootDir, HATCH3R_DIR)),
     worktreeInclude: await fileExists(join(rootDir, WORKTREE_INCLUDE_FILE)),
     envMcp: await fileExists(join(rootDir, ".env.mcp")),
-    agentsMdHasUserContent,
+    agentsMdHasUserContent: await rootAgentsMdHasUserContent(rootDir),
     isWorkspaceRoot: wsContext.type === "workspace-root",
     isWorkspaceMember: wsContext.type === "workspace-member",
     workspaceRootPath: wsContext.type === "workspace-member" ? wsContext.rootPath ?? null : null,
@@ -155,200 +171,227 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
   };
 }
 
+interface CleanContext {
+  rootDir: string;
+  inventory: CleanInventory;
+  adapterFiles: string[];
+  codexRecordedPaths: ReadonlySet<string>;
+  result: CleanResult;
+}
+
+function appendCleanError(context: CleanContext, path: string, err: unknown): void {
+  context.result.errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+async function previewCodexFile(context: CleanContext, path: string): Promise<void> {
+  try {
+    const plan = await inspectCodexRemoval(
+      context.rootDir, path, context.codexRecordedPaths.has(path.replace(/\\/g, "/")),
+    );
+    if (plan.disposition === "remove") context.result.removed.push(path);
+    else context.result.kept.push(codexKeptMessage(path, plan.disposition));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") appendCleanError(context, path, err);
+  }
+}
+
+async function previewGenericFile(context: CleanContext, path: string): Promise<void> {
+  try {
+    const snapshot = await readRepositoryFileSnapshot(context.rootDir, path);
+    const content = snapshot.content.toString("utf-8");
+    const userContent = hasManagedBlock(content, snapshot.absolutePath)
+      ? extractCustomContent(content, snapshot.absolutePath).trim()
+      : "";
+    if (userContent.length > 0) {
+      context.result.kept.push(`${path} (user content preserved, managed block stripped)`);
+    } else {
+      context.result.removed.push(path);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") appendCleanError(context, path, err);
+  }
+}
+
+async function previewTrackedFile(context: CleanContext, present: boolean, path: string): Promise<void> {
+  if (!present) return;
+  try {
+    await readRepositoryFileSnapshot(context.rootDir, path);
+    context.result.removed.push(path);
+  } catch (err) {
+    appendCleanError(context, path, err);
+  }
+}
+
+async function executeDryRun(context: CleanContext): Promise<CleanResult> {
+  for (const path of context.adapterFiles) {
+    if (fileMatchesTool(path.replace(/\\/g, "/"), "codex")) {
+      await previewCodexFile(context, path);
+    } else {
+      await previewGenericFile(context, path);
+    }
+  }
+  if (await fileExists(join(context.rootDir, "AGENTS.md"))) {
+    await previewCodexFile(context, "AGENTS.md");
+  }
+  await previewTrackedFile(context, context.inventory.manifestPresent, `${HATCH3R_DIR}/hatch.json`);
+  await previewTrackedFile(context, context.inventory.worktreeInclude, WORKTREE_INCLUDE_FILE);
+  if (context.inventory.archiveDir) {
+    try {
+      await inspectRepositoryPath(context.rootDir, ARCHIVE_DIR);
+      context.result.removed.push(`${ARCHIVE_DIR}/`);
+    } catch (err) {
+      appendCleanError(context, `${ARCHIVE_DIR}/`, err);
+    }
+  }
+  if (context.inventory.envMcp) context.result.kept.push(".env.mcp (contains secrets)");
+  if (context.inventory.hatch3rDir) {
+    context.result.kept.push(
+      `${HATCH3R_DIR}/ (learnings/, handoffs/, overrides/, mcp/, customizations preserved)`,
+    );
+  }
+  return context.result;
+}
+
+async function mutateCodexFile(context: CleanContext, path: string, exactRecorded: boolean): Promise<void> {
+  let initial;
+  try {
+    initial = await readRepositoryFileSnapshot(context.rootDir, path);
+  } catch (err) {
+    if (err instanceof UnsafeRepositoryPathError && err.reason === "symlink") {
+      context.result.kept.push(codexKeptMessage(path, "symlink"));
+      return;
+    }
+    throw err;
+  }
+  const release = await acquireWriteLock(initial.absolutePath);
+  try {
+    const snapshot = await readRepositoryFileSnapshot(context.rootDir, path);
+    const plan = planCodexRemoval(
+      path, snapshot.absolutePath, snapshot.content.toString("utf-8"), exactRecorded,
+    );
+    if (plan.disposition === "remove") {
+      await removeRepositoryFileIfUnchanged(context.rootDir, path, snapshot.identity);
+      context.result.removed.push(path);
+    } else if (plan.disposition === "preserve") {
+      await replaceRepositoryFileIfUnchanged(context.rootDir, path, snapshot.identity, plan.content);
+      context.result.kept.push(codexKeptMessage(path, plan.disposition));
+    } else {
+      context.result.kept.push(codexKeptMessage(path, plan.disposition));
+    }
+  } finally {
+    await release();
+  }
+}
+
+async function mutateGenericFile(context: CleanContext, path: string): Promise<void> {
+  const initial = await readRepositoryFileSnapshot(context.rootDir, path);
+  const release = await acquireWriteLock(initial.absolutePath);
+  try {
+    const snapshot = await readRepositoryFileSnapshot(context.rootDir, path);
+    const content = snapshot.content.toString("utf-8");
+    const userContent = hasManagedBlock(content, snapshot.absolutePath)
+      ? extractCustomContent(content, snapshot.absolutePath).trim()
+      : "";
+    if (userContent.length > 0) {
+      await replaceRepositoryFileIfUnchanged(context.rootDir, path, snapshot.identity, userContent + "\n");
+      context.result.kept.push(`${path} (user content preserved, managed block stripped)`);
+    } else {
+      await removeRepositoryFileIfUnchanged(context.rootDir, path, snapshot.identity);
+      context.result.removed.push(path);
+    }
+  } finally {
+    await release();
+  }
+}
+
+async function cleanAdapterFiles(context: CleanContext): Promise<void> {
+  for (const path of context.adapterFiles) {
+    try {
+      if (fileMatchesTool(path.replace(/\\/g, "/"), "codex")) {
+        await mutateCodexFile(context, path, context.codexRecordedPaths.has(path));
+      } else {
+        await mutateGenericFile(context, path);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") appendCleanError(context, path, err);
+    }
+  }
+  await cleanEmptyDirs(context.rootDir, context.adapterFiles);
+}
+
+async function cleanRootAgentsMd(context: CleanContext): Promise<void> {
+  if (!(await fileExists(join(context.rootDir, "AGENTS.md")))) return;
+  try {
+    await mutateCodexFile(context, "AGENTS.md", false);
+  } catch (err) {
+    appendCleanError(context, "AGENTS.md", err);
+  }
+}
+
+async function removeLockedFile(rootDir: string, path: string): Promise<void> {
+  const snapshot = await readRepositoryFileSnapshot(rootDir, path);
+  const release = await acquireWriteLock(snapshot.absolutePath);
+  try {
+    const locked = await readRepositoryFileSnapshot(rootDir, path);
+    await removeRepositoryFileIfUnchanged(rootDir, path, locked.identity);
+  } finally {
+    await release();
+  }
+}
+
+async function cleanTrackedFile(context: CleanContext, present: boolean, path: string): Promise<void> {
+  if (!present) return;
+  try {
+    await removeLockedFile(context.rootDir, path);
+    context.result.removed.push(path);
+  } catch (err) {
+    appendCleanError(context, path, err);
+  }
+}
+
+async function cleanArchiveDirectory(context: CleanContext): Promise<void> {
+  if (!context.inventory.archiveDir) return;
+  try {
+    const inspected = await inspectRepositoryPath(context.rootDir, ARCHIVE_DIR);
+    const identity = await readRepositoryPathIdentity(context.rootDir, ARCHIVE_DIR);
+    await assertRepositoryPathIdentity(context.rootDir, ARCHIVE_DIR, identity);
+    await rm(inspected.absolutePath, { recursive: true });
+    context.result.removed.push(`${ARCHIVE_DIR}/`);
+  } catch (err) {
+    appendCleanError(context, `${ARCHIVE_DIR}/`, err);
+  }
+}
+
+async function executeLiveClean(context: CleanContext): Promise<CleanResult> {
+  await cleanAdapterFiles(context);
+  await cleanRootAgentsMd(context);
+  await cleanTrackedFile(context, context.inventory.manifestPresent, `${HATCH3R_DIR}/hatch.json`);
+  await cleanTrackedFile(context, context.inventory.worktreeInclude, WORKTREE_INCLUDE_FILE);
+  await cleanArchiveDirectory(context);
+  if (context.inventory.hatch3rDir) {
+    context.result.kept.push(
+      `${HATCH3R_DIR}/ (learnings, handoffs, overrides, mcp, customizations preserved)`,
+    );
+  }
+  if (context.inventory.envMcp) {
+    context.result.kept.push(".env.mcp (contains secrets — remove manually if needed)");
+  }
+  return context.result;
+}
+
 export async function executeClean(
   rootDir: string,
   inventory: CleanInventory,
   dryRun: boolean,
 ): Promise<CleanResult> {
-  const removed: string[] = [];
-  const kept: string[] = [];
-  const errors: string[] = [];
-
-  if (dryRun) {
-    // D1-SA1.3-11: simulate the live branch's per-file strip-vs-remove decision
-    // as a read-only probe so the preview matches what a live run does. An
-    // adapter-output file whose managed block is wrapped in user-authored
-    // content is rewritten in place by the live run (managed block stripped,
-    // file KEPT — see lines below), not deleted; the prior static echo listed
-    // every such file under "would remove". Same read-only probe
-    // (hasManagedBlock + extractCustomContent) as the live loop, with no
-    // writeFile/rm here.
-    for (const f of inventory.adapterFiles) {
-      const absPath = join(rootDir, f);
-      let wouldStrip = false;
-      try {
-        const content = await readFile(absPath, "utf-8");
-        if (hasManagedBlock(content, absPath)) {
-          const userContent = extractCustomContent(content, absPath).trim();
-          if (userContent.length > 0) {
-            kept.push(`${f} (user content preserved, managed block stripped)`);
-            wouldStrip = true;
-          }
-        }
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT") {
-          errors.push(`${f}: ${(err as Error).message}`);
-        }
-      }
-      if (!wouldStrip) {
-        removed.push(f);
-      }
-    }
-    if (inventory.manifestPresent) removed.push(`${HATCH3R_DIR}/hatch.json`);
-    if (inventory.worktreeInclude) removed.push(WORKTREE_INCLUDE_FILE);
-    if (inventory.archiveDir) removed.push(`${ARCHIVE_DIR}/`);
-    if (inventory.envMcp) kept.push(".env.mcp (contains secrets)");
-    if (inventory.hatch3rDir) {
-      kept.push(
-        `${HATCH3R_DIR}/ (learnings/, handoffs/, overrides/, mcp/, customizations preserved)`,
-      );
-    }
-    return { removed, kept, errors };
-  }
-
-  // 1. Strip managed blocks from adapter-output files. Files that contain
-  //    only the managed block (and nothing user-authored) are removed
-  //    outright; files with user content above/below the markers are
-  //    rewritten in place with the markers and managed body excised.
-  for (const f of inventory.adapterFiles) {
-    const absPath = join(rootDir, f);
-    try {
-      let stripped = false;
-      try {
-        const content = await readFile(absPath, "utf-8");
-        if (hasManagedBlock(content, absPath)) {
-          const userContent = extractCustomContent(content, absPath).trim();
-          if (userContent.length > 0) {
-            await writeFile(absPath, userContent + "\n");
-            kept.push(`${f} (user content preserved, managed block stripped)`);
-            stripped = true;
-          }
-        }
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT") {
-          errors.push(`${f}: ${(err as Error).message}`);
-        }
-      }
-      if (!stripped) {
-        await rm(absPath, { force: true });
-        removed.push(f);
-      }
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") {
-        errors.push(`${f}: ${(err as Error).message}`);
-      }
-    }
-  }
-
-  // Clean empty directories left by adapter file removal
-  await cleanEmptyDirs(rootDir, inventory.adapterFiles);
-
-  // 2. Root AGENTS.md (shared bridge file) — managed-block-preservation semantics.
-  const agentsMdPath = join(rootDir, "AGENTS.md");
-  if (await fileExists(agentsMdPath)) {
-    try {
-      const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content, agentsMdPath)) {
-        const userContent = extractCustomContent(content, agentsMdPath).trim();
-        if (userContent.length > 0) {
-          await writeFile(agentsMdPath, userContent + "\n");
-          kept.push("AGENTS.md (user content preserved, managed block stripped)");
-        } else {
-          await rm(agentsMdPath, { force: true });
-          removed.push("AGENTS.md");
-        }
-      } else {
-        kept.push("AGENTS.md (no managed block, left untouched)");
-      }
-    } catch (err) {
-      errors.push(`AGENTS.md: ${(err as Error).message}`);
-    }
-  }
-
-  // 3. Delete `.hatch3r/hatch.json`. Other `.hatch3r/` contents
-  //    (learnings, handoffs, overrides, mcp, .customize.* files) are
-  //    preserved — they are user state, not hatch3r-generated output.
-  if (inventory.manifestPresent) {
-    try {
-      await rm(join(rootDir, HATCH3R_DIR, "hatch.json"), { force: true });
-      removed.push(`${HATCH3R_DIR}/hatch.json`);
-    } catch (err) {
-      errors.push(`${HATCH3R_DIR}/hatch.json: ${(err as Error).message}`);
-    }
-  }
-
-  // 4. `.worktreeinclude`
-  if (inventory.worktreeInclude) {
-    try {
-      await rm(join(rootDir, WORKTREE_INCLUDE_FILE), { force: true });
-      removed.push(WORKTREE_INCLUDE_FILE);
-    } catch (err) {
-      errors.push(`${WORKTREE_INCLUDE_FILE}: ${(err as Error).message}`);
-    }
-  }
-
-  // 5. `.hatch3r-archive/` (tool-output archive — stashed copies of removed
-  //    tools' adapter outputs, retention MAX_ARCHIVE_ENTRIES=5 per tool;
-  //    distinct from the `.hatch3r/snapshots/` rollback store, which `clean`
-  //    leaves untouched). Safe to remove on clean.
-  if (inventory.archiveDir) {
-    try {
-      await rm(join(rootDir, ARCHIVE_DIR), { recursive: true, force: true });
-      removed.push(`${ARCHIVE_DIR}/`);
-    } catch (err) {
-      errors.push(`${ARCHIVE_DIR}/: ${(err as Error).message}`);
-    }
-  }
-
-  // 6. `.hatch3r/` user state — always preserved beyond the manifest.
-  if (inventory.hatch3rDir) {
-    kept.push(`${HATCH3R_DIR}/ (learnings, handoffs, overrides, mcp, customizations preserved)`);
-  }
-
-  // 7. `.env.mcp` — always preserved.
-  if (inventory.envMcp) {
-    kept.push(".env.mcp (contains secrets — remove manually if needed)");
-  }
-
-  // Silence the unused-import diagnostic for TOOL_PATH_PREFIXES — it is
-  // re-exported indirectly via `collectToolFiles` above, but typescript
-  // verbose-mode warnings can still trigger.
-  void TOOL_PATH_PREFIXES;
-
-  return { removed, kept, errors };
+  const context: CleanContext = {
+    rootDir,
+    inventory,
+    adapterFiles: inventory.adapterFiles.map(normalizeRepositoryRelativePath),
+    codexRecordedPaths: new Set(
+      (inventory.manifest?.managedFilesByAdapter?.codex ?? []).map(normalizeRepositoryRelativePath),
+    ),
+    result: { removed: [], kept: [], errors: [] },
+  };
+  return dryRun ? executeDryRun(context) : executeLiveClean(context);
 }
-
-/**
- * Wave 7: learnings now live under `.hatch3r/learnings/` (Wave 6) and survive
- * `clean` automatically — they are never removed. `backupLearnings` is kept
- * as a no-op stub so the legacy `clean -> reinit` flow in
- * `src/cli/commands/clean.ts` does not need to be unwound in this wave; the
- * tmpdir-backup detour exists in the old code path only as protection for
- * the pre-Wave-6 contract where `.agents/learnings/` was about to be deleted.
- *
- * Returns null because there is nothing to restore — the directory is
- * already in its final resting place.
- */
-export async function backupLearnings(_rootDir: string): Promise<string | null> {
-  return null;
-}
-
-/**
- * Wave 7 companion to `backupLearnings`: no-op because nothing was backed up.
- * Signature preserved so the `clean` CLI command compiles without a parallel
- * Wave-7 rewrite of the command surface.
- */
-export async function restoreLearnings(_rootDir: string, _backupPath: string): Promise<void> {
-  // intentionally no-op
-}
-
-// Suppress unused-import diagnostics for the legacy helpers retained in
-// `clean.ts` (tmpdir/cp/mkdir/readdir). They remain imported here so a
-// future re-introduction of staged backups does not need a fresh refactor.
-void tmpdir;
-void cp;
-void mkdir;
-void readdir;

@@ -4,9 +4,9 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for 3 platform adapters (Claude Code, Cursor, GitHub Copilot). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
+hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for Claude Code, Cursor, GitHub Copilot, and Codex. One command gives you the content supported by your selected adapter (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
 
-> **v1.9.0 scope cut:** As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters were removed in a hard cut; canonical content is now read from the bundled npm package (no `.agents/` materialization in user repos), and the manifest moved to `.hatch3r/hatch.json`. See [CHANGELOG.md](CHANGELOG.md) for the full breaking-change list and migration notes.
+> **Codex support:** native skills, custom agents, AGENTS.md instructions, MCP, hooks, model/effort settings, and worktrees are generated on documented project surfaces. Commands and handoffs are `$hatch3r-command-*` skill bridges, while glob rules use an AGENTS.md routing bridge; native repository slash commands, native glob-rule files, native handoffs, and an always-available question tool are not claimed.
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ npx hatch3r init --default  # recommended: zero-prompt setup with the standard p
 npx hatch3r init            # interactive: customize profile, tools, and CLI tools (7 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
 ```
 
-`--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
+`--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks board platform → repo identity → content profile (minimal/standard/full/custom) → AI coding tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The board platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
 **Migrating from Cursor, Copilot, Windsurf, legacy `.cursorrules`, or a root `AGENTS.md`?** Carry your existing rules across with `npx hatch3r init --import <cursor|copilot|windsurf|cursorrules|agents|auto>` (`--import auto` imports every format in one pass) — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
 
@@ -26,22 +26,23 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 30 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 10 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability/product-spec), and more |
-| **Skills** | 55 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
+| **Skills** | 55 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 34-tool `cli-toolbox`, and more |
 | **Rules** | 74 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, model allocation, context budgets, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 33 | Board management, planning (router `plan`, feature, bug, refactor, test), workflow, quick-change, bug-pipeline, rework, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
-| **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
+| **CLI tools** | 39 across 3 tiers | Tier-1 default, tier-2 conditional, and tier-3 opt-in tools emitted through 5 standalone skills plus the 34-tool `cli-toolbox`; see the live catalog for the complete registry-backed list |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.0.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
-## Supported Tools (3 Adapters)
+## Supported Tools (4 Adapters)
 
 | Tool | Output |
 |------|--------|
 | **Cursor** | `.mdc` rules, agents, skills, commands, MCP config |
 | **GitHub Copilot** | instructions, prompts, GitHub agents |
 | **Claude Code** | `CLAUDE.md`, skills, `.mcp.json` |
+| **Codex** | `.agents/skills/`, `.codex/agents/`, `AGENTS.md`, `.codex/config.toml`, `.codex/hooks.json` |
 
-Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
+Platform is auto-detected from your git remote during `hatch3r init`. The generated surface follows each adapter's capability row; see the [capability matrix](docs/adapter-capability-matrix.md) for native, bridged, and unsupported Codex surfaces.
 
 ## How It Works
 
@@ -56,10 +57,11 @@ Platform is auto-detected from your git remote during `hatch3r init`. All board 
 .claude/                               <- Generated (Claude Code adapter) + CLAUDE.md at repo root
 .cursor/                               <- Generated (Cursor adapter)
 .github/copilot-instructions.md        <- Generated (Copilot adapter, plus .github/instructions, .github/prompts, .github/agents)
+AGENTS.md + .agents/skills/ + .codex/  <- Generated/co-tenanted Codex surfaces
 .worktreeinclude                       <- Generated (worktree isolation)
 ```
 
-Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package -- adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. The only hatch3r-managed directory in your repo is `.hatch3r/`. hatch3r can also manage multiple git repos from a single workspace root -- see the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace).
+Canonical content lives inside the bundled npm package, so end-user repos do not contain the old full `.agents/` mirror. `.hatch3r/` is the tool-neutral state directory; selected adapters also emit managed or co-tenanted files at their documented tool paths. Codex's `.agents/skills/` contains selected skill projections only. hatch3r can also manage multiple git repos from a single workspace root -- see the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace).
 
 **Where canonical content lives:** to inspect the exact agent/rule/skill files a generated output was produced from, look inside the installed package at `node_modules/hatch3r/dist/content/` (the `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, `mcp/` subtree). A global install resolves under your npm global prefix (`npm root -g` → `hatch3r/dist/content/`). This bundled tree is read-only and is the single source of truth for canonical inputs.
 
@@ -117,14 +119,14 @@ See the [CLI Commands reference](https://docs.hatch3r.com/docs/reference/command
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a first-class CLI-tools surface as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. 5 essentials (ripgrep, jq, gh, fd, fzf) ship as standalone skills; the remaining 24 tools live in a single `hatch3r-cli-toolbox` skill, emitted to all 3 adapters. Manage at any time via `npx hatch3r cli-tools [list|install|detect]`. See [CLI Tools](https://docs.hatch3r.com/docs/getting-started/cli-tools) for the full 29-tool table and the trade-off discussion vs MCP.
+Since 1.7.5, hatch3r ships a first-class CLI-tools surface as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. Five essentials (ripgrep, jq, gh, fd, fzf) ship as standalone skills; the remaining 34 tools live in one `hatch3r-cli-toolbox` skill, emitted to every adapter. In Codex, explicitly invoke these as `$hatch3r-cli-ripgrep` or `$hatch3r-cli-toolbox`. Manage them via `npx hatch3r cli-tools [list|install|detect]`; see the [39-tool table](https://docs.hatch3r.com/docs/getting-started/cli-tools).
 
 ## MCP Configuration
 
-Since 1.7.5, MCP is **opt-in**; since 2.0.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest, and `features.mcp` stays false. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
+Since 1.7.5, MCP is **opt-in**; since 2.0.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest, and `features.mcp` stays false. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`, or `.codex/config.toml`).
 
 - **VS Code / Copilot:** secrets pass via the `env` object in `.vscode/mcp.json`.
-- **Cursor / Claude Code / others:** source the file first: `set -a && source .env.mcp && set +a && cursor .`
+- **Cursor / Claude Code / Codex:** source the file before launching the tool. Codex projects secret references to `env_vars`, `bearer_token_env_var`, or `env_http_headers`; it never embeds the values.
 
 Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. **CI note:** interactive init no longer offers MCP, and `npx hatch3r init --yes` does not configure it by default -- opt in via `npx hatch3r mcp setup` or `init --mcp`. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for per-server details and PAT scope guidance.
 
@@ -147,11 +149,11 @@ A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at
 
 ## Why hatch3r vs just AGENTS.md?
 
-AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
+AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. In Codex, instruction discovery walks from the repository root to the current working directory and loads one active Markdown file per directory, with `AGENTS.override.md` taking precedence over `AGENTS.md` in that directory. hatch3r complements that native hierarchy by projecting managed instruction blocks and owning their sync, update, archive, and clean lifecycle across 4 supported adapters (Claude Code, Cursor, GitHub Copilot, and Codex). Three measurable differences:
 
-- **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
+- **Scope:** Native AGENTS instructions are hierarchical Markdown, with one active file per directory on the root-to-CWD path; hatch3r lifecycle-manages its regions within that surface and generates additional platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
 - **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (30 agents + 74 rules + 55 skills + 33 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited each release across 24 governance domains.
-- **Adoption path:** AGENTS.md remains the spec hatch3r-emitted Cursor / Claude / Copilot configurations align with — the 1.9.0 hard-cut withdrew direct AGENTS.md emission per CONSTITUTION §6 Decision #12, but AAIF spec evolution feeds per-adapter feature work for the 3 supported adapters. Use AGENTS.md alone when one flat file suffices for your project; use hatch3r when you need the full content + tooling stack.
+- **Adoption path:** AGENTS.md remains the spec hatch3r-emitted configurations align with. Codex uses native project skills, subagents, instructions, MCP, and hooks plus explicit command/rule bridges where no native surface exists. Use AGENTS.md alone when one flat file suffices; use hatch3r when managed reusable content and lifecycle support matter.
 
 ## Customization
 

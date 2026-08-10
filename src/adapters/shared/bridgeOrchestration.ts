@@ -77,6 +77,12 @@ const BRIDGE_ADAPTER_PATHS: Record<Tool, BridgeAdapterPaths> = {
     skillsDir: ".github/skills/",
     commandsDir: ".github/prompts/",
   },
+  codex: {
+    rulesDir: "AGENTS.md",
+    agentsDir: ".codex/agents/",
+    skillsDir: ".agents/skills/",
+    commandsDir: ".agents/skills/",
+  },
 };
 
 function bridgeAdapterPaths(adapter?: string): BridgeAdapterPaths {

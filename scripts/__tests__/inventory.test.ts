@@ -7,14 +7,18 @@ import { fileURLToPath } from "node:url";
 import {
   buildInventory,
   checkDanglingDomainAgentRefs,
+  checkDocDrift,
   checkEnumerationDrift,
   checkMarketplaceDescriptionDrift,
   checkOrphanAgents,
   checkPrdDrift,
   checkStaleTokens,
+  DRIFT_PROBES,
+  isAdapterEntrypointSource,
   reconcileLastUpdated,
   sameInventoryContent,
   readExistingInventory,
+  type DriftProbe,
   type InventoryDocument,
 } from "../inventory.js";
 import { VALID_HOOK_EVENTS } from "../../src/hooks/types.js";
@@ -22,6 +26,30 @@ import { VALID_HOOK_EVENTS } from "../../src/hooks/types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
 const COMMITTED_INVENTORY = join(ROOT, "governance", "inventory.json");
+
+async function writeDocDriftFixture(
+  fixtureRoot: string,
+  omittedFile?: string,
+): Promise<void> {
+  const files = new Set(DRIFT_PROBES.map(({ file }) => file));
+  for (const file of files) {
+    if (file === omittedFile) continue;
+    const target = join(fixtureRoot, file);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, await readFile(join(ROOT, file), "utf-8"));
+  }
+}
+
+function tamperProbeClaim(contents: string, probe: DriftProbe): string {
+  const indexed = new RegExp(probe.regex.source, `${probe.regex.flags}d`);
+  const match = indexed.exec(contents);
+  const capture = match?.indices?.[1];
+  if (!match?.[1] || !capture) {
+    throw new Error(`Probe has no numeric capture: ${probe.file} [${probe.label}]`);
+  }
+  const replacement = String(Number.parseInt(match[1], 10) + 1);
+  return contents.slice(0, capture[0]) + replacement + contents.slice(capture[1]);
+}
 
 // ── Fixture helpers ────────────────────────────────────────────────
 
@@ -210,6 +238,141 @@ describe("inventory: buildInventory (injectable date)", () => {
     const committedRaw = (await readFile(COMMITTED_INVENTORY, "utf-8")).replace(/\r\n/g, "\n");
     expect(rendered).toBe(committedRaw);
   });
+
+  it("enumerates only positive BaseAdapter entrypoints, never helper modules", async () => {
+    const doc = await buildInventory("2099-01-01");
+    expect(doc.files.adapters).toEqual([
+      "claude.ts",
+      "codex.ts",
+      "copilot.ts",
+      "cursor.ts",
+    ]);
+    expect(doc.counts.adapters).toBe(4);
+  });
+
+  it("requires both the exported BaseAdapter subclass and literal adapter name", () => {
+    expect(isAdapterEntrypointSource(
+      'export class DemoAdapter extends BaseAdapter { readonly name = "demo"; }',
+    )).toBe(true);
+    expect(isAdapterEntrypointSource(
+      'export function projectDemo() {}\nexport class Helper {}',
+    )).toBe(false);
+    expect(isAdapterEntrypointSource(
+      'export class HelperAdapter { readonly name = "helper"; }',
+    )).toBe(false);
+    expect(isAdapterEntrypointSource(
+      'class HiddenAdapter extends BaseAdapter { readonly name = "hidden"; }',
+    )).toBe(false);
+  });
+});
+
+describe("inventory: documentation count drift", () => {
+  it("binds public summaries, sustainability, and content-model counts to the live inventory", async () => {
+    const doc = await buildInventory("2099-01-01");
+    expect(await checkDocDrift(doc.counts)).toEqual([]);
+  });
+
+  it("flags every README and what-you-get claim corrected in the Codex docs pass", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const drifts = await checkDocDrift({
+      ...doc.counts,
+      agents: doc.counts.agents + 1,
+      skills: doc.counts.skills + 1,
+      rules: doc.counts.rules + 1,
+      commands: doc.counts.commands + 1,
+      cliTools: doc.counts.cliTools + 1,
+    });
+    const labels = drifts.map(({ label }) => label);
+
+    expect(labels).toEqual(expect.arrayContaining([
+      "Agents table row",
+      "Skills table row",
+      "Rules table row",
+      "Commands table row",
+      "README Skills toolbox count",
+      "README CLI-tools table total",
+      "README CLI-tools prose toolbox count",
+      "README CLI-tools catalog-link total",
+      "what-you-get agents count",
+      "what-you-get skills count",
+      "what-you-get rules count",
+      "what-you-get commands count",
+      "what-you-get toolbox count",
+      "what-you-get CLI-tools total",
+    ]));
+  });
+
+  it("binds CLI skill packaging and skill-capable adapter claims to live counts", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const drifts = await checkDocDrift({
+      ...doc.counts,
+      adapters: doc.counts.adapters + 1,
+      cliSkills: doc.counts.cliSkills + 1,
+      cliTools: doc.counts.cliTools + 2,
+    });
+    const labels = drifts.map(({ label }) => label);
+
+    expect(labels).toEqual(expect.arrayContaining([
+      "cli-tools standalone skill count",
+      "cli-tools toolbox section count",
+      "cli-tools skill-capable adapter count",
+      "workflow CLI-tools total",
+      "workflow standalone skill count",
+      "workflow toolbox section count",
+    ]));
+  });
+
+  it("detects tampering of every configured unique file-and-label claim", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "hatch3r-doc-drift-"));
+    const keys = DRIFT_PROBES.map(({ file, label }) => `${file}\0${label}`);
+    expect(new Set(keys).size).toBe(DRIFT_PROBES.length);
+
+    try {
+      await writeDocDriftFixture(fixtureRoot);
+      for (const probe of DRIFT_PROBES) {
+        const sourcePath = join(ROOT, probe.file);
+        const fixturePath = join(fixtureRoot, probe.file);
+        const original = await readFile(sourcePath, "utf-8");
+        await writeFile(fixturePath, tamperProbeClaim(original, probe));
+
+        const drifts = await checkDocDrift(doc.counts, fixtureRoot);
+        expect(
+          drifts.filter(
+            ({ file, label }) => file === probe.file && label === probe.label,
+          ),
+          `${probe.file} [${probe.label}]`,
+        ).toHaveLength(1);
+
+        await writeFile(fixturePath, original);
+      }
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a configured probe target that is missing from the fixture", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "hatch3r-doc-missing-"));
+    const singleton = DRIFT_PROBES.find(
+      ({ file }) => DRIFT_PROBES.filter((probe) => probe.file === file).length === 1,
+    );
+    expect(singleton).toBeDefined();
+
+    try {
+      await writeDocDriftFixture(fixtureRoot, singleton!.file);
+      const drifts = await checkDocDrift(doc.counts, fixtureRoot);
+      expect(drifts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          file: singleton!.file,
+          label: singleton!.label,
+          found: null,
+        }),
+      ]));
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("inventory: checks companion exclusion (D5-50)", () => {
@@ -249,10 +412,9 @@ describe("inventory: checks companion exclusion (D5-50)", () => {
   });
 });
 
-describe("inventory: testFiles collector (D3-5)", () => {
-  // Cycle 11 D3-5: D03 cited a then-absent `inventory.json.testFiles` array and a
-  // stale hand-maintained count. These assert the collector now produces a real,
-  // deterministic set equal to what `vitest.config.ts` DEFAULT_TEST_GLOB runs.
+describe("inventory: testFiles collector", () => {
+  // The collector produces a real, deterministic set equal to what
+  // `vitest.config.ts` DEFAULT_TEST_GLOB runs.
   it("collects the live vitest suite across both roots, sorted and slash-normalized", async () => {
     const doc = await buildInventory("2099-01-01");
     const { testFiles } = doc.files;

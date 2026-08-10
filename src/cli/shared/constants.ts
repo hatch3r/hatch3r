@@ -12,6 +12,7 @@ export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   claude: "Claude Code",
   cursor: "Cursor",
   copilot: "GitHub Copilot",
+  codex: "Codex",
 };
 
 export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
@@ -67,17 +68,23 @@ export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
   claude: "/",
   cursor: "/",
   copilot: "/",
+  codex: "$",
 };
 
 /**
  * Renders the invocation string for a single tool's command-invocation syntax.
- * All 3 supported tools (Claude Code, Cursor, GitHub Copilot) share the "/"
- * prefix in {@link TOOL_COMMAND_SYNTAX}, so this renders `/command-name` for
- * every current tool. The concatenation is generic: a future adapter whose
- * syntax entry is a non-"/" prefix (e.g. a `<prefix> command-name` form)
- * renders through the same path with no code change.
+ * Claude Code, Cursor, and GitHub Copilot expose repository slash commands.
+ * Codex exposes command sources as generated `hatch3r-command-*` skills, so a
+ * canonical `hatch3r-foo` command renders as `$hatch3r-command-foo`.
  */
 function renderInvocation(tool: Tool, commandName: string): string {
+  if (
+    tool === "codex" &&
+    commandName.startsWith("hatch3r-") &&
+    !commandName.startsWith("hatch3r-command-")
+  ) {
+    return `$hatch3r-command-${commandName.slice("hatch3r-".length)}`;
+  }
   const prefix = TOOL_COMMAND_SYNTAX[tool];
   return `${prefix}${commandName}`;
 }
@@ -105,14 +112,12 @@ export function formatCommandHintByTool(
  * Returns a user-facing string showing how to invoke a command for the given tool(s).
  *
  * - When all selected tools share the same invocation syntax, returns the
- *   single invocation form (e.g., `/command-name`). This is the only branch the
- *   current 3-adapter set exercises — claude/cursor/copilot all map to "/".
+ *   single invocation form (e.g., `/command-name`).
  * - When tools have mixed syntax, returns a per-tool hint string with one
  *   `Display Name: invocation` segment per tool joined by ` | `, so users see
  *   the exact phrasing for every selected tool instead of an ambiguous
- *   `the X command` placeholder. Unreachable today (all supported tools share
- *   "/"); retained as future-adapter provision for a tool whose invocation
- *   prefix is not "/".
+ *   `the X command` placeholder. Codex plus any slash-command adapter reaches
+ *   this branch because Codex invokes projected commands as skills.
  *
  * The function always returns a single string (no embedded newlines) so it
  * remains drop-in safe for box/log renderers that treat each argument as one
@@ -129,11 +134,8 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
   }
 
   // Mixed syntax: emit one segment per tool so no user is left guessing.
-  // Unreachable with the current 3-adapter set (claude/cursor/copilot all map
-  // to "/" in TOOL_COMMAND_SYNTAX, so distinctSyntax.size === 1 above short-
-  // circuits to the single-form return); retained as future-adapter provision
-  // for a tool whose invocation prefix is not "/". Deduplicate by display name
-  // to keep the row readable if two future tool ids share a label.
+  // Codex plus any slash-command adapter reaches this branch. Deduplicate by
+  // display name to keep the row readable if two future tool ids share a label.
   const seen = new Set<string>();
   const segments: string[] = [];
   for (const tool of tools) {
@@ -180,6 +182,7 @@ export const TOOL_SECRET_NOTES: Partial<Record<Tool, string>> = {
   claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
   cursor: "Cursor: reads MCP secrets from its process environment via ${env:VAR}; it does NOT read .env.mcp from disk. Source .env.mcp before launch (set -a && source .env.mcp && set +a && cursor .). macOS Dock/Finder launches need `launchctl setenv` per var.",
   copilot: "VS Code / Copilot: STDIO server env auto-loads from .env.mcp (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var); MCP header secrets are prompted via VS Code ${input:NAME} variables on first use",
+  codex: "Codex: reads MCP secrets from its launching process environment. Source .env.mcp using the platform-appropriate shell command before starting or restarting Codex; macOS GUI launchers do not inherit shell env.",
 };
 
 export function sanitizeInput(value: string): string {

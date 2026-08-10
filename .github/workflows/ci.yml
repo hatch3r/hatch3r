@@ -260,10 +260,15 @@ jobs:
     # branches hit the 35-min cap (runs 29246026136 attempt 2 at 35m16s,
     # 29255254229 attempt 1 at 35m11s) while sibling legs on the same commits
     # passed at ~32m — nominal duration had eaten the margin, and the heavy-fs
-    # win32 testTimeout (120s) legitimately extends the worst case. 50 min
-    # keeps a hang-tripwire ~1.5x the nominal slow-runner duration; keep the
-    # tight 15-min hang-guard for the fast OSes.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 50 || 15 }}
+    # win32 testTimeout (120s) legitimately extends the worst case. The final
+    # Codex-support run measured 48m51s (Node 22) and 46m41s (Node 26), while
+    # Node 24 was cancelled at 50m11s before its summary despite passing the
+    # corrected hook and snapshot modules. 65 min restores ~1.3x headroom over
+    # the observed peak while retaining a finite hang tripwire. For Unix,
+    # 25 min keeps a finite hang tripwire while restoring
+    # headroom for the expanded suite: prior Unix legs completed in 13-15 min,
+    # and the current Node 22 legs reached the old 15-min ceiling mid-test.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 65 || 25 }}
     strategy:
       fail-fast: false
       matrix:

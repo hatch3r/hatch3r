@@ -30,6 +30,7 @@ describe("readHookDefinitions", () => {
     expect(preCommit!.event).toBe("pre-commit");
     expect(preCommit!.agent).toBe("lint-fixer");
     expect(preCommit!.description).toBe("Run lint fixes before committing");
+    expect(preCommit!.sourcePath).toBe(join(FIXTURES_DIR, "hooks", "pre-commit-lint-fixer.md"));
   });
 
   it("parses glob conditions from comma-separated values", async () => {

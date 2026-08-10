@@ -5,9 +5,9 @@ title: Hooks
 
 # Hooks
 
-Event-triggered automation that activates a specific agent on a lifecycle event (session start, file save, pre-commit, pre-push, post-merge, CI failure). Hook definitions live in the canonical `hooks/` content (bundled npm package) and are emitted into each supported adapter's native hook system during `hatch3r sync`.
+Event-triggered automation that activates a specific agent on a lifecycle event (session start, file save, pre-commit, pre-push, post-merge, CI failure). Hook definitions live in the canonical `hooks/` content (bundled npm package). An adapter emits a hook only when its platform has an event with matching lifecycle semantics.
 
-Hooks are non-interactive: the configured agent runs with its standard tool allowlist and writes back into the editor's hook output channel. Disable a hook per-project by setting `enabled: false` in `.hatch3r/hooks/{id}.customize.yaml`.
+Hooks are non-interactive, but dispatch semantics vary by adapter. On Codex, the mapped session-start handler uses fixed inline JavaScript to emit developer context; it performs no repository mutation, path traversal, or module import. The companion support file is lifecycle/provenance content and is not executed by the handler, so a similarly named ancestor file cannot enter the hook trust boundary. Disable a hook per-project by setting `enabled: false` in `.hatch3r/hooks/{id}.customize.yaml`.
 
 ## Hook Reference
 
@@ -36,14 +36,17 @@ Override defaults per-project in `.hatch3r/hooks/{id}.customize.yaml`. See [Cust
 
 ## Adapter Support
 
-Not every coding tool exposes a hook/event API. Of the 3 supported adapters, two emit hook files today:
+Not every coding tool exposes the same hook/event API. Three of the four supported adapters emit hook files today:
 
 | Adapter | Hook output |
 |---------|-------------|
 | **cursor** | `.cursor/hooks/*` |
 | **claude** | `.claude/settings.json` hook entries |
+| **codex** | `.codex/hooks.json` or managed inline entries in `.codex/config.toml`; Hatcher currently maps only canonical `session-start` because the other canonical events lack equivalent lifecycle semantics |
 
 GitHub Copilot has no PreToolUse or pre-edit hook surface (`hooks: false` in `ADAPTER_CAPABILITIES`), so the Copilot adapter emits no hook files. Track the full picture in the [Adapter Capability Matrix](./adapter-capability-matrix#implementation-matrix).
+
+Codex project hooks load only for trusted projects, and every new or changed command-hook hash requires review in `/hooks`. Hatcher emits synchronous `type: "command"` handlers and never writes Codex trust state. Existing user `async` settings and `prompt` or `agent` handlers survive merge and cleanup; Codex currently parses but does not execute asynchronous commands or those two handler types. See the [official Codex Hooks documentation](https://learn.chatgpt.com/docs/hooks).
 
 ## Canonical Location
 
@@ -60,4 +63,4 @@ globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
 ---
 ```
 
-The body documents the agent's expected behavior, output format, and configuration knobs. `hatch3r sync` translates each file into the target adapter's native hook format and wraps it in a managed block so user edits outside the block are preserved.
+The body documents the agent's expected behavior, output format, and configuration knobs. `hatch3r sync` translates supported events into the target adapter's native hook format. On Codex, the complete hook JSON is parsed before replacement, unrelated user groups are retained, and only exact Hatcher-owned command handlers are updated or removed.

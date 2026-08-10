@@ -6,7 +6,7 @@ title: Content Model
 
 Canonical hatch3r content ships inside the bundled npm package — it is the single source of truth, and tool-specific outputs are generated from it. As of 1.9.0 end-user repos no longer materialize a `.agents/` mirror; adapters read canonical content directly from the package. Your repo holds only the manifest, your overrides, and the generated tool outputs (see [Quick Start — What gets created](../../getting-started/quick-start#what-gets-created)).
 
-During `hatch3r init`, only the content matching your selected profile and context is generated. The full catalog has 29 agents, 53 skills, 65 rules, 30 commands, 7 hooks, 6 checks, and 4 GitHub agents — but a typical project uses a subset. (The `prompts` class ships no canonical content; it is reserved for distributed packs.)
+During `hatch3r init`, only the content matching your selected profile and context is generated. The full catalog has 30 agents, 55 skills, 74 rules, 33 commands, 7 hooks, 5 checks, and 4 GitHub agents — but a typical project uses a subset. (The `prompts` class ships no canonical content; it is reserved for distributed packs.)
 
 ```
 Bundled npm package (canonical source)

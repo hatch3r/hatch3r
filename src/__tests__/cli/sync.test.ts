@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
+import { createManifest } from "../../manifest/hatchJson.js";
+import { applyRollback, listSnapshots } from "../../pipeline/snapshot.js";
 
 // Wave 7 (1.9.0) rewrite contract:
 //   - Manifest lives at `.hatch3r/hatch.json` (Wave 6 relocation).
@@ -111,6 +113,26 @@ describe("sync command", () => {
     expect(allOutput).toContain(".hatch3r/hatch.json");
   });
 
+  it("rejects traversal in recorded managed paths before snapshot or adapter mutation", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "hatch3r-sync-outside-"));
+    const sentinel = join(outsideDir, "sentinel.txt");
+    await writeFile(sentinel, "outside\n");
+    try {
+      await createTestProject(tempDir, {
+        managedFiles: ["../sentinel.txt"],
+        managedFilesByAdapter: { cursor: ["C:\\outside.txt"] },
+      });
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+
+      await expect(syncCommand()).rejects.toMatchObject({ errorCode: "CONFIG_ERROR" });
+      expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+      await expect(readFile(join(tempDir, ".cursor", "rules", "hatch3r-bridge.mdc")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it("should sync and create adapter output files", async () => {
     await createTestProject(tempDir);
 
@@ -127,6 +149,55 @@ describe("sync command", () => {
     const mdc = entries.find((f) => f.endsWith(".mdc"));
     expect(mdc).toBeDefined();
   });
+
+  it("snapshots tombstones for newly enabled Codex agent outputs", async () => {
+    const content = {
+      preset: "custom" as const,
+      projectType: "brownfield" as const,
+      teamSize: "team" as const,
+      items: {
+        agents: [],
+        skills: ["hatch3r-bug-fix"],
+        rules: [],
+        commands: [],
+        prompts: [],
+        hooks: [],
+        githubAgents: [],
+      },
+    };
+    const manifest = createManifest({ tools: ["codex"], content });
+    await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
+    await writeFile(
+      join(tempDir, HATCH3R_DIR, "hatch.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    );
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const priorSessions = new Set(
+      (await listSnapshots({ projectRoot: tempDir })).map((entry) => entry.sessionId),
+    );
+    const agentPath = join(tempDir, ".codex/agents/hatch3r-docs-writer.toml");
+    await expect(readFile(agentPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+    const nextManifest = JSON.parse(
+      await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"),
+    );
+    nextManifest.content.items.agents = ["hatch3r-docs-writer"];
+    await writeFile(
+      join(tempDir, HATCH3R_DIR, "hatch.json"),
+      `${JSON.stringify(nextManifest, null, 2)}\n`,
+    );
+
+    await syncCommand();
+    expect(await readFile(agentPath, "utf-8")).toContain("hatch3r-docs-writer");
+    const newSession = (await listSnapshots({ projectRoot: tempDir }))
+      .find((entry) => !priorSessions.has(entry.sessionId));
+    expect(newSession).toBeDefined();
+
+    const rollback = await applyRollback(newSession!.sessionId, { projectRoot: tempDir });
+    expect(rollback.errors).toEqual([]);
+    await expect(readFile(agentPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+  }, 120_000);
 
   it("does NOT emit root AGENTS.md (Wave 3 removal)", async () => {
     await createTestProject(tempDir);

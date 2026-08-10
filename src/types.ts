@@ -615,7 +615,7 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["claude", "cursor", "copilot"] as const;
+export const TOOLS = ["claude", "cursor", "copilot", "codex"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
@@ -642,6 +642,7 @@ export const TOOL_WORKTREE_SUPPORT: Record<Tool, boolean> = {
   cursor: true,
   copilot: true,
   claude: true,
+  codex: true,
 };
 
 /**
@@ -1071,6 +1072,16 @@ export interface AdapterOutput {
    * Cycle 10 D12-SA12.4-F1; see `src/cli/commands/sync.ts`.)
    */
   sourceFiles?: string[];
+  /**
+   * The adapter parsed, validated, and ownership-merged the complete existing
+   * document before returning these bytes. Writers may atomically replace the
+   * document without requiring `--force` or creating a user-content backup.
+   * This is intentionally narrower than a general overwrite flag; currently
+   * used only for Codex `.codex/hooks.json` after strict schema + ownership
+   * validation. Shared managed-block files must continue using
+   * {@link managedContent} instead.
+   */
+  validatedFullDocument?: boolean;
 }
 
 export interface MergeResult {

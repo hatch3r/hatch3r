@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import { CodexAdapter } from "../../adapters/codex.js";
 import {
   AGENTS_MD_OWNER_PRIORITY,
   AGENTS_MD_PATH,
@@ -34,6 +35,8 @@ function adapterFor(tool: Tool) {
       return new CursorAdapter();
     case "copilot":
       return new CopilotAdapter();
+    case "codex":
+      return new CodexAdapter();
   }
 }
 
@@ -51,6 +54,11 @@ describe("agentsMd output class (D9-SA9.5-05)", () => {
         expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       },
     );
+
+    it("Codex emits its native AGENTS.md projection independently of the optional shared bridge", async () => {
+      const outputs = await new CodexAdapter().generate(FIXTURES_DIR, makeManifest(["codex"]));
+      expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
+    });
 
     it("emits no AGENTS.md when enabled is false", async () => {
       const manifest = makeManifest(["claude"], { enabled: false });
@@ -75,28 +83,37 @@ describe("agentsMd output class (D9-SA9.5-05)", () => {
   });
 
   describe("owner election — single writer across a multi-tool sync", () => {
-    it("elects claude first, then cursor, then copilot", () => {
-      expect(AGENTS_MD_OWNER_PRIORITY).toEqual(["claude", "cursor", "copilot"]);
-      expect(resolveAgentsMdOwner(makeManifest(["copilot", "cursor", "claude"], { enabled: true }))).toBe("claude");
-      expect(resolveAgentsMdOwner(makeManifest(["copilot", "cursor"], { enabled: true }))).toBe("cursor");
-      expect(resolveAgentsMdOwner(makeManifest(["copilot"], { enabled: true }))).toBe("copilot");
+    it("elects codex first so its native AGENTS.md projection remains the sole writer", () => {
+      expect(AGENTS_MD_OWNER_PRIORITY).toEqual(["codex", "claude", "cursor", "copilot"]);
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor", "claude"], { enabled: true }))).toBe("codex");
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot", "cursor"], { enabled: true }))).toBe("codex");
+      expect(resolveAgentsMdOwner(makeManifest(["codex", "copilot"], { enabled: true }))).toBe("codex");
+      expect(resolveAgentsMdOwner(makeManifest(["codex"], { enabled: true }))).toBe("codex");
     });
 
     it("only the elected owner emits AGENTS.md; the other adapters emit none", async () => {
-      const manifest = makeManifest(["claude", "cursor", "copilot"], { enabled: true });
-      const [claudeOut, cursorOut, copilotOut] = await Promise.all([
+      const manifest = makeManifest(["claude", "cursor", "copilot", "codex"], { enabled: true });
+      const [claudeOut, cursorOut, copilotOut, codexOut] = await Promise.all([
         new ClaudeAdapter().generate(FIXTURES_DIR, manifest),
         new CursorAdapter().generate(FIXTURES_DIR, manifest),
         new CopilotAdapter().generate(FIXTURES_DIR, manifest),
+        new CodexAdapter().generate(FIXTURES_DIR, manifest),
       ]);
-      expect(claudeOut.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
+      expect(claudeOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       expect(cursorOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
       expect(copilotOut.find((o) => o.path === AGENTS_MD_PATH)).toBeUndefined();
+      expect(codexOut.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
     });
 
     it("a non-claude owner emits when claude is not selected", async () => {
       const manifest = makeManifest(["cursor"], { enabled: true });
       const outputs = await new CursorAdapter().generate(FIXTURES_DIR, manifest);
+      expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
+    });
+
+    it("codex emits AGENTS.md when it is the only selected owner", async () => {
+      const manifest = makeManifest(["codex"], { enabled: true });
+      const outputs = await new CodexAdapter().generate(FIXTURES_DIR, manifest);
       expect(outputs.find((o) => o.path === AGENTS_MD_PATH)).toBeDefined();
     });
   });

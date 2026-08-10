@@ -84,6 +84,8 @@ const HEAVY_FS_TEST_FILES = [
   "src/__tests__/cli/commands/init.cliToolsDisclaimer.test.ts",
   // End-to-end real init/create flow over tmpdir.
   "src/__tests__/e2e/createFlow.test.ts",
+  "src/__tests__/e2e/codexCliFlow.test.ts",
+  "src/__tests__/e2e/codexLifecycle.test.ts",
   // Workspace monorepo sync over a real tmpdir tree.
   "src/__tests__/workspace/sync.test.ts",
   // Snapshot/rollback engine: real createSnapshot tmp+rename batches.

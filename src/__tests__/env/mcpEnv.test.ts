@@ -78,6 +78,22 @@ describe("generateEnvMcpContent", () => {
     expect(content).toContain("Windows (Git Bash)");
   });
 
+  it("includes secret-free Codex source-before-launch examples for POSIX and PowerShell", () => {
+    const content = generateEnvMcpContent(collectRequiredEnvVars(["github"]));
+    const codexComments = content
+      .split("\n")
+      .filter((line) => /Codex|codex/.test(line))
+      .join("\n");
+
+    expect(codexComments).toContain(
+      "POSIX: set -a && source .env.mcp && set +a && codex",
+    );
+    expect(codexComments).toContain("PowerShell: Get-Content .env.mcp");
+    expect(codexComments).toContain("; codex");
+    expect(codexComments).not.toContain("GITHUB_PAT=");
+    expect(codexComments).not.toMatch(/(?:ghp_|sk-|replace[-_]?me)/i);
+  });
+
   it("preserves existing values", () => {
     const vars = collectRequiredEnvVars(["github", "brave-search"]);
     const content = generateEnvMcpContent(vars, {

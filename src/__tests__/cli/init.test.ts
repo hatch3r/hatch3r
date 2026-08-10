@@ -274,6 +274,10 @@ describe("init command", () => {
     expect(content).toContain("Project Learnings");
     expect(content).toContain("hatch3r-learnings-loader");
     expect(content).toContain("frontmatter");
+    expect(content).toContain("dedicated\n`hatch3r-implementer` subagent");
+    expect(content).not.toMatch(
+      /\bTask[\s/]+sub-?agents?\b|\bTask[- ]tool\b|\bsubagent_type\b/,
+    );
   });
 
   // D14-SA13.4-H1 (D13): the shipped learnings seed must teach the canonical
@@ -736,11 +740,7 @@ describe("init command", () => {
     expect(manifest.tools).toContain("claude");
     expect(manifest.tools).toContain("copilot");
     expect(manifest.tools.length).toBe(3);
-  }, 60_000); // Generates output for 3 adapters; on slower Windows runners
-                // this can exceed the default 30s testTimeout in vitest.config.ts
-                // even though it completes in ~2-5s on Mac/Linux. Confirmed
-                // flakiness, not a regression — the surrounding init tests
-                // also slow ~2-3x on the same runs.
+  });
 
   it("should reject when any tool in --tools is invalid", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
@@ -2347,7 +2347,7 @@ describe("init worktree generation (claude tool present)", () => {
   it("--yes --no-worktree disables worktree even when claude is selected", async () => {
     await initCommand({ yes: true, tools: "claude", worktree: false });
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
+    expect(manifest.worktree).toEqual({ enabled: false });
     await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
   });
 
@@ -3275,6 +3275,15 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
     expect(manifest.cliTools.selected).toEqual([]);
   });
 
+  it("normalizes Commander's cliTools=false shape for --no-cli-tools", async () => {
+    await initCommand({ yes: true, cliTools: false } as never);
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
+  });
+
   it("--yes --cli-tools tier1 produces the tier-1 selection", async () => {
     await initCommand({ yes: true, cliTools: "tier1" });
 
@@ -3618,7 +3627,7 @@ describe("init chrome-suppression flags (C9-H26)", () => {
 
 // ── C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint ──────────────────
 describe("init multi-CTA post-init hint (C9-H29)", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; projectType?: string }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -3649,18 +3658,18 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
-  it("greenfield empty repo surfaces all 4 README paths (project-spec primary, codebase-map/feature-plan/quick-change as alternates)", async () => {
+  it("greenfield empty repo surfaces only command paths emitted for the greenfield selection", async () => {
     // Empty tempDir = greenfield (no language detected, no existing agents).
     await initCommand({ yes: true });
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdout).toContain("/hatch3r-project-spec");
     expect(stdout).toContain("/hatch3r-roadmap");
-    expect(stdout).toContain("/hatch3r-codebase-map");
     expect(stdout).toContain("/hatch3r-feature-plan");
     expect(stdout).toContain("/hatch3r-quick-change");
+    expect(stdout).not.toContain("/hatch3r-codebase-map");
   });
 
-  it("brownfield repo surfaces codebase-map primary and all 3 alternates (feature-plan/quick-change/project-spec)", async () => {
+  it("brownfield repo surfaces only command paths emitted for the brownfield selection", async () => {
     // Drop a tsconfig.json to make the repo non-greenfield (typescript detected).
     await writeFile(join(tempDir, "tsconfig.json"), JSON.stringify({}));
     await initCommand({ yes: true });
@@ -3668,11 +3677,42 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     expect(stdout).toContain("/hatch3r-codebase-map");
     expect(stdout).toContain("/hatch3r-feature-plan");
     expect(stdout).toContain("/hatch3r-quick-change");
-    expect(stdout).toContain("/hatch3r-project-spec");
+    expect(stdout).not.toContain("/hatch3r-project-spec");
     // D10-SA10.3-05: a tsconfig.json-only tree is a fresh scaffold, not an
     // established codebase — the brownfield CTA must name the new-product path
     // so a scaffolded-new user is not told to reverse-engineer a near-empty tree.
     expect(stdout).toContain("fresh scaffold");
+  });
+
+  it("Codex CTAs use emitted command-skill names rather than native slash or bare skill names", async () => {
+    await initCommand({ yes: true, tools: "codex" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+
+    for (const id of ["spec", "roadmap", "feature-plan", "quick-change", "project-spec", "create"]) {
+      expect(stdout).toContain(`$hatch3r-command-${id}`);
+      expect(stdout).not.toMatch(new RegExp(`\\$hatch3r-${id}(?![a-z0-9-])`));
+      expect(stdout).not.toContain(`/hatch3r-${id}`);
+    }
+    expect(stdout).not.toContain("hatch3r-command-codebase-map");
+    expect(stdout).toContain("$skill-name");
+    expect(stdout).not.toContain("a 'Skill:' prefix");
+  });
+
+  it("mixed slash-command and Codex output distinguishes each skill activation syntax", async () => {
+    await initCommand({ yes: true, tools: "claude,codex" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+
+    expect(stdout).toContain("Skill: name");
+    expect(stdout).toContain("$skill-name");
+  });
+
+  it("Codex brownfield CTA uses the emitted codebase-map bridge and omits project-spec", async () => {
+    await writeFile(join(tempDir, "tsconfig.json"), JSON.stringify({}));
+    await initCommand({ yes: true, tools: "codex", projectType: "brownfield" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+
+    expect(stdout).toContain("$hatch3r-command-codebase-map");
+    expect(stdout).not.toContain("$hatch3r-command-project-spec");
   });
 });
 

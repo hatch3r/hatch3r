@@ -1,6 +1,7 @@
 import { HatchError, WORKTREE_CAPABLE_TOOLS, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { ClaudeAdapter } from "./claude.js";
+import { CodexAdapter } from "./codex.js";
 import { CopilotAdapter } from "./copilot.js";
 import { CursorAdapter } from "./cursor.js";
 
@@ -18,6 +19,7 @@ const adapterFactories: Record<Tool, () => Adapter> = {
   cursor: () => new CursorAdapter(),
   copilot: () => new CopilotAdapter(),
   claude: () => new ClaudeAdapter(),
+  codex: () => new CodexAdapter(),
 };
 
 /**
@@ -176,6 +178,15 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // https://code.visualstudio.com/docs/agent-customization/hooks
   // https://code.visualstudio.com/docs/agent-customization/custom-agents
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  effortOverride: false, nativeQuestionTool: false, cliTools: true  },
+  // Codex-native repository surfaces are emitted for skills, custom agents,
+  // AGENTS.md, MCP, and hooks. Commands are an explicit `$hatch3r-command-*`
+  // skill bridge and glob rules are an AGENTS.md routing bridge; the booleans
+  // are true because both source classes are generated and lifecycle-managed,
+  // not because Codex exposes repository slash commands or native glob rules.
+  // Handoffs are a tested Hatcher command-skill bridge, not a native Codex
+  // handoff surface. No native always-available question tool is claimed.
+  // Official contracts are linked in docs/adapter-capability-matrix.md.
+  codex:    { agents: true, skills: true, rules: true, hooks: true, mcp: true, commands: true, prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("codex"), customization: true, modelOverride: true, effortOverride: true, nativeQuestionTool: false, cliTools: true },
 };
 
 // D2-SA2.5-07 (Cycle 12 Wave 4): value-level projection of the AdapterCapability
@@ -243,6 +254,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
 }
 
 export { ClaudeAdapter } from "./claude.js";
+export { CodexAdapter } from "./codex.js";
 export { CopilotAdapter } from "./copilot.js";
 export { CursorAdapter } from "./cursor.js";
 export type { Adapter, AdapterContext } from "./base.js";

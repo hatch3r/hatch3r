@@ -389,7 +389,7 @@ async function detectExistingAgents(rootDir: string): Promise<boolean> {
 }
 
 /**
- * Detection registry for pre-existing agent-instruction surfaces. The three
+ * Detection registry for pre-existing agent-instruction surfaces. The four
  * adapter `Tool` rows flow into `RepoInfo.existingTools`; `"agents"` (root
  * `AGENTS.md` / `AGENT.md`, D14-SA14.4-03) is an IMPORT-ONLY source —
  * reachable via `hatch3r init --import agents`, never an adapter target — so
@@ -401,6 +401,7 @@ const TOOL_INDICATORS: { tool: Tool | "agents"; paths: string[] }[] = [
   { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
   { tool: "cursor", paths: [".cursor"] },
   { tool: "copilot", paths: [join(".github", "copilot-instructions.md")] },
+  { tool: "codex", paths: [join(".agents", "skills")] },
   { tool: "agents", paths: ["AGENTS.md", "AGENT.md"] },
 ];
 

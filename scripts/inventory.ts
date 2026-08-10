@@ -26,21 +26,14 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
 /**
- * Adapter utility files that live alongside platform adapters but do not
- * implement the BaseAdapter contract. Excluded from the adapter count so the
- * inventory matches the canonical 3 platform adapters (claude/cursor/copilot).
+ * Positive adapter-entrypoint contract. An inventory adapter is a concrete,
+ * exported `BaseAdapter` subclass with a literal `readonly name`. Helpers stay
+ * outside the count automatically, including future adapter-local modules.
  */
-const ADAPTER_UTILITIES = new Set<string>([
-  "base.ts",
-  "canonical.ts",
-  "customization.ts",
-  "customizationSummary.ts", // customization-precedence summary helper, not a platform adapter
-  "index.ts",
-  "capabilityMatrix.ts",
-  "mcp-utils.ts",
-  "contextBudget.ts",
-  "agentsMd.ts", // shared AGENTS.md emission helper (CL-2 U6), not a platform adapter
-]);
+export function isAdapterEntrypointSource(source: string): boolean {
+  return /export\s+class\s+[A-Za-z_$][\w$]*Adapter\s+extends\s+BaseAdapter\s*\{[\s\S]*?readonly\s+name\s*=\s*["'][a-z0-9-]+["']/m
+    .test(source);
+}
 
 interface InventoryCounts {
   adapters: number;
@@ -75,12 +68,9 @@ interface InventoryCounts {
   githubAgents: number;
   /**
    * Every `*.{test,spec}.{js,ts}(x)` file under `src/` and `scripts/` — the
-   * exact set `vitest.config.ts` `DEFAULT_TEST_GLOB` runs (both roots, 204 at
-   * authoring time: 186 in `src/__tests__/` + 18 in `scripts/__tests__/`).
-   * Added in Cycle 11 (D3-5): `governance/audit/domains/D03-test-infrastructure.md`
-   * previously cited a non-existent `inventory.json.testFiles` array and a stale
-   * hand-maintained count; this collector makes the array real and gates its
-   * count under the CI inventory drift check so the D03 figure self-maintains.
+   * exact set `vitest.config.ts` `DEFAULT_TEST_GLOB` runs across both roots.
+   * The inventory keeps this filesystem-derived census current without relying
+   * on a hand-maintained count in a separate governance document.
    */
   testFiles: number;
   /**
@@ -91,7 +81,7 @@ interface InventoryCounts {
    *
    * D10-SA10.1-01 (Cycle 12): the doc surfaces (README, website
    * supported-tools / cli-tools) hand-maintained a "29 / 10-11-8" enumeration
-   * that drifted 5 tools behind the registry (34 / 11-13-10) across 3 releases
+   * that drifted behind the registry (39 / 11-13-15) across releases
    * because no gate bound the docs to the registry. Counting the catalog here
    * lets `--check-docs` probe the doc count literals against the registry so
    * the enumeration self-maintains. Counts-only (no `InventoryFiles` list): the
@@ -145,9 +135,13 @@ async function listEntries(absDir: string): Promise<string[]> {
 async function listAdapters(): Promise<string[]> {
   const dir = join(ROOT, "src", "adapters");
   const entries = await listEntries(dir);
-  return entries.filter(
-    (name) => name.endsWith(".ts") && !ADAPTER_UTILITIES.has(name),
-  );
+  const adapters: string[] = [];
+  for (const name of entries) {
+    if (!name.endsWith(".ts")) continue;
+    const source = await readFile(join(dir, name), "utf-8");
+    if (isAdapterEntrypointSource(source)) adapters.push(name);
+  }
+  return adapters;
 }
 
 async function listTopLevelMd(
@@ -538,14 +532,31 @@ export function reconcileLastUpdated(
  * README / CLAUDE.md / plugin.json without coupling the inventory write step
  * to a blocking scan.
  */
-interface DriftProbe {
+type DriftExpectation =
+  | keyof InventoryCounts
+  | "cliSkillsStandalone"
+  | "cliToolsToolbox";
+
+export interface DriftProbe {
   file: string;
   label: string;
-  expected: keyof InventoryCounts;
+  expected: DriftExpectation;
   regex: RegExp;
 }
 
-const DRIFT_PROBES: DriftProbe[] = [
+function resolveDriftExpectation(
+  counts: InventoryCounts,
+  expected: DriftExpectation,
+): number {
+  if (expected === "cliSkillsStandalone") return counts.cliSkills - 1;
+  if (expected !== "cliToolsToolbox") return counts[expected];
+  // `cliSkills` contains one toolbox umbrella plus the standalone tool skills.
+  // Subtract only those standalone skills from the registry total so the
+  // documented toolbox count follows both generated inventory surfaces.
+  return counts.cliTools - (counts.cliSkills - 1);
+}
+
+export const DRIFT_PROBES: readonly DriftProbe[] = [
   // README "What You Get" table rows
   {
     file: "README.md",
@@ -570,6 +581,30 @@ const DRIFT_PROBES: DriftProbe[] = [
     label: "Commands table row",
     expected: "commands",
     regex: /\|\s*\*\*Commands\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "README.md",
+    label: "README Skills toolbox count",
+    expected: "cliToolsToolbox",
+    regex: /\+\s+a\s+(\d+)-tool\s+`cli-toolbox`/,
+  },
+  {
+    file: "README.md",
+    label: "README CLI-tools table total",
+    expected: "cliTools",
+    regex: /\|\s*\*\*CLI tools\*\*\s*\|\s*(\d+)\s+across/,
+  },
+  {
+    file: "README.md",
+    label: "README CLI-tools prose toolbox count",
+    expected: "cliToolsToolbox",
+    regex: /remaining\s+(\d+)\s+tools live in one\s+`hatch3r-cli-toolbox`/,
+  },
+  {
+    file: "README.md",
+    label: "README CLI-tools catalog-link total",
+    expected: "cliTools",
+    regex: /\[(\d+)-tool table\]/,
   },
   // D1-SA1.4-03 (Cycle 12 Wave 3, D1, P4): README's "Supported Tools (N
   // Adapters)" header is the one adapters count literal that only validate.ts's
@@ -640,18 +675,6 @@ const DRIFT_PROBES: DriftProbe[] = [
     expected: "hooks",
     regex: /(\d+)\s+hooks/,
   },
-  // Cycle 11 D3-5: D03's scope line cited a hand-maintained "All NNN test files"
-  // figure that drifted (133 claimed vs 204 actual) and pointed at a then-absent
-  // `inventory.json.testFiles` array. With the array now collected from the
-  // filesystem (every vitest test under src/ + scripts/), this probe gates the
-  // D03 figure against `counts.testFiles` so the scope line self-maintains under
-  // the CI inventory drift check rather than re-staleing on the next test added.
-  {
-    file: "governance/audit/domains/D03-test-infrastructure.md",
-    label: "D03 scope test-file count",
-    expected: "testFiles",
-    regex: /All\s+(\d+)\s+test files/,
-  },
   // Cycle 11 D5-45: the user-question-protocol SSoT opened with a stale "15
   // supported AI coding platforms" figure (1.9.0 hard-cut the adapter set to 3).
   // The line 13 prose is static — it sits before the HATCH3R:PLATFORM-TOOL marker
@@ -664,62 +687,108 @@ const DRIFT_PROBES: DriftProbe[] = [
     expected: "adapters",
     regex: /(\d+)\s+supported AI coding tools/,
   },
-  // Cycle 11 D5-50: the D05 audit-domain file hard-coded a per-class artifact
-  // census ("42 .md + 42 .mdc", "38 commands", "63 skills", "6 checks + 6 hooks
-  // + 3 prompts") that drifted against live inventory (66/66, 30, 53, 5/7/0).
-  // `--check-docs` previously probed README/CLAUDE.md/plugin.json but NOT the
-  // domain files, so D05's census re-staled every time the corpus grew. These
-  // probes extend the gate to the D05 SA-table so its counts self-maintain.
-  // Each targets a count that maps to a single inventory counter; the aggregate
-  // "content artifacts" total is rephrased to cite inventory.json (no single
-  // counter backs a cross-class sum) rather than freeze a re-staling number.
+  // PR #151 Codex documentation review: bind the sustainability adapter
+  // statements and the website content-model catalog sentence to the live
+  // inventory. Both pages previously retained pre-Codex/pre-growth counts
+  // because the generic README/CLAUDE probes never reached them.
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.4 rules (.md) count",
-    expected: "rules",
-    regex: /Rules\s*\((\d+)\s*\.md/,
+    file: "docs/sustainability.md",
+    label: "sustainability canonical-source adapter count",
+    expected: "adapters",
+    regex: /All\s+(\d+)\s+platform adapters consume/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.4 rules (.mdc) count",
-    expected: "rulesMdc",
-    regex: /Rules\s*\(\d+\s*\.md\s*\+\s*(\d+)\s*\.mdc\)/,
+    file: "docs/sustainability.md",
+    label: "sustainability verification adapter count",
+    expected: "adapters",
+    regex: /one of the\s+(\d+)\s+in\s+`src\/adapters\/`/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.5 commands count",
-    expected: "commands",
-    regex: /Commands\s*\((\d+)\)/,
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model agents count",
+    expected: "agents",
+    regex: /full catalog has\s+(\d+)\s+agents,/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.6 skills count",
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model skills count",
     expected: "skills",
-    regex: /Skills\s*\((\d+)\)/,
+    regex: /full catalog has\s+\d+\s+agents,\s+(\d+)\s+skills,/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.7 checks count",
-    expected: "checks",
-    regex: /\((\d+)\s+checks\s*\+/,
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model rules count",
+    expected: "rules",
+    regex: /\d+\s+skills,\s+(\d+)\s+rules,/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.7 hooks count",
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model commands count",
+    expected: "commands",
+    regex: /\d+\s+rules,\s+(\d+)\s+commands,/,
+  },
+  {
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model hooks count",
     expected: "hooks",
-    regex: /\+\s*(\d+)\s+hooks\s*\+/,
+    regex: /\d+\s+commands,\s+(\d+)\s+hooks,/,
   },
   {
-    file: "governance/audit/domains/D05-prompt-engineering.md",
-    label: "D05 SA5.7 github-agents count",
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model checks count",
+    expected: "checks",
+    regex: /\d+\s+hooks,\s+(\d+)\s+checks,/,
+  },
+  {
+    file: "website/docs/reference/architecture/content-model.md",
+    label: "content-model GitHub agents count",
     expected: "githubAgents",
-    regex: /\+\s*(\d+)\s+github-agents\)/,
+    regex: /\d+\s+checks,\s+and\s+(\d+)\s+GitHub agents/,
+  },
+  // PR #151 final docs review: bind the public Full-profile summary and its
+  // toolbox claim to the generated inventory. `cliToolsToolbox` is derived
+  // above from the live registry total and the live standalone-skill count.
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get agents count",
+    expected: "agents",
+    regex: /\|\s*\*\*Agents\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get skills count",
+    expected: "skills",
+    regex: /\|\s*\*\*Skills\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get rules count",
+    expected: "rules",
+    regex: /\|\s*\*\*Rules\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get commands count",
+    expected: "commands",
+    regex: /\|\s*\*\*Commands\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get toolbox count",
+    expected: "cliToolsToolbox",
+    regex: /\+\s+a\s+(\d+)-tool\s+`cli-toolbox`/,
+  },
+  {
+    file: "website/docs/getting-started/what-you-get.md",
+    label: "what-you-get CLI-tools total",
+    expected: "cliTools",
+    regex: /\|\s*\*\*CLI tools\*\*\s*\|\s*(\d+)\s*\|/,
   },
   // D10-SA10.1-01 (Cycle 12): bind the website CLI-tool doc counts to the
-  // registry (`counts.cliTools*`). The docs hand-maintained "29 / 10-11-8"
-  // while the registry grew to "34 / 11-13-10" (curl, httpie, xh, dasel,
-  // container-use), and no probe caught it. These 8 probes gate the two
-  // getting-started pages' total + per-tier headers. NOTE: README.md and the
+  // registry (`counts.cliTools*`). Earlier docs hand-maintained
+  // "29 / 10-11-8" while the registry grew, and no probe caught it. These
+  // probes gate totals, tier headers, packaging counts, and adapter reach.
+  // NOTE: README.md and the
   // `src/cliTools/registry.ts` / `registry.test.ts` in-code comments also carry
   // the stale counts, but those files are owned by a concurrent Wave-2 unit
   // (file-lock); their probes + content fix land with that unit's change, not
@@ -771,6 +840,42 @@ const DRIFT_PROBES: DriftProbe[] = [
     label: "cli-tools Tier 3 count",
     expected: "cliToolsTier3",
     regex: /Tier 3 — opt-in advanced \((\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools standalone skill count",
+    expected: "cliSkillsStandalone",
+    regex: /(\d+) standalone per-tool skills/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools toolbox section count",
+    expected: "cliToolsToolbox",
+    regex: /(\d+) toolbox sections/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools skill-capable adapter count",
+    expected: "adapters",
+    regex: /all (\d+) skill-capable adapters/,
+  },
+  {
+    file: "website/docs/guides/workflow.md",
+    label: "workflow CLI-tools total",
+    expected: "cliTools",
+    regex: /(\d+)-tool catalog is delivered/,
+  },
+  {
+    file: "website/docs/guides/workflow.md",
+    label: "workflow standalone skill count",
+    expected: "cliSkillsStandalone",
+    regex: /(\d+) standalone per-tool skills/,
+  },
+  {
+    file: "website/docs/guides/workflow.md",
+    label: "workflow toolbox section count",
+    expected: "cliToolsToolbox",
+    regex: /(\d+) toolbox sections/,
   },
 ];
 
@@ -1284,21 +1389,30 @@ async function checkVersionDrift(): Promise<VersionDriftResult[]> {
   return drifts;
 }
 
-async function checkDocDrift(
+export async function checkDocDrift(
   counts: InventoryCounts,
+  root = ROOT,
 ): Promise<DriftResult[]> {
   const drifts: DriftResult[] = [];
   for (const probe of DRIFT_PROBES) {
-    const absPath = join(ROOT, probe.file);
+    const absPath = join(root, probe.file);
+    const expected = resolveDriftExpectation(counts, probe.expected);
     let contents: string;
     try {
       contents = await readFile(absPath, "utf-8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        drifts.push({
+          file: probe.file,
+          label: probe.label,
+          expected,
+          found: null,
+        });
+        continue;
+      }
       throw err;
     }
     const match = contents.match(probe.regex);
-    const expected = counts[probe.expected];
     if (!match) {
       drifts.push({
         file: probe.file,

@@ -16,6 +16,7 @@ import { ARCHIVE_DIR, MANAGED_BLOCK_START, MANAGED_BLOCK_END, type HatchManifest
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import { CodexAdapter } from "../../adapters/codex.js";
 import type { BaseAdapter } from "../../adapters/base.js";
 import { resolveTestPath } from "../fixtures.js";
 
@@ -152,6 +153,68 @@ My custom additions that should be preserved`;
       expect(result.archivedFiles).toContain("CLAUDE.md");
       expect(result.archivedFiles).toContain(".mcp.json");
       expect(result.archivedFiles).toContain(".claude/rules/hatch3r-test.md");
+    });
+
+    it("archives only managed hatch3r skills from the shared Codex skill directory", async () => {
+      const skillsRoot = join(tempDir, ".agents", "skills");
+      const generated = join(skillsRoot, "hatch3r-plan", "SKILL.md");
+      const userHatch3r = join(skillsRoot, "hatch3r-personal", "SKILL.md");
+      const thirdParty = join(skillsRoot, "third-party", "SKILL.md");
+      await mkdir(join(skillsRoot, "hatch3r-plan"), { recursive: true });
+      await mkdir(join(skillsRoot, "hatch3r-personal"), { recursive: true });
+      await mkdir(join(skillsRoot, "third-party"), { recursive: true });
+      await writeFile(generated, wrapManaged("generated Codex skill"));
+      await writeFile(userHatch3r, "---\nname: hatch3r-personal\n---\nUser content\n");
+      await writeFile(thirdParty, "---\nname: third-party\n---\nThird-party content\n");
+
+      const collected = await collectToolFiles(tempDir, "codex");
+      expect(collected).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
+
+      const result = await archiveToolOutputs(tempDir, "codex", {
+        recordedPaths: [".agents/skills/hatch3r-plan/SKILL.md"],
+      });
+      expect(result.archivedFiles).toEqual([".agents/skills/hatch3r-plan/SKILL.md"]);
+      await expect(access(generated)).rejects.toThrow();
+      await expect(access(userHatch3r)).resolves.toBeUndefined();
+      await expect(access(thirdParty)).resolves.toBeUndefined();
+    });
+
+    it.each([
+      "../outside/SKILL.md",
+      "/tmp/hatch3r-outside",
+      "C:\\tmp\\hatch3r-outside",
+      "\\\\server\\share\\hatch3r-outside",
+    ])("rejects unsafe recorded path %j before archive mutation", async (recordedPath) => {
+      const sentinel = join(tempDir, "sentinel.txt");
+      await writeFile(sentinel, "preserve\n");
+
+      await expect(archiveToolOutputs(tempDir, "codex", { recordedPaths: [recordedPath] }))
+        .rejects.toThrow("Unsafe repository path");
+      expect(await readFile(sentinel, "utf-8")).toBe("preserve\n");
+      await expect(access(join(tempDir, ARCHIVE_DIR))).rejects.toThrow();
+    });
+
+    it.runIf(platform() !== "win32")("refuses an ancestor symlink to an outside Codex skill", async () => {
+      const outside = await mkdtemp(join(tmpdir(), "hatch3r-archive-outside-"));
+      try {
+        const outsideSkill = join(outside, "skills", "hatch3r-plan", "SKILL.md");
+        await mkdir(join(outside, "skills", "hatch3r-plan"), { recursive: true });
+        await writeFile(outsideSkill, wrapManaged("outside sentinel"));
+        await symlink(outside, join(tempDir, ".agents"));
+
+        const result = await archiveToolOutputs(tempDir, "codex", {
+          recordedPaths: [".agents/skills/hatch3r-plan/SKILL.md"],
+        });
+        expect(result.archivedFiles).toEqual([]);
+        expect(await readFile(outsideSkill, "utf-8")).toBe(wrapManaged("outside sentinel"));
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    it("matches only hatch3r-namespaced Codex skill output paths", () => {
+      expect(fileMatchesTool(".agents/skills/hatch3r-plan/SKILL.md", "codex")).toBe(true);
+      expect(fileMatchesTool(".agents/skills/personal/SKILL.md", "codex")).toBe(false);
     });
 
     it("migrates agent customizations from file path", async () => {
@@ -578,6 +641,7 @@ describe("TOOL_PATH_PREFIXES output coverage (D10-11)", () => {
     { tool: "cursor", adapter: new CursorAdapter() },
     { tool: "claude", adapter: new ClaudeAdapter() },
     { tool: "copilot", adapter: new CopilotAdapter() },
+    { tool: "codex", adapter: new CodexAdapter() },
   ];
 
   for (const { tool, adapter } of adapters) {
@@ -589,7 +653,9 @@ describe("TOOL_PATH_PREFIXES output coverage (D10-11)", () => {
         tools: [tool],
         mcpServers: ["github"],
       });
-      const outputs = await adapter.generate(repoRoot, manifest);
+      const projectRoot = await mkdtemp(join(tmpdir(), `hatch3r-prefix-${tool}-`));
+      const outputs = await adapter.generate(repoRoot, manifest, projectRoot)
+        .finally(async () => rm(projectRoot, { recursive: true, force: true }));
       expect(outputs.length).toBeGreaterThan(0);
 
       const uncovered = outputs
@@ -637,6 +703,7 @@ describe("TOOL_PATH_PREFIXES top-level-root coverage (D10-33)", () => {
     { tool: "cursor", adapter: new CursorAdapter() },
     { tool: "claude", adapter: new ClaudeAdapter() },
     { tool: "copilot", adapter: new CopilotAdapter() },
+    { tool: "codex", adapter: new CodexAdapter() },
   ];
 
   // The top-level output root of a path: the first segment plus "/" when the
@@ -659,7 +726,9 @@ describe("TOOL_PATH_PREFIXES top-level-root coverage (D10-33)", () => {
   for (const { tool, adapter } of adapters) {
     it(`every ${tool} top-level output root has a TOOL_PATH_PREFIXES.${tool} entry`, async () => {
       const manifest = createManifest({ tools: [tool], mcpServers: ["github"] });
-      const outputs = await adapter.generate(repoRoot, manifest);
+      const projectRoot = await mkdtemp(join(tmpdir(), `hatch3r-root-${tool}-`));
+      const outputs = await adapter.generate(repoRoot, manifest, projectRoot)
+        .finally(async () => rm(projectRoot, { recursive: true, force: true }));
       expect(outputs.length).toBeGreaterThan(0);
 
       const roots = [...new Set(outputs.map((o) => topLevelRoot(o.path)))];

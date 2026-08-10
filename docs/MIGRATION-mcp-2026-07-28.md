@@ -1,6 +1,6 @@
 # Migration — MCP 2026-07-28 Release Candidate
 
-The Model Context Protocol [2026-07-28 release candidate](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) (accessed 2026-05-27) is the largest protocol revision since launch and is tentatively GA in Q3 2026. hatch3r-emitted MCP config in all 3 adapters (`.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor, `.github/.../mcp` for Copilot) targets the most-recent **stable** revision `2025-11-25` via the `protocolVersion` field. This document tracks what changes when servers move to the RC so operators can pin ahead of GA.
+The Model Context Protocol [2026-07-28 release candidate](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) (accessed 2026-05-27) is the largest protocol revision since launch and is tentatively GA in Q3 2026. hatch3r emits MCP configuration for four adapters (`.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor, `.github/.../mcp` for Copilot, and `.codex/config.toml` for Codex). This document tracks what changes when servers move to the RC so operators can pin ahead of GA.
 
 ## Re-verification log
 

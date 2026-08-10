@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import {
   sweepOrphansForAdapter,
   diffOrphanCandidates,
@@ -60,6 +60,13 @@ describe("diffOrphanCandidates", () => {
     ];
     const current = [".cursor/rules/hatch3r-a.mdc", ".cursor/rules/hatch3r-c.mdc"];
     expect(diffOrphanCandidates(previous, current)).toEqual([".cursor/rules/hatch3r-b.mdc"]);
+  });
+
+  it("treats legacy Windows separators as the same repository-relative path", () => {
+    expect(diffOrphanCandidates(
+      [".cursor\\rules\\hatch3r-a.mdc"],
+      [".cursor/rules/hatch3r-a.mdc"],
+    )).toEqual([]);
   });
 });
 
@@ -224,6 +231,44 @@ describe("sweepOrphansForAdapter", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].removed).toBe(false);
     expect(entries[0].reason).toBe("outside-adapter-root");
+  });
+
+  it.each([
+    "C:\\tmp\\hatch3r-evil.mdc",
+    "\\\\server\\share\\hatch3r-evil.mdc",
+    ".cursor//rules/hatch3r-evil.mdc",
+    ".cursor/./rules/hatch3r-evil.mdc",
+    ".cursor/rules/hatch3r-evil\u0000.mdc",
+  ])("rejects cross-platform or malformed recorded path %j", async (candidate) => {
+    const entries = await sweepOrphansForAdapter("cursor", tempDir, [candidate], []);
+    expect(entries).toEqual([{
+      adapter: "cursor",
+      path: candidate,
+      removed: false,
+      reason: "outside-adapter-root",
+    }]);
+  });
+
+  it.runIf(platform() !== "win32")("skips an ancestor symlink and preserves its outside sentinel", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "hatch3r-orphan-symlink-outside-"));
+    try {
+      const rel = ".cursor/rules/hatch3r-sentinel.mdc";
+      const sentinel = join(outsideDir, "rules", "hatch3r-sentinel.mdc");
+      await mkdir(join(outsideDir, "rules"), { recursive: true });
+      await writeFile(sentinel, "outside\n");
+      await symlink(outsideDir, join(tempDir, ".cursor"));
+
+      const entries = await sweepOrphansForAdapter("cursor", tempDir, [rel], []);
+      expect(entries).toEqual([{
+        adapter: "cursor",
+        path: rel,
+        removed: false,
+        reason: "symlink-skipped",
+      }]);
+      expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it("refuses paths outside known adapter roots (e.g. src/foo.md under rootDir)", async () => {

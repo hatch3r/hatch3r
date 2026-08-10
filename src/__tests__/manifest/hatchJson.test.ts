@@ -1953,6 +1953,48 @@ describe("hatchJson", () => {
     });
   });
 
+  describe("managed-file repository path validation", () => {
+    const unsafePaths = [
+      "../outside.txt",
+      "nested/../outside.txt",
+      "/tmp/outside.txt",
+      "C:\\outside.txt",
+      "C:outside.txt",
+      "\\windows-rooted\\outside.txt",
+      "\\\\server\\share\\outside.txt",
+      "nested//file.txt",
+      "nested/./file.txt",
+      "nested\nfile.txt",
+    ];
+
+    it.each(unsafePaths)("rejects unsafe managedFiles entry %j", (path) => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      manifest.managedFiles = [path];
+      expect(collectManifestErrors(manifest).join("; ")).toMatch(
+        /managedFiles\[0\].*safe repository-relative path/,
+      );
+      expect(validateManifest(manifest)).toBe(false);
+    });
+
+    it.each(unsafePaths)("rejects unsafe managedFilesByAdapter entry %j", (path) => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      manifest.managedFilesByAdapter = { cursor: [path] };
+      expect(collectManifestErrors(manifest).join("; ")).toMatch(
+        /managedFilesByAdapter\.cursor\[0\].*safe repository-relative path/,
+      );
+      expect(validateManifest(manifest)).toBe(false);
+    });
+
+    it("preserves valid legacy backslash-separated managed paths", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      manifest.managedFiles = [".cursor\\rules\\hatch3r-owned.mdc"];
+      manifest.managedFilesByAdapter = {
+        cursor: [".cursor\\rules\\hatch3r-owned.mdc"],
+      };
+      expect(collectManifestErrors(manifest)).toEqual([]);
+    });
+  });
+
   // F3.3-C1 (Cycle 10 Wave 1 Critical): validateManifest previously accepted
   // an entire class of malformed `mcp` shapes (array masquerading as object,
   // missing `servers`, non-array `servers`, mixed-type entries). Five
@@ -2489,12 +2531,12 @@ describe("hatchJson", () => {
       expect(enabled.worktree?.extraPatterns).toEqual([".custom/"]);
       expect(enabled.worktree?.nodeModules).toBe("skip");
 
-      // Worktree disabled (or absent): extras dropped, worktree config not materialized.
+      // Explicitly disabled: extras dropped while the opt-out remains durable.
       const disabled = createManifest({ tools: ["cursor"], worktreeEnabled: false });
       applyPreservedManifestFields(disabled, {
         worktreeExtras: { extraPatterns: [".custom/"], nodeModules: "skip" },
       });
-      expect(disabled.worktree).toBeUndefined();
+      expect(disabled.worktree).toEqual({ enabled: false });
     });
 
     it("round-trip: extract then apply reproduces the preserved subset", () => {

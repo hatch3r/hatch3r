@@ -40,7 +40,7 @@ describe("adapter concurrent generate() isolation (C9-M12)", () => {
   });
 
   it("getAdapter returns fresh instances for every supported tool", () => {
-    const tools: Tool[] = ["cursor", "claude", "copilot"];
+    const tools: Tool[] = ["cursor", "claude", "copilot", "codex"];
     for (const tool of tools) {
       const a = getAdapter(tool);
       const b = getAdapter(tool);

@@ -4,7 +4,7 @@ import type { AdapterOutput, Tool } from "../types.js";
 /**
  * Per-adapter context budget in tokens — a deliberately conservative
  * single-window budget for the ALWAYS-LOADED instruction slice (CLAUDE.md +
- * unscoped rules / `alwaysApply` rules / copilot-instructions.md), not the
+ * unscoped rules / `alwaysApply` rules / copilot-instructions.md / AGENTS.md), not the
  * platform's absolute context ceiling. The slice shares the window with the
  * user's code and conversation, so each budget is set to the conservative
  * cross-model floor the platform documents — large enough not to false-alarm
@@ -40,19 +40,23 @@ import type { AdapterOutput, Tool } from "../types.js";
  *     and a 1M-token window in VS Code, Copilot CLI, and the Copilot app
  *     (announced 2026-06-04); 128K is the conservative current standard. Source:
  *     https://github.blog/changelog/2026-06-04-larger-context-windows-and-configurable-reasoning-levels-for-github-copilot/
+ *   - codex   = 128K. Conservative project default across configurable Codex
+ *     models; the gate measures the always-loaded AGENTS.md slice rather than
+ *     promising a model-specific maximum. Source:
+ *     https://developers.openai.com/codex/config-reference
  *
  * Re-verify these against the cited vendor docs each cycle — tracked as a P3
  * per-cycle re-verification item in `governance/audit/domains/D09-platform-adapters.md`
  * §9.1-9.3 (the per-adapter currency checklist).
  *
- * Trimmed to the three retained adapters in v2.0.0; the prior 15-adapter
- * list (windsurf/codex/gemini/cline/amp/opencode/aider/kiro/goose/zed/
- * amazon-q/antigravity) is gone after the W1-A adapter purge.
+ * Codex was restored as a fourth supported adapter in this release. The other
+ * adapters removed by the v2.0.0 W1-A scope cut remain unsupported.
  */
 export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
   claude: 200_000,
   cursor: 120_000,
   copilot: 128_000,
+  codex: 128_000,
 };
 
 /**
@@ -75,7 +79,7 @@ export const CLAUDE_CHARS_PER_TOKEN = 3.6;
 
 /**
  * Resolve the chars/token divisor for a tool's context-budget estimate.
- * Claude uses the Claude-tuned {@link CLAUDE_CHARS_PER_TOKEN}; cursor/copilot
+ * Claude uses the Claude-tuned {@link CLAUDE_CHARS_PER_TOKEN}; cursor/copilot/codex
  * use the generic {@link CHARS_PER_TOKEN}. Both remain estimates — see
  * {@link CLAUDE_CHARS_PER_TOKEN} for the exact-count path (`count_tokens`).
  */
@@ -139,9 +143,11 @@ function leadingFrontmatter(content: string): string {
  *     tool-allowlist rule); `globs:`-scoped `.mdc` rules auto-attach lazily.
  *   - copilot (`src/adapters/copilot.ts`): `.github/copilot-instructions.md`;
  *     `.github/instructions/*` carry `applyTo` (path-scoped, lazy).
+ *   - codex (`src/adapters/codex.ts`): root `AGENTS.md`; projected skills and
+ *     subagents load only when activated/delegated.
  *
  * Agents, skills, commands, prompts, hook scripts, and config JSON are excluded
- * for all three adapters — none of them sit in the always-on session prefix.
+ * for all four adapters — none of them sit in the always-on session prefix.
  */
 export function isAlwaysLoaded(tool: Tool, output: AdapterOutput): boolean {
   const { path, content } = output;
@@ -171,6 +177,8 @@ export function isAlwaysLoaded(tool: Tool, output: AdapterOutput): boolean {
       // `.github/instructions/` is `applyTo`-scoped (path-conditional).
       return path === ".github/copilot-instructions.md";
     }
+    case "codex":
+      return path === "AGENTS.md";
     default:
       return false;
   }

@@ -1,0 +1,20 @@
+{
+  "description": "Project hooks managed jointly by the user and hatch3r.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --input-type=module -e \"import{existsSync}from'node:fs';import{dirname,join}from'node:path';import{pathToFileURL}from'node:url';let d=process.cwd(),p;for(;;){p=join(d,'.codex','hatch3r','hooks','hatch3r-session-start-learnings.mjs');if(existsSync(p))break;const n=dirname(d);if(n===d)process.exit(0);d=n};await import(pathToFileURL(p).href)\"",
+            "commandWindows": "node --input-type=module -e \"import{existsSync}from'node:fs';import{dirname,join}from'node:path';import{pathToFileURL}from'node:url';let d=process.cwd(),p;for(;;){p=join(d,'.codex','hatch3r','hooks','hatch3r-session-start-learnings.mjs');if(existsSync(p))break;const n=dirname(d);if(n===d)process.exit(0);d=n};await import(pathToFileURL(p).href)\"",
+            "timeout": 5,
+            "statusMessage": "hatch3r:session-start-learnings",
+            "additionalContextLimit": 4096,
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}

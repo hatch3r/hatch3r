@@ -20,7 +20,7 @@ Deep-reference companion to the [Quick Start](../getting-started/quick-start): t
 4. **Project maturity** — `solo` / `team` / `scaleup` / `enterprise` investment dial, seeded at a git-inferred default; press Enter to accept. Shown unless you pass `--maturity`. See [Maturity Tiers](../guides/maturity-tiers).
 5. **Communication style** — `plain` (default: outcome-first, glossed terms) or `technical` operator register for generated-agent output, persisted as the manifest `communicationStyle` dial. Shown unless you pass `--communication-style` or run headless/`--resume` (added 2.8.5 — previously flag-only).
 6. **Custom content items** — only when `custom` is selected at step 3.
-7. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
+7. **Tools** — multi-select from the four supported adapters (Claude Code, Cursor, Copilot, Codex).
 8. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
 
 Headless `--yes` skips every prompt; the CLI-tools selection falls back to the smart default (tier-1 + trigger-matched tier-2). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
@@ -32,12 +32,14 @@ Headless `--yes` skips every prompt; the CLI-tools selection falls back to the s
 | `.hatch3r/hatch.json` | Manifest with content selection, tool list, MCP servers (schemaVersion 3) |
 | `.hatch3r/overrides/` | User-authored canonical overrides (escape hatch — adapters prefer overrides over bundled canonical content) |
 | `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | `/learn` outputs, cross-session handoff bundles, resolved MCP config |
-| Tool-specific outputs | `.claude/` + `CLAUDE.md` (Claude), `.cursor/` (Cursor), `.github/copilot-instructions.md` + `.github/instructions/` + `.github/prompts/` + `.github/agents/` (Copilot) |
+| Tool-specific outputs | `.claude/` + `CLAUDE.md` (Claude), `.cursor/` (Cursor), `.github/copilot-instructions.md` + `.github/instructions/` + `.github/prompts/` + `.github/agents/` (Copilot), or `AGENTS.md`/active `AGENTS.override.md` + `.agents/skills/` + `.codex/` + `.hatch3r/codex-support/` (Codex) |
 | `.env.mcp` | Secret placeholder file (gitignored) — only created if you enabled MCP |
 | `.gitignore` | Updated to exclude `.env.mcp` |
 | `.worktreeinclude` | Created only if a worktree-capable tool is selected |
 
-Canonical content (agents, skills, rules, commands, hooks) is no longer materialized into `.agents/` in your repo — it's read from the bundled npm package by each adapter.
+Canonical content is read from the bundled npm package rather than copied into a full `.agents/` mirror. Codex uses only the documented `.agents/skills/hatch3r-*/` projection; the obsolete `.codex/skills/` layout is never emitted.
+
+Slash-command examples on this page apply to Claude Code, Cursor, and GitHub Copilot. Codex has no repository-defined slash-command surface: invoke the generated command-skill bridge as `$hatch3r-command-<name>` instead—for example, `$hatch3r-command-spec` and `$hatch3r-command-board-pickup`.
 
 ## Migrating from another tool {#migrating-from-another-tool}
 
@@ -93,7 +95,13 @@ Per-server obtain links, required scopes, fine-grained PAT permission tables, an
 - **Azure DevOps PAT scopes** — Work Items (Read & write), Code (Read & write), Build (Read), Project and Team (Read).
 - **GitLab token scope** — `api`.
 
-On Windows, Cursor and Claude Code expect env vars in the process that launches the editor:
+Codex, Cursor, and Claude Code expect MCP env vars in the process that launches the tool. Source `.env.mcp`, then launch the tool from that same shell. The examples below load values from the local file; they do not contain literal secrets.
+
+```bash
+# macOS/Linux (bash/zsh)
+set -a && source .env.mcp && set +a && codex
+# Alternatives from the same sourced shell: cursor .  /  claude .
+```
 
 ```powershell
 # Windows (PowerShell)
@@ -102,7 +110,8 @@ Get-Content .env.mcp | ForEach-Object {
     [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
   }
 }
-cursor .
+codex
+# Alternatives from this PowerShell process: cursor .  /  claude .
 ```
 
-Persist tokens by adding the `set -a; source .env.mcp; set +a` lines to `~/.zshrc` / `~/.bashrc` (macOS / Linux), or paste them into Cursor's per-server pencil-icon UI.
+Persist environment loading by adding `set -a; source .env.mcp; set +a` to `~/.zshrc` / `~/.bashrc` (macOS / Linux), or paste values into Cursor's per-server pencil-icon UI. Start Codex from the environment where the variables were loaded.

@@ -48,7 +48,7 @@ All hatch3r-generated markdown files use managed blocks. Only the content betwee
 ...never overwritten...
 ```
 
-Config files (JSON, TOML, YAML) are fully regenerated on sync. For details on how managed blocks work across the adapter system, see [Adapter System](../reference/architecture/adapter-system).
+Config ownership is adapter-specific. Codex `.codex/config.toml` uses a managed region, while `.codex/hooks.json` is parsed and merged by exact Hatcher handler identity; malformed files or user-owned namespace collisions abort generation. User TOML outside the managed region and unrelated hook groups survive sync, update, archive, clean, and rollback. For the other adapters, see [Adapter System](../reference/architecture/adapter-system).
 
 ## Per-Component Customization
 
@@ -75,7 +75,7 @@ Create `.hatch3r/agents/{agent-id}.customize.yaml` (the file is keyed by id via 
 model: codex
 ```
 
-Run the `/hatch3r-customize` skill (an AI-tool slash command inside Cursor or Claude Code) for interactive setup across every artifact type.
+Run the customize workflow for interactive setup across every artifact type. In Codex, explicitly invoke `$hatch3r-customize`; adapters with repository commands use `/hatch3r-customize`.
 
 ### Skills
 
@@ -150,11 +150,11 @@ When you change your selected tools with `hatch3r config` (for example, dropping
 | Category | What happens on switch |
 |----------|------------------------|
 | `.hatch3r/overrides/`, `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | **Carries forward unconditionally.** These directories are tool-neutral state — `hatch3r config` never archives or rewrites them. |
-| Removed tool's adapter output (`.claude/`, `.cursor/`, `.github/`, bridge files) | **Swept to `.hatch3r-archive/`** per the tool's archive prefix set. The sweep is directory-based, so files you authored yourself under those paths (your own `.github/prompts/*.prompt.md` or `.github/instructions/*`, a hand-written `.cursor/rules/*.mdc`) are moved too — the removal preview counts them as non-hatch3r files and warns before asking consent. To undo the removal, run `hatch3r rollback --session=<id>` with the `config-<ts>` snapshot named in the summary: it restores everything swept, including your own files. `.hatch3r-archive/` itself is gitignored and deleted by `hatch3r clean` — an inspection copy, not the undo path. |
+| Removed tool's adapter output (`.claude/`, `.cursor/`, `.github/`, Codex surfaces) | **Archived according to adapter ownership.** For Codex, only recorded `hatch3r-*` skill/agent paths, the managed root-instruction/TOML regions, exact owned hook handlers, and translated support files are removed; unrelated `.agents/skills/`, `.codex/agents/`, TOML keys/comments outside the region, hook groups, and nested instruction files remain. The removal preview reports collisions or edited managed content instead of claiming it. Use the printed `config-<ts>` snapshot with `hatch3r rollback --session=<id>` to restore archived Hatcher output. |
 | Added tool's adapter output | **Generated from bundled canonical content** on the next sync. Restart your editor to pick it up. |
-| `.env.mcp` MCP secrets | **Shared across tools** — no re-entry needed. Cursor and Claude Code require sourcing `.env.mcp` before launch (`set -a && source .env.mcp && set +a`); VS Code / Copilot auto-load it via `.vscode/mcp.json`. |
+| `.env.mcp` MCP secrets | **Shared across tools** — no re-entry needed. Cursor, Claude Code, and Codex require sourcing `.env.mcp` before launch (`set -a && source .env.mcp && set +a`); VS Code / Copilot auto-load it via `.vscode/mcp.json`. |
 
-How learnings replay on the new tool: the canonical agents (`hatch3r-reviewer`, `hatch3r-researcher`, `hatch3r-implementer`, `hatch3r-fixer`, and others) read `.hatch3r/learnings/INDEX.md` on their first invocation, per the mandatory consultation gate in `rules/hatch3r-learning-system.md`. You do not re-point the new tool's agents at your learnings; they consult `INDEX.md` automatically when it is present. The same is true of handoff documents under `.hatch3r/handoffs/`.
+How learnings replay on the new tool: the canonical agents (`hatch3r-reviewer`, `hatch3r-researcher`, `hatch3r-implementer`, `hatch3r-fixer`, and others) read `.hatch3r/learnings/INDEX.md` on their first invocation. Handoffs remain tool-neutral under `.hatch3r/handoffs/`; in Codex, use the `$hatch3r-command-handoff` bridge to manage them.
 
 ## Composable Recipes
 
@@ -162,7 +162,7 @@ Recipes are reusable workflow templates that chain multiple commands and skills 
 
 ## Event-Driven Hooks
 
-Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, issue assignment). Use the `hooks` command to view, add, remove, and test hooks. Supports both local and CI hook targets.
+Hooks trigger agents on lifecycle events with equivalent adapter semantics. Use the hooks workflow to view, add, remove, and test definitions. Codex currently maps only the canonical session-start event, requires project trust plus changed-command hash approval in `/hooks`, and never receives Hatcher-written trust state.
 
 ## Presets
 
@@ -170,7 +170,7 @@ hatch3r ships with 10 content presets — 4 base tiers plus 6 project archetypes
 
 ## Task-Type Routing
 
-`hatch3r sync` emits a `## Task Type → Routing` table into each adapter's bridge instruction file (`CLAUDE.md` for Claude Code, `copilot-instructions.md` for Copilot, the inlined orchestration doc for Cursor). Each row maps a workflow or domain tag (planning, implementation, review, devops, maintenance, board, security-review, accessibility, performance, customize, core-workflow) to:
+`hatch3r sync` emits a `## Task Type → Routing` table into each adapter's instruction surface (`CLAUDE.md` for Claude Code, `copilot-instructions.md` for Copilot, the inlined orchestration doc for Cursor, and the active root `AGENTS.md`/`AGENTS.override.md` managed region for Codex). Each row maps a workflow or domain tag (planning, implementation, review, devops, maintenance, board, security-review, accessibility, performance, customize, core-workflow) to:
 
 - **Primary** — the best-matching agent, slash-command, or skill for that task type
 - **Fallback Agents** — other agents carrying the same tag

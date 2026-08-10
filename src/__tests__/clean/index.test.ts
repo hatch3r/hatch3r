@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readFile, access } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, access, symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 
 // ── Mock external dependencies before dynamic imports ─────────
 
@@ -183,6 +183,22 @@ describe("clean/index", () => {
 
       expect(inv.envMcp).toBe(true);
     });
+
+    it("discovers a structurally managed AGENTS.override.md without a manifest", async () => {
+      const override = [
+        "User prefix",
+        "<!-- HATCH3R:BEGIN -->",
+        "managed override",
+        "<!-- HATCH3R:END -->",
+        "User suffix",
+      ].join("\n");
+      await writeFile(join(tempDir, "AGENTS.override.md"), override);
+
+      const inv = await inventoryArtifacts(tempDir);
+
+      expect(inv.manifest).toBeNull();
+      expect(inv.adapterFiles).toContain("AGENTS.override.md");
+    });
   });
 
   // ── executeClean ──────────────────────────────────────────
@@ -315,6 +331,244 @@ describe("clean/index", () => {
       expect(result.kept.some((k) => k.includes(pureRel))).toBe(false);
       // Still non-mutating.
       expect(await exists(pureAbs)).toBe(true);
+    });
+
+    it("removes manifest-owned Codex skill documents instead of leaving frontmatter shells", async () => {
+      const rel = ".agents/skills/hatch3r-bug-fix/SKILL.md";
+      const abs = join(tempDir, rel);
+      await mkdir(join(tempDir, ".agents/skills/hatch3r-bug-fix"), { recursive: true });
+      await writeFile(abs, [
+        "---",
+        "name: hatch3r-bug-fix",
+        "description: managed discovery metadata",
+        "---",
+        "<!-- HATCH3R:BEGIN -->",
+        "managed instructions",
+        "<!-- HATCH3R:END -->",
+      ].join("\n"));
+      const manifest = {
+        managedFilesByAdapter: { codex: [rel] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory: CleanInventory = {
+        adapterFiles: [rel],
+        manifestPresent: false,
+        archiveDir: false,
+        hatch3rDir: false,
+        worktreeInclude: false,
+        envMcp: false,
+        agentsMdHasUserContent: false,
+        isWorkspaceRoot: false,
+        isWorkspaceMember: false,
+        workspaceRootPath: null,
+        manifest,
+      };
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.removed).toContain(rel);
+      expect(preview.kept).toEqual([]);
+      expect(await exists(abs)).toBe(true);
+
+      const result = await executeClean(tempDir, inventory, false);
+      expect(result.removed).toContain(rel);
+      expect(await exists(abs)).toBe(false);
+    });
+
+    it("preserves user-only shared Codex files in dry-run and live clean", async () => {
+      await mkdir(join(tempDir, ".codex"), { recursive: true });
+      const config = 'model = "gpt-5"\n';
+      const hooks = '{"hooks":{}}\n';
+      await writeFile(join(tempDir, ".codex/config.toml"), config);
+      await writeFile(join(tempDir, ".codex/hooks.json"), hooks);
+      const manifest = {
+        managedFilesByAdapter: { codex: [".codex/config.toml", ".codex/hooks.json"] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory = {
+        adapterFiles: [".codex/config.toml", ".codex/hooks.json"],
+        manifestPresent: false,
+        archiveDir: false,
+        hatch3rDir: false,
+        worktreeInclude: false,
+        envMcp: false,
+        agentsMdHasUserContent: false,
+        isWorkspaceRoot: false,
+        isWorkspaceMember: false,
+        workspaceRootPath: null,
+        manifest,
+      } satisfies CleanInventory;
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.removed).toEqual([]);
+      expect(preview.kept).toHaveLength(2);
+      const live = await executeClean(tempDir, inventory, false);
+      expect(live.removed).toEqual([]);
+      expect(live.kept).toHaveLength(2);
+      expect(await readFile(join(tempDir, ".codex/config.toml"), "utf-8")).toBe(config);
+      expect(await readFile(join(tempDir, ".codex/hooks.json"), "utf-8")).toBe(hooks);
+    });
+
+    it("uses exact recorded Codex paths and preserves unrecorded descendants", async () => {
+      const skillRel = ".agents/skills/hatch3r-feature/SKILL.md";
+      const userRel = ".agents/skills/hatch3r-feature/references/user.md";
+      await mkdir(join(tempDir, ".agents/skills/hatch3r-feature/references"), { recursive: true });
+      await writeFile(join(tempDir, skillRel), "<!-- HATCH3R:BEGIN -->\nmanaged\n<!-- HATCH3R:END -->\n");
+      await writeFile(join(tempDir, userRel), "user companion\n");
+      const manifest = {
+        managedFilesByAdapter: { codex: [skillRel] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory = {
+        adapterFiles: [skillRel, userRel],
+        manifestPresent: false,
+        archiveDir: false,
+        hatch3rDir: false,
+        worktreeInclude: false,
+        envMcp: false,
+        agentsMdHasUserContent: false,
+        isWorkspaceRoot: false,
+        isWorkspaceMember: false,
+        workspaceRootPath: null,
+        manifest,
+      } satisfies CleanInventory;
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.removed).toEqual([skillRel]);
+      expect(preview.kept.some((entry) => entry.startsWith(userRel))).toBe(true);
+      await executeClean(tempDir, inventory, false);
+      expect(await exists(join(tempDir, skillRel))).toBe(false);
+      expect(await readFile(join(tempDir, userRel), "utf-8")).toBe("user companion\n");
+    });
+
+    it("subtracts a recorded companion block and keeps outside-marker user bytes", async () => {
+      const rel = ".agents/skills/hatch3r-feature/references/guide.md";
+      const abs = join(tempDir, rel);
+      await mkdir(join(tempDir, ".agents/skills/hatch3r-feature/references"), { recursive: true });
+      await writeFile(abs, "User prefix\n<!-- HATCH3R:BEGIN -->\nmanaged\n<!-- HATCH3R:END -->\nUser suffix\n");
+      const manifest = {
+        managedFilesByAdapter: { codex: [rel] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory = {
+        adapterFiles: [rel], manifestPresent: false, archiveDir: false, hatch3rDir: false,
+        worktreeInclude: false, envMcp: false, agentsMdHasUserContent: false,
+        isWorkspaceRoot: false, isWorkspaceMember: false, workspaceRootPath: null, manifest,
+      } satisfies CleanInventory;
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.kept).toEqual([`${rel} (user content preserved, managed content removed)`]);
+      const live = await executeClean(tempDir, inventory, false);
+      expect(live.kept).toEqual(preview.kept);
+      expect(await readFile(abs, "utf-8")).toBe("User prefix\n\nUser suffix\n");
+    });
+
+    it("cleans an exact recorded active instruction override without removing user bytes", async () => {
+      const rel = "AGENTS.override.md";
+      const abs = join(tempDir, rel);
+      await writeFile(abs, "User prefix\n<!-- HATCH3R:BEGIN -->\nmanaged\n<!-- HATCH3R:END -->\nUser suffix\n");
+      const manifest = {
+        managedFilesByAdapter: { codex: [rel] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory = {
+        adapterFiles: [rel], manifestPresent: false, archiveDir: false, hatch3rDir: false,
+        worktreeInclude: false, envMcp: false, agentsMdHasUserContent: false,
+        isWorkspaceRoot: false, isWorkspaceMember: false, workspaceRootPath: null, manifest,
+      } satisfies CleanInventory;
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.kept).toEqual([`${rel} (user content preserved, managed content removed)`]);
+      const live = await executeClean(tempDir, inventory, false);
+      expect(live.kept).toEqual(preview.kept);
+      expect(await readFile(abs, "utf-8")).toBe("User prefix\n\nUser suffix\n");
+    });
+
+    it("cleans a manifest-less managed instruction override in dry-run and live modes", async () => {
+      const rel = "AGENTS.override.md";
+      const abs = join(tempDir, rel);
+      const original = "User prefix\n<!-- HATCH3R:BEGIN -->\nmanaged\n<!-- HATCH3R:END -->\nUser suffix\n";
+      await writeFile(abs, original);
+      const inventory = await inventoryArtifacts(tempDir);
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.kept).toContain(`${rel} (user content preserved, managed content removed)`);
+      expect(preview.removed).not.toContain(rel);
+      expect(await readFile(abs, "utf-8")).toBe(original);
+
+      const live = await executeClean(tempDir, inventory, false);
+      expect(live.kept).toEqual(preview.kept);
+      expect(live.removed).not.toContain(rel);
+      expect(await readFile(abs, "utf-8")).toBe("User prefix\n\nUser suffix\n");
+    });
+
+    it("fails closed on malformed managed markers and recorded symlinks", async () => {
+      const malformedRel = ".codex/config.toml";
+      const linkRel = ".agents/skills/hatch3r-feature/SKILL.md";
+      await mkdir(join(tempDir, ".codex"), { recursive: true });
+      await mkdir(join(tempDir, ".agents/skills/hatch3r-feature"), { recursive: true });
+      const malformed = '# HATCH3R:BEGIN\nmodel = "x"\n';
+      await writeFile(join(tempDir, malformedRel), malformed);
+      const outside = join(tempDir, "outside.md");
+      await writeFile(outside, "outside\n");
+      await symlink(outside, join(tempDir, linkRel));
+      const manifest = {
+        managedFilesByAdapter: { codex: [malformedRel, linkRel] },
+      } as unknown as NonNullable<CleanInventory["manifest"]>;
+      const inventory = {
+        adapterFiles: [malformedRel, linkRel], manifestPresent: false, archiveDir: false,
+        hatch3rDir: false, worktreeInclude: false, envMcp: false,
+        agentsMdHasUserContent: false, isWorkspaceRoot: false, isWorkspaceMember: false,
+        workspaceRootPath: null, manifest,
+      } satisfies CleanInventory;
+
+      const preview = await executeClean(tempDir, inventory, true);
+      expect(preview.errors).toHaveLength(1);
+      expect(preview.kept).toContain(`${linkRel} (symlink left untouched)`);
+      const live = await executeClean(tempDir, inventory, false);
+      expect(live.errors).toHaveLength(1);
+      expect(live.kept).toEqual(preview.kept);
+      expect(await readFile(join(tempDir, malformedRel), "utf-8")).toBe(malformed);
+      expect(await readFile(outside, "utf-8")).toBe("outside\n");
+    });
+
+    it.each([
+      "../outside/hatch3r-owned.mdc",
+      "/tmp/hatch3r-owned.mdc",
+      "C:\\tmp\\hatch3r-owned.mdc",
+      "\\\\server\\share\\hatch3r-owned.mdc",
+    ])("rejects unsafe inventory path %j identically in dry-run and live clean", async (unsafePath) => {
+      const sentinel = join(tempDir, "sentinel.txt");
+      await writeFile(sentinel, "preserve\n");
+      const inventory = {
+        adapterFiles: [unsafePath], manifestPresent: false, archiveDir: false, hatch3rDir: false,
+        worktreeInclude: false, envMcp: false, agentsMdHasUserContent: false,
+        isWorkspaceRoot: false, isWorkspaceMember: false, workspaceRootPath: null, manifest: null,
+      } satisfies CleanInventory;
+
+      await expect(executeClean(tempDir, inventory, true)).rejects.toThrow("Unsafe repository path");
+      await expect(executeClean(tempDir, inventory, false)).rejects.toThrow("Unsafe repository path");
+      expect(await readFile(sentinel, "utf-8")).toBe("preserve\n");
+    });
+
+    it.runIf(platform() !== "win32")("reports an ancestor symlink in dry-run and live clean without touching the outside file", async () => {
+      const outside = await mkdtemp(join(tmpdir(), "hatch3r-clean-outside-"));
+      try {
+        const rel = ".cursor/rules/hatch3r-owned.mdc";
+        const sentinel = join(outside, "rules", "hatch3r-owned.mdc");
+        await mkdir(join(outside, "rules"), { recursive: true });
+        await writeFile(sentinel, "outside\n");
+        await symlink(outside, join(tempDir, ".cursor"));
+        const inventory = {
+          adapterFiles: [rel], manifestPresent: false, archiveDir: false, hatch3rDir: false,
+          worktreeInclude: false, envMcp: false, agentsMdHasUserContent: false,
+          isWorkspaceRoot: false, isWorkspaceMember: false, workspaceRootPath: null, manifest: null,
+        } satisfies CleanInventory;
+
+        const preview = await executeClean(tempDir, inventory, true);
+        const live = await executeClean(tempDir, inventory, false);
+        expect(preview.removed).toEqual([]);
+        expect(live.removed).toEqual([]);
+        expect(preview.errors[0]).toContain("is a symlink");
+        expect(live.errors[0]).toContain("is a symlink");
+        expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
 
     it("handles AGENTS.md with managed block — strips block, preserves user content", async () => {

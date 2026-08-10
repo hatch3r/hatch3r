@@ -43,6 +43,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   AVAILABLE_CLI_TOOLS,
+  STANDALONE_CLI_TOOLS,
   type CliToolMeta,
   type OsKey,
   renderCliToolSkillBody,
@@ -241,7 +242,7 @@ async function classify(
  * tool is covered by the hand-authored `skills/hatch3r-cli-toolbox/SKILL.md`
  * (which the generator does NOT touch — it is human-maintained).
  */
-const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
+const STANDALONE_TOOLS = new Set<string>(STANDALONE_CLI_TOOLS);
 
 export async function buildPlan(force: boolean): Promise<PlanEntry[]> {
   const os = currentOs();

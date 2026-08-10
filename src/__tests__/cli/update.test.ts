@@ -136,6 +136,27 @@ describe("update command", () => {
     expect(allOutput).toContain(".hatch3r/hatch.json");
   });
 
+  it("rejects traversal in recorded managed paths before package or adapter mutation", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "hatch3r-update-outside-"));
+    const sentinel = join(outsideDir, "sentinel.txt");
+    await writeFile(sentinel, "outside\n");
+    try {
+      await createTestProject(tempDir, {
+        managedFiles: ["../sentinel.txt"],
+        managedFilesByAdapter: { cursor: ["\\\\server\\share\\outside.txt"] },
+      });
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      await expect(updateCommand({ backup: false }))
+        .rejects.toMatchObject({ errorCode: "CONFIG_ERROR" });
+      expect(await readFile(sentinel, "utf-8")).toBe("outside\n");
+      await expect(readFile(join(tempDir, ".cursor", "rules", "hatch3r-bridge.mdc")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it("should update hatch3rVersion in manifest", async () => {
     await createTestProject(tempDir);
 
@@ -279,6 +300,20 @@ describe("update command", () => {
       // to "no adapter failures + execFileSync never invoked (no network)".
       expect(result.failedTools).toBe(0);
       expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    });
+
+    it("runRegenerate rejects an unsafe in-memory managed path before snapshot assembly", async () => {
+      await createTestProject(tempDir);
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+      manifest!.managedFiles = ["../outside.txt"];
+
+      await expect(runRegenerate(tempDir, manifest!))
+        .rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+      await expect(readFile(join(tempDir, ".cursor", "rules", "hatch3r-bridge.mdc")))
+        .rejects.toMatchObject({ code: "ENOENT" });
     });
 
     // D1-4 (Cycle 11 Wave 2): rollback after a regenerate that ENABLES a new

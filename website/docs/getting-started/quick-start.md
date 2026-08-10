@@ -15,7 +15,7 @@ A copy-paste-runnable walkthrough that takes a project from empty to released us
 
 - **Node.js 22.13 or later** — the only hard prerequisite. Check with `node --version`.
 - **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
-- **One of the [supported tools](./supported-tools)** — Claude Code, Cursor, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
+- **One of the [supported tools](./supported-tools)** — Claude Code, Cursor, GitHub Copilot, or Codex.
 
 That is it. No global install, no preflight setup.
 
@@ -46,7 +46,7 @@ npx hatch3r init --import auto     # one pass over every detected format
 
 ### What gets created
 
-`init` writes the `.hatch3r/` state directory — manifest (`hatch.json`), your `overrides/`, `learnings/`, `handoffs/` — plus per-tool outputs (`.claude/` + `CLAUDE.md`, `.cursor/`, or `.github/copilot-instructions.md` and companions) and, with MCP enabled, a gitignored `.env.mcp`. Canonical content is read from the bundled npm package, never materialized into your repo. Full path-by-path table: [what gets created](../reference/quick-start-reference#what-gets-created).
+`init` writes the `.hatch3r/` state directory — manifest (`hatch.json`), your `overrides/`, `learnings/`, `handoffs/` — plus per-tool outputs (`.claude/` + `CLAUDE.md`, `.cursor/`, `.github/`, or Codex's `AGENTS.md`, `.agents/skills/`, and `.codex/`) and, with MCP enabled, a gitignored `.env.mcp`. Canonical content is read from the bundled npm package. Full path-by-path table: [what gets created](../reference/quick-start-reference#what-gets-created).
 
 ### Content profiles
 
@@ -66,10 +66,10 @@ GITHUB_PAT=ghp_xxxxxxxxxxxx
 BRAVE_API_KEY=BSA_xxxxxxxx
 ```
 
-Per-server obtain links, required scopes, and fine-grained PAT tables: [MCP Setup guide](../guides/mcp-setup#required-environment-variables). VS Code / Copilot auto-load these vars from the generated config; Cursor and Claude Code expect them in the process that launches the editor — Windows (PowerShell) loading and token persistence: [MCP credentials](../reference/quick-start-reference#mcp-credentials).
+Per-server obtain links, required scopes, and fine-grained PAT tables: [MCP Setup guide](../guides/mcp-setup#required-environment-variables). VS Code / Copilot auto-load these vars from the generated config; Cursor, Claude Code, and Codex expect them in the process that launches the tool — Windows (PowerShell) loading and token persistence: [MCP credentials](../reference/quick-start-reference#mcp-credentials).
 
 ```bash
-set -a && source .env.mcp && set +a && cursor .   # macOS / Linux; or: claude .
+set -a && source .env.mcp && set +a && cursor .   # macOS / Linux; or: claude . / codex
 ```
 
 ---
@@ -77,6 +77,8 @@ set -a && source .env.mcp && set +a && cursor .   # macOS / Linux; or: claude .
 ## Step 3 — Restart your editor
 
 MCP configs are read on editor launch — close and reopen so the new `.cursor/mcp.json` / `.mcp.json` / etc. takes effect. Verify connection: most editors show MCP status in their Tools / Settings panel (Cursor: Settings → Tools & MCP — each enabled server should show a green dot and its tools should appear in the Available Tools list inside chat).
+
+The workflow examples below use slash-command spelling. In Codex, use the projected command skill instead: `/hatch3r-spec` becomes `$hatch3r-command-spec`, for example.
 
 ---
 

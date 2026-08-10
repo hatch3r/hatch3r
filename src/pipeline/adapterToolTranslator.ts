@@ -26,6 +26,9 @@
  *     we emit `readonly: true` when no write/execute categories are
  *     present so the invariant collapses to its strongest Cursor-native
  *     approximation.
+ *   - Codex: exposes a coarse per-subagent `sandbox_mode`; the Codex adapter
+ *     emits `read-only` unless the canonical policy explicitly grants write.
+ *     Source: https://developers.openai.com/codex/subagents
  *
  * Design constraints:
  *   1. Deny-by-default. If no policy is registered for an agent id, the
@@ -124,16 +127,17 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   board: [], // Reserved. Project-board tooling is MCP-driven; no distinct token.
 };
 
-// Wave 3 / W1-C: per-adapter category maps for the 12 removed adapters
-// (windsurf, cline, opencode, amazonq, kiro, gemini, aider, amp, antigravity,
-// codex, goose, zed) are gone. Only claude/copilot/cursor translators remain.
+// Wave 3 / W1-C: per-adapter category maps for the adapters removed in v1.9.0
+// remain gone. Codex has since been restored, using the coarse sandbox resolver
+// in `adapters/codexAgents.ts` rather than a native per-tool allowlist.
 
 // ── Public API ─────────────────────────────────────────────────────
 
 export type AdapterName =
   | "claude"
   | "copilot"
-  | "cursor";
+  | "cursor"
+  | "codex";
 
 /**
  * Translate an agent id's hatch3r policy to the Claude Code `tools:`
@@ -274,12 +278,14 @@ export function toCursorReadonlyFrontmatter(agentId: string): boolean | null {
 // Wave 3 / W1-C: per-adapter translator helpers for the 12 removed
 // adapters (windsurf, cline, opencode, amazonq, kiro, gemini, plus the
 // 6 already coverage="none" platforms) are gone. Only claude/copilot/
-// cursor translators remain above.
+// cursor translators remain above. Codex uses the coarse sandbox resolver in
+// `adapters/codexAgents.ts` rather than a native per-tool allowlist.
 
 // ── Coverage-limit explainer (C9-H6 / D2-SA2.4-02) ─────────────────
 //
-// All 3 supported adapters (claude/cursor/copilot, per CONSTITUTION §6
-// Decision 12) currently have `coverage: "full"`. The matrix below is
+// Three adapters have `coverage: "full"`; Codex has `coverage: "partial"`
+// because its documented subagent schema exposes a coarse sandbox rather than
+// a fine-grained tool list. The matrix below is
 // kept as an explicit per-adapter coverage statement so that if a
 // future adapter exposes no per-agent allowlist primitive (`coverage:
 // "none"`), the translator declines to emit a token rather than guess
@@ -296,6 +302,9 @@ export function toCursorReadonlyFrontmatter(agentId: string): boolean | null {
  * `coverage: "full"`   ⇒ A translator function exists and emits a
  *                         policy-derived allowlist into the adapter's
  *                         generated artifact.
+ * `coverage: "partial"`⇒ A conservative coarse permission mapping exists,
+ *                         but the platform cannot express every canonical
+ *                         tool category independently.
  * `coverage: "none"`   ⇒ The platform does not expose a per-agent
  *                         allowlist primitive in a form the adapter
  *                         can carry forward. The `rationale` field
@@ -306,8 +315,8 @@ export function toCursorReadonlyFrontmatter(agentId: string): boolean | null {
  */
 export interface AdapterAllowlistCoverage {
   readonly adapter: string;
-  readonly coverage: "full" | "none";
-  /** Translator export name when coverage === "full". `null` for `"none"`. */
+  readonly coverage: "full" | "partial" | "none";
+  /** Translator export name when coverage is implemented. `null` for `"none"`. */
   readonly translator: string | null;
   /** Free-form rationale (≤200 chars). */
   readonly rationale: string;
@@ -339,6 +348,13 @@ export const ADAPTER_ALLOWLIST_COVERAGE: readonly AdapterAllowlistCoverage[] = [
     // docs moved from /docs/agents to /docs/agent/subagents; `readonly`
     // boolean remains the documented restricted-write primitive.
     sourceUrl: "https://cursor.com/docs/agent/subagents",
+  },
+  {
+    adapter: "codex",
+    coverage: "partial",
+    translator: "resolveCodexAgentSandboxMode",
+    rationale: "Codex subagents expose coarse sandbox_mode; hatch3r defaults to read-only unless write is explicitly granted.",
+    sourceUrl: "https://developers.openai.com/codex/subagents",
   },
 ];
 
@@ -410,6 +426,8 @@ const ASK_USER_TOOLS: Readonly<Record<string, AskUserToolEntry | null>> = {
   cursor: null,
   // verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration (no native question tool documented; plain-text fallback applies).
   copilot: null,
+  // verified 2026-08-09 @ https://learn.chatgpt.com/docs/build-skills (skills are portable instructions; no always-available skill-level question tool is documented).
+  codex: null,
 };
 
 /**

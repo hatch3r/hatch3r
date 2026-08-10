@@ -4,7 +4,7 @@ hatch3r lets you configure preferred AI models for your agents — and, where th
 
 ## Overview
 
-When you configure a model, hatch3r includes it in the generated config for each of the 3 supported tools (Claude Code, Cursor, GitHub Copilot). Some surfaces support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
+When you configure a model, hatch3r includes it where the selected adapter exposes a supported model surface across Claude Code, Cursor, GitHub Copilot, and Codex. Unsupported artifact-level surfaces omit the setting. The preference is preserved across `npx hatch3r sync` runs.
 
 **When no model is configured at any level**, hatch3r does not emit a model preference and the platform uses its own default. Since 2.6.0 every canonical agent ships a model *class* in its frontmatter (see [Model Classes](#model-classes)) — and since 2.7.0 an optional reasoning-*effort* level (see [Effort](#effort)) — so for agents the "nothing configured" case no longer occurs. It still applies to skills and commands, which carry no canonical `model:`.
 
@@ -36,16 +36,17 @@ The same four layers apply per artifact class (`agents`, `skills`, `commands`):
 
 Canonical agents do not pin concrete models. Each declares a capability **class** in `model:` frontmatter — the 4-class ladder `frontier | advanced | standard | economy`, capability-descending (`src/models/tiers.ts`; widened from the 2.6.0 3-class ladder in 2.7.0). A class travels through the resolution order above like any other `model:` value and is mapped to each platform's native vocabulary at emission time. Legacy words remain accepted as synonyms in user overrides only (`fast` → `economy`, `standard`/`default` → `standard`, `reasoning`/`strongest` → `frontier`); the canonical corpus itself uses only the four class words (enforced by the `--model-class` validator mode).
 
-| Class | Claude Code | Cursor (native) | Copilot (native) |
-|-------|-------------|-----------------|------------------|
-| `frontier` | `model: fable` + `effort: xhigh` (authored `max` on 3 agents) | `model: claude-fable-5[effort=high]` — bracket appended iff resolved effort ≥ `xhigh`, clamped to `high` | `model: Claude Fable 5` |
-| `advanced` | `model: opus` + `effort:` (authored, else `high`) | `model: claude-opus-4-8` (+ `[effort=high]` iff resolved effort ≥ `xhigh`) | `model: Claude Opus 4.8` |
-| `standard` | `model: sonnet` (no `effort:` line — platform default applies) | omitted (inherit-by-omission) | omitted (picker default) |
-| `economy` | `model: haiku` + `effort: medium` (authored `low` on the 3 loaders) | `model: fast` (never bracketed) | `model: Claude Haiku 4.5` |
+| Class | Claude Code | Cursor (native) | Copilot (native) | Codex (native agent TOML) |
+|-------|-------------|-----------------|------------------|---------------------------|
+| `frontier` | `model: fable` + `effort: xhigh` (authored `max` on 3 agents) | `model: claude-fable-5[effort=high]` — bracket appended iff resolved effort ≥ `xhigh`, clamped to `high` | `model: Claude Fable 5` | `model = "gpt-5.6-sol"` |
+| `advanced` | `model: opus` + `effort:` (authored, else `high`) | `model: claude-opus-4-8` (+ `[effort=high]` iff resolved effort ≥ `xhigh`) | `model: Claude Opus 4.8` | `model = "gpt-5.6-sol"` |
+| `standard` | `model: sonnet` (no `effort:` line — platform default applies) | omitted (inherit-by-omission) | omitted (picker default) | `model = "gpt-5.6-terra"` |
+| `economy` | `model: haiku` + `effort: medium` (authored `low` on the 3 loaders) | `model: fast` (never bracketed) | `model: Claude Haiku 4.5` | `model = "gpt-5.6-luna"` |
 
 - **Claude Code** maps classes to aliases (`haiku`/`sonnet`/`opus`/`fable`), not pinned ids, so the platform tracks the current GA model in each tier without a per-release re-pin of every emitted agent file. The native field is gated to Claude-recognizable values (the four aliases, a `claude-*` id, or `inherit`); a non-Claude resolved model surfaces only as `## Recommended Model` prose. If your organization's model allowlist excludes an emitted model, Claude Code itself falls back to `inherit` (the session model) — platform-documented behavior (code.claude.com/docs/en/sub-agents, accessed 2026-07-14).
 - **Cursor**'s native frontmatter vocabulary is `fast`, `inherit`, or a concrete model id with optional bracket options (`claude-opus-4-8[effort=high]` is the documented form, cursor.com/docs/subagents.md, accessed 2026-07-14). `advanced`/`frontier` therefore pin concrete ids via alias expansion; `economy` uses the `fast` keyword (brackets are documented on concrete ids only, so it is never bracketed); `standard` omits the field.
 - **Copilot** agent frontmatter takes a single display-name string (the CLI rejects the array form), mapped from the supported-models reference (docs.github.com/en/copilot/reference/ai-models/supported-models, accessed 2026-07-14). `standard` omits the field; there is no effort surface (see [Effort](#effort)).
+- **Codex** emits the resolved model in each `.codex/agents/hatch3r-*.toml`. Its documented config enum is `minimal | low | medium | high | xhigh`; `minimal` through `high` emit directly, while `xhigh` emits only when an explicit model is also emitted. The official [subagents guide](https://learn.chatgpt.com/docs/agent-configuration/subagents) mentions model-dependent `max` and `ultra`, but the config reference enum currently stops at `xhigh`; Hatcher follows the config schema and omits `max`, `ultra`, or any other out-of-enum value with an actionable warning rather than weakening it or writing invalid Codex TOML ([official config reference](https://learn.chatgpt.com/docs/config-file/config-reference), accessed 2026-08-10).
 
 ### Emission posture (`agentModelPins`)
 
@@ -80,7 +81,7 @@ An agent's canonical class is its **floor**: runtime allocation may raise the cl
 
 ## Effort
 
-Since 2.7.0, reasoning effort is a first-class axis orthogonal to class: class selects which model serves an agent; effort sets how much reasoning that model spends. Five levels, weakest to strongest: `low | medium | high | xhigh | max`.
+Since 2.7.0, reasoning effort is a first-class axis orthogonal to class: class selects which model serves an agent; effort sets how much reasoning that model spends. Hatcher's cross-adapter authoring enum is `low | medium | high | xhigh | max`; Codex's documented config range is `minimal | low | medium | high | xhigh`.
 
 Effort resolves per agent through this chain, highest source first:
 
@@ -103,6 +104,7 @@ Per-adapter effort surfaces:
 | Claude Code | Native `effort:` frontmatter key beside `model:`, emitted verbatim; omitted when the chain resolves to nothing |
 | Cursor | `[effort=high]` bracket suffix on `advanced`/`frontier` pins, appended only when the resolved effort is `xhigh` or `max` and clamped to `high` — the bracket level Cursor documents; below `xhigh`, no bracket |
 | Copilot | None — the agent `model` field is a single display-name string, so the resolved effort is dropped at emission (`effortOverride: false` in the capability matrix) |
+| Codex | Native `model_reasoning_effort`: `minimal | low | medium | high` emit directly; `xhigh` requires an explicit emitted `model`. Canonical `max`, custom `ultra`, and other out-of-enum values are omitted with a warning |
 
 ## Emission Surfaces (per adapter)
 
@@ -113,6 +115,7 @@ Model lines are emitted only where the tool documents a `model` field on that su
 | Claude Code | `model:` (+ `effort:`) in `.claude/agents/*.md` (+ `## Recommended Model` prose) | `model:` in `.claude/skills/*/SKILL.md` | `model:` in `.claude/commands/*.md` |
 | Copilot | `model:` in `.github/agents/*.agent.md` | never (SKILL.md model support unverified as of 2026-07-08) | `model:` in `.github/prompts/*.prompt.md` (string form only; no `inherit` keyword — unset = field omitted) |
 | Cursor | `model:` in `.cursor/agents/*.md` | never (no documented field) | never (no documented field) |
+| Codex | `model` + validated `model_reasoning_effort` in `.codex/agents/*.toml` | never (no documented skill field) | never (commands are skill bridges) |
 
 ## Aliases
 
@@ -236,6 +239,7 @@ Generated agent files open with a hatch3r-owned frontmatter stub (the region car
 | Cursor | Yes | Emits `model:` in agent YAML frontmatter; effort rides as the `[effort=high]` bracket suffix on `advanced`/`frontier` pins when the resolved effort is `xhigh`+ |
 | Copilot | Yes (VS Code) | Emits `model:` in agent/prompt YAML (display-name string); ignored on github.com; no effort surface — the resolved effort is dropped at emission |
 | Claude Code | Yes | Emits `model:` + `effort:` in agent YAML frontmatter (Claude-recognizable values); skills/commands get `model:` only; agents also carry `## Recommended Model` guidance (`/model` command and env var) |
+| Codex | Yes | Emits `model` + `model_reasoning_effort` in agent TOML; `minimal` through `high` emit directly, `xhigh` requires an explicit emitted model, and `max`/`ultra` are omitted with a warning |
 
 ## Related
 

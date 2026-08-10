@@ -22,6 +22,10 @@ import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile, predictMergeAction, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
+import {
+  normalizeRepositoryRelativePath,
+  UnsafeRepositoryPathError,
+} from "../../merge/repositoryPathValidation.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
@@ -782,11 +786,47 @@ export async function syncCommand(
     syncSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
   }
   for (const rel of m.managedFiles) {
-    syncSnapshotPaths.push(join(rootDir, rel));
+    syncSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
   }
   if (m.managedFilesByAdapter) {
     for (const paths of Object.values(m.managedFilesByAdapter)) {
-      for (const rel of paths) syncSnapshotPaths.push(join(rootDir, rel));
+      for (const rel of paths) {
+        syncSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
+      }
+    }
+  }
+  // Pre-enumerate every path the current adapter selection can create. The
+  // snapshot writer records absent files as tombstones, so rollback removes
+  // outputs introduced by this sync (for example enabling Codex agents after
+  // a skills-only run) instead of restoring only previously-known paths.
+  for (const tool of m.tools) {
+    try {
+      const wouldBePaths = await getAdapter(tool).getOutputPaths(
+        canonicalContentRoot,
+        m,
+        rootDir,
+      );
+      for (const rel of wouldBePaths) {
+        syncSnapshotPaths.push(join(rootDir, normalizeRepositoryRelativePath(rel)));
+      }
+      if (m.packages && m.packages.length > 0) {
+        const pathOnlyOutputs: AdapterOutput[] = wouldBePaths.map((path) => ({
+          path,
+          content: "",
+          action: "create",
+        }));
+        for (const planned of planPerPackageOutputs(tool, m.packages, pathOnlyOutputs)) {
+          syncSnapshotPaths.push(
+            join(rootDir, normalizeRepositoryRelativePath(planned.output.path)),
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof UnsafeRepositoryPathError) throw err;
+      verbose(
+        `sync: snapshot path pre-enumeration for ${tool} skipped — ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   // F14.2-H1 (D14): manifest.packages already participate via the
@@ -1062,7 +1102,7 @@ export async function syncCommand(
           const predicted = predictMergeAction(existing, out.content, join(rootDir, out.path), {
             managedContent: out.managedContent,
             appendIfNoBlock: out.managedContent ? true : undefined,
-            force: opts.force,
+            force: opts.force || out.validatedFullDocument,
           });
           results.push({ path: out.path, action: renderAction(predicted, isManagedMerge) });
           if (opts.diff) {
@@ -1119,7 +1159,8 @@ export async function syncCommand(
             });
           } else {
             const result = await safeWriteFile(fullPath, out.content, {
-              force: opts.force,
+              force: opts.force || out.validatedFullDocument,
+              backup: out.validatedFullDocument ? false : undefined,
             });
             if (result.warning) warn(result.warning);
             verbose(`${out.path}: ${result.action}`);
@@ -1177,7 +1218,7 @@ export async function syncCommand(
             const predicted = predictMergeAction(existing, p.output.content, join(rootDir, p.output.path), {
               managedContent: p.output.managedContent,
               appendIfNoBlock: p.output.managedContent ? true : undefined,
-              force: opts.force,
+              force: opts.force || p.output.validatedFullDocument,
             });
             results.push({ path: p.output.path, action: renderAction(predicted, isManagedMerge) });
             if (opts.diff) {
@@ -1198,7 +1239,10 @@ export async function syncCommand(
                   appendIfNoBlock: true,
                   force: opts.force,
                 })
-              : await safeWriteFile(fullPath, p.output.content, { force: opts.force });
+              : await safeWriteFile(fullPath, p.output.content, {
+                  force: opts.force || p.output.validatedFullDocument,
+                  backup: p.output.validatedFullDocument ? false : undefined,
+                });
             if (result.warning) warn(result.warning);
             verbose(`${p.output.path}: ${result.action} (package ${p.packageName})`);
             results.push({

@@ -33,6 +33,7 @@ import {
 } from "./mcp-utils.js";
 import { scanMcpServers } from "../pipeline/mcpDescriptionScan.js";
 import { readHookDefinitions } from "../hooks/index.js";
+import { cliToolSelectionUsesToolbox } from "../cliTools/registry.js";
 import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 import {
   detectionContextFromManifest,
@@ -353,7 +354,10 @@ export abstract class BaseAdapter implements Adapter {
     // absence leaves every adapter's output set byte-identical), and only the
     // elected adapter appends the file, so the sync-side cross-adapter
     // path-collision warning never fires for AGENTS.md.
-    if (resolveAgentsMdOwner(manifest) === this.name) {
+    if (
+      resolveAgentsMdOwner(manifest) === this.name &&
+      !outputs.some((output) => output.path === "AGENTS.md")
+    ) {
       outputs.push(buildAgentsMdOutput(manifest));
     }
 
@@ -985,8 +989,9 @@ export abstract class BaseAdapter implements Adapter {
    *    unchanged (every adapter still emits the non-CLI skill catalogue).
    *  - When `manifest.cliTools` is absent or `enabled: false`, drop every
    *    `hatch3r-cli-*` skill (master switch off).
-   *  - When `cliTools.enabled` is true, keep only those whose suffix
-   *    (after stripping `hatch3r-cli-`) appears in `cliTools.selected`.
+   *  - When `cliTools.enabled` is true, keep standalone skills whose suffix
+   *    appears in `cliTools.selected`. Keep `hatch3r-cli-toolbox` when at
+   *    least one selected id belongs to the registry's 34 toolbox tools.
    *
    * Wave 3 swaps each adapter's frontmatter skill emission to the
    * CLI-filtered {@link processSkillsWithFmCliFiltered} variant below; the
@@ -1000,6 +1005,9 @@ export abstract class BaseAdapter implements Adapter {
     return all.filter((skill) => {
       if (!skill.id.startsWith("hatch3r-cli-")) return true;
       if (!cliCfg.enabled) return false;
+      if (skill.id === "hatch3r-cli-toolbox") {
+        return cliToolSelectionUsesToolbox(cliCfg.selected ?? []);
+      }
       const cliId = skill.id.replace(/^hatch3r-cli-/, "");
       return selected.has(cliId);
     });

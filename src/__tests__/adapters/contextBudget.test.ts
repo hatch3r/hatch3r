@@ -102,6 +102,7 @@ describe("CONTEXT_BUDGET_TOKENS", () => {
     expect(CONTEXT_BUDGET_TOKENS.claude).toBe(200_000);
     expect(CONTEXT_BUDGET_TOKENS.cursor).toBe(120_000);
     expect(CONTEXT_BUDGET_TOKENS.copilot).toBe(128_000);
+    expect(CONTEXT_BUDGET_TOKENS.codex).toBe(128_000);
   });
 });
 
@@ -169,6 +170,14 @@ describe("isAlwaysLoaded", () => {
     expect(isAlwaysLoaded("copilot", out(".github/agents/hatch3r-impl.agent.md", "x"))).toBe(false);
     expect(isAlwaysLoaded("copilot", out(".github/prompts/hatch3r-foo.prompt.md", "x"))).toBe(false);
     expect(isAlwaysLoaded("copilot", out(".github/workflows/copilot-setup-steps.yml", "x"))).toBe(false);
+  });
+
+  // codex
+  it("counts root AGENTS.md and excludes lazily loaded Codex artifacts", () => {
+    expect(isAlwaysLoaded("codex", out("AGENTS.md", "x"))).toBe(true);
+    expect(isAlwaysLoaded("codex", out(".agents/skills/hatch3r-foo/SKILL.md", "x"))).toBe(false);
+    expect(isAlwaysLoaded("codex", out(".codex/agents/hatch3r-impl.toml", "x"))).toBe(false);
+    expect(isAlwaysLoaded("codex", out(".codex/config.toml", "x"))).toBe(false);
   });
 });
 
